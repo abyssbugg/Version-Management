@@ -20,9 +20,10 @@ show_font_menu() {
     echo "1) Install MesloLGS from local files (current method)"
     echo "2) Install via Oh My Posh CLI (if available)"
     echo "3) Install via Homebrew Cask"
-    echo "4) Browse Nerd Fonts catalog"
-    echo "5) Check current font installation"
-    echo "6) Exit"
+    echo "4) Patch a custom font with Nerd Font glyphs"
+    echo "5) Browse Nerd Fonts catalog"
+    echo "6) Check current font installation"
+    echo "7) Exit"
     echo
 }
 
@@ -167,7 +168,51 @@ browse_nerd_fonts() {
     echo "  • Cascadia Code Nerd Font"
     echo
     log_info " To patch your own font:"
-    echo "  Visit: https://github.com/ryanoasis/nerd-fonts#font-patcher"
+    echo "  Run: ./scripts/patch-font.sh <your-font.ttf>"
+    echo "  (Uses the bundled Nerd Fonts font-patcher v3.4.0)"
+}
+
+# Patch a custom font with Nerd Font glyphs
+patch_custom_font() {
+    local patcher="$SCRIPT_DIR/scripts/patch-font.sh"
+
+    if [[ ! -f "$patcher" ]]; then
+        log_error "Font patcher script not found at: $patcher"
+        return 1
+    fi
+
+    echo
+    log_info "Patch any font with 9000+ Nerd Font glyphs"
+    log_info "(Powerline, Devicons, Font Awesome, Material Design, etc.)"
+    echo
+    read -r -p "Enter path to your font file (TTF/OTF): " font_path
+    font_path="${font_path/#\~/$HOME}"
+
+    if [[ -z "$font_path" ]]; then
+        log_warn "No file specified"
+        return 1
+    fi
+
+    if [[ ! -f "$font_path" ]]; then
+        log_error "File not found: $font_path"
+        return 1
+    fi
+
+    echo
+    read -r -p "Force monospace (single-width) glyphs? [y/N]: " mono_answer
+    local mono_flag=""
+    case "${mono_answer:-n}" in
+        [Yy]*) mono_flag="--mono" ;;
+    esac
+
+    read -r -p "Install patched font automatically? [Y/n]: " install_answer
+    local install_flag=""
+    case "${install_answer:-y}" in
+        [Yy]*) install_flag="--install" ;;
+    esac
+
+    echo
+    bash "$patcher" $mono_flag $install_flag "$font_path"
 }
 
 # Main execution
@@ -178,7 +223,7 @@ main() {
     
     while true; do
         show_font_menu
-        read -r -p "Enter your choice (1-6): " choice
+        read -r -p "Enter your choice (1-7): " choice
         echo
         
         case $choice in
@@ -192,17 +237,20 @@ main() {
                 install_with_homebrew
                 ;;
             4)
-                browse_nerd_fonts
+                patch_custom_font
                 ;;
             5)
-                check_font_status
+                browse_nerd_fonts
                 ;;
             6)
+                check_font_status
+                ;;
+            7)
                 log_info "👋 Goodbye!"
                 exit 0
                 ;;
             *)
-                log_warn "Invalid choice. Please enter 1-6."
+                log_warn "Invalid choice. Please enter 1-7."
                 ;;
         esac
         

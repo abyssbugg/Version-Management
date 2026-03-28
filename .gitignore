@@ -14,6 +14,7 @@ Thumbs.db
 *.log
 *.cache
 backup/
+patched-fonts/
 .analysis/
 .archive/
 .cleanup-backup-*/
