@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-source ../helpers.sh
-source ../../version-manager.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../helpers.sh"
+source "$SCRIPT_DIR/../../version-manager.sh"
 
 # Test that create_version_files creates .nvmrc
 test_create_version_files() {

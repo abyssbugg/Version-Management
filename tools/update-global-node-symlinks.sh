@@ -209,6 +209,13 @@ Why use this?
     Node.js in /usr/local/bin/ instead of using NVM's version. This
     script creates symlinks so those apps use your NVM-managed Node.js.
 
+Note:
+    The dev auto-activate hook (lib/auto-activate.sh) keeps these
+    symlinks in sync automatically whenever you switch Node versions
+    via nvm use, nvm install, or by cd-ing into a project with
+    .nvmrc / .node-version.  Run this script only for the initial
+    setup or to force a manual update.
+
 EOF
 }
 

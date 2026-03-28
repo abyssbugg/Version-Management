@@ -12,6 +12,7 @@
 #   Python    | .venv/  venv/  .virtualenv/             | venv activate
 #   Python    | .python-version                        | pyenv local
 #   Node.js   | .nvmrc  .node-version                  | nvm use / fnm use
+#   Node.js   | (after switch)                         | symlink sync
 #   Bun       | .bun-version  bunfig.toml               | bun (path swap)
 #   Go        | .go-version  go.mod (+goenv)            | goenv local
 #   Ruby      | .ruby-version  Gemfile                  | rbenv local
@@ -205,6 +206,45 @@ aa_java() {
         && log_debug "auto-activate: Java → $wanted"
 }
 
+# --- Node.js global symlink sync ---
+# After an nvm (or fnm) version switch, update /usr/local/bin/{node,npm,npx}
+# symlinks so desktop apps (Electron, VS Code extensions, etc.) see the new
+# version.  Runs silently — never prompts for a password.
+_nvm_sync_symlinks() {
+    local nvm_bin=""
+
+    # Determine the active Node bin directory
+    if [[ -n "${NVM_DIR:-}" ]]; then
+        local cur
+        cur="$(nvm current 2>/dev/null)" || return 0
+        [[ "$cur" == "system" || "$cur" == "none" || -z "$cur" ]] && return 0
+        nvm_bin="$NVM_DIR/versions/node/${cur}/bin"
+    elif command -v fnm >/dev/null 2>&1; then
+        local fnm_cur
+        fnm_cur="$(fnm current 2>/dev/null)" || return 0
+        [[ "$fnm_cur" == "none" || -z "$fnm_cur" ]] && return 0
+        # fnm stores versions under its own directory
+        local fnm_dir="${FNM_DIR:-$HOME/.local/share/fnm}"
+        nvm_bin="$fnm_dir/node-versions/v${fnm_cur#v}/installation/bin"
+    fi
+
+    [[ -d "$nvm_bin" ]] || return 0
+
+    # If /usr/local/bin/node already points to the right place, skip
+    local current_target
+    current_target="$(readlink /usr/local/bin/node 2>/dev/null)" || true
+    [[ "$current_target" == "$nvm_bin/node" ]] && return 0
+
+    # Attempt update — never prompt for password
+    local cmd
+    for cmd in node npm npx; do
+        [[ -f "$nvm_bin/$cmd" ]] || continue
+        ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
+            || sudo -n ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
+            || true
+    done
+}
+
 # --- Rust (informational only — rustup auto-handles rust-toolchain natively) ---
 aa_rust() {
     # rustup reads rust-toolchain / rust-toolchain.toml automatically.
@@ -262,6 +302,7 @@ auto_activate_setup() {
 
 # >>> dev auto-activate hook <<<
 # Unified runtime auto-activation for Python, Node, Bun, Go, Ruby, Java, FNM, pyenv.
+# Auto-syncs /usr/local/bin/node symlinks on Node version change.
 # Managed by version-management-setup — edit lib/auto-activate.sh to change.
 _dev_chpwd_hook() {
     # ---------- helpers ----------
@@ -275,6 +316,34 @@ _dev_chpwd_hook() {
             depth=$(( depth + 1 ))
         done
         return 1
+    }
+
+    # Sync /usr/local/bin/node symlinks to the active NVM/FNM version.
+    # Silent — never prompts for sudo.
+    _aa_h_sync_node_symlinks() {
+        local _sn_bin=""
+        if [[ -n "${NVM_DIR:-}" ]] && typeset -f nvm >/dev/null 2>&1; then
+            local _sn_cur
+            _sn_cur="$(nvm current 2>/dev/null)" || return 0
+            [[ "$_sn_cur" == "system" || "$_sn_cur" == "none" || -z "$_sn_cur" ]] && return 0
+            _sn_bin="$NVM_DIR/versions/node/${_sn_cur}/bin"
+        elif command -v fnm >/dev/null 2>&1; then
+            local _sn_fcur
+            _sn_fcur="$(fnm current 2>/dev/null)" || return 0
+            [[ "$_sn_fcur" == "none" || -z "$_sn_fcur" ]] && return 0
+            local _sn_fdir="${FNM_DIR:-$HOME/.local/share/fnm}"
+            _sn_bin="$_sn_fdir/node-versions/v${_sn_fcur#v}/installation/bin"
+        fi
+        [[ -d "$_sn_bin" ]] || return 0
+        # Skip if already correct
+        [[ "$(readlink /usr/local/bin/node 2>/dev/null)" == "$_sn_bin/node" ]] && return 0
+        local _sn_c
+        for _sn_c in node npm npx; do
+            [[ -f "$_sn_bin/$_sn_c" ]] || continue
+            ln -sf "$_sn_bin/$_sn_c" /usr/local/bin/"$_sn_c" 2>/dev/null \
+                || sudo -n ln -sf "$_sn_bin/$_sn_c" /usr/local/bin/"$_sn_c" 2>/dev/null \
+                || true
+        done
     }
 
     # ---------- Python venv ----------
@@ -345,6 +414,9 @@ _dev_chpwd_hook() {
         fi
     fi
 
+    # ---------- Sync /usr/local/bin symlinks after Node switch ----------
+    _aa_h_sync_node_symlinks
+
     # ---------- Bun ----------
     if command -v bun >/dev/null 2>&1; then
         local _bun_f
@@ -407,11 +479,27 @@ _dev_chpwd_hook() {
 autoload -Uz add-zsh-hook 2>/dev/null
 add-zsh-hook chpwd _dev_chpwd_hook
 _dev_chpwd_hook   # run for current directory on shell start-up
+
+# ---------- nvm wrapper: auto-sync symlinks on manual switches ----------
+# Wraps the nvm function so that `nvm use`, `nvm install`, and `nvm alias`
+# automatically update /usr/local/bin symlinks.
+if typeset -f nvm >/dev/null 2>&1; then
+    _nvm_real=$(functions nvm)
+    eval "_nvm_original() { ${_nvm_real#nvm*\{}"
+    nvm() {
+        _nvm_original "$@"
+        local _nvm_ret=$?
+        case "${1:-}" in
+            use|install|alias) _aa_h_sync_node_symlinks 2>/dev/null ;;
+        esac
+        return $_nvm_ret
+    }
+fi
 # <<< dev auto-activate hook <<<
 ZSHOOK
 
     log_success "dev auto-activate hook installed in $shell_rc"
-    log_info "Applies to: Python venv/pyenv, Node (nvm/fnm), Bun, Go (goenv), Ruby (rbenv), Java (jenv)"
+    log_info "Applies to: Python venv/pyenv, Node (nvm/fnm + symlink sync), Bun, Go (goenv), Ruby (rbenv), Java (jenv)"
     log_info "Restart your terminal or run: source $shell_rc"
     return 0
 }
@@ -436,4 +524,4 @@ auto_activate_remove() {
 # Export public API
 export -f auto_activate_all auto_activate_setup auto_activate_remove
 export -f aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java aa_rust aa_asdf
-export -f _aa_find_up
+export -f _aa_find_up _nvm_sync_symlinks
