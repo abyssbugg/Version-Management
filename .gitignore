@@ -1,0 +1,81 @@
+# System files
+*.DS_Store
+.DS_Store?
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup and temporary files
+*.backup
+*.bak
+*.tmp
+*.temp
+*.log
+*.cache
+backup/
+.analysis/
+.archive/
+.cleanup-backup-*/
+.recovery/
+
+# Editor/tool local directories
+.cursor/
+.codacy/
+
+# Secrets and credentials - NEVER commit these
+.env
+.env.*
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secrets.json
+*.secret
+
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+.venv/
+venv/
+
+# IDE and Editor files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Generated files
+vscode-settings.json
+
+# Binary font files: download at runtime via setup scripts, do not commit
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# Duplicate documentation archives (use docs/ only)
+alldocs/
+docs/archive/
+
+# Test artifacts
+.coverage
+/tmp/test_*
+
+# Ignore vscode AI rules
+.github/instructions/codacy.instructions.md

@@ -1,0 +1,126 @@
+{
+    "// TEMPLATE FILE": "This is a template for VS Code settings. Run scripts/generate-vscode-settings.sh to create a personalized version.",
+    "// PLACEHOLDERS": "All {{PLACEHOLDER}} values will be replaced with actual system values",
+    
+    "terminal.integrated.fontFamily": "MesloLGS NF",
+    "terminal.integrated.fontSize": 14,
+    "editor.fontFamily": "MesloLGS NF, 'Courier New', monospace",
+    "editor.fontSize": 14,
+    "terminal.integrated.lineHeight": 1.2,
+    "terminal.integrated.shellIntegration.enabled": false,
+    "python.terminal.activateEnvironment": false,
+    "terminal.integrated.shellIntegration.showWelcome": false,
+    "terminal.integrated.shellIntegration.decorationsEnabled": "never",
+    "terminal.integrated.shellIntegration.history": 0,
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.defaultProfile.linux": "zsh",
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.profiles.osx": {
+        "zsh": {
+            "path": "/bin/zsh",
+            "args": ["-l", "-i"],
+            "env": {
+                "TERM_PROGRAM": "vscode",
+                "PATH": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin:${env:PATH}"
+            }
+        },
+        "bash": {
+            "path": "/bin/bash",
+            "args": ["-l"]
+        }
+    },
+    "terminal.integrated.profiles.linux": {
+        "zsh": {
+            "path": "/bin/zsh",
+            "args": ["-l", "-i"],
+            "env": {
+                "TERM_PROGRAM": "vscode",
+                "PATH": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin:${env:PATH}"
+            }
+        },
+        "bash": {
+            "path": "/bin/bash",
+            "args": ["-l"]
+        }
+    },
+    "terminal.integrated.profiles.windows": {
+        "PowerShell": {
+            "source": "PowerShell",
+            "args": ["-NoProfile"],
+            "env": {
+                "TERM_PROGRAM": "vscode",
+                "PATH": "{{NVM_DIR}}\\versions\\node\\{{NODE_VERSION}}\\bin;${env:PATH}"
+            }
+        },
+        "Command Prompt": {
+            "path": [
+                "${env:windir}\\Sysnative\\cmd.exe",
+                "${env:windir}\\System32\\cmd.exe"
+            ],
+            "args": [],
+            "icon": "terminal-cmd"
+        },
+        "Git Bash": {
+            "source": "Git Bash"
+        }
+    },
+    "terminal.integrated.automationProfile.osx": {
+        "path": "/bin/zsh",
+        "args": ["-l", "-i"],
+        "env": {
+            "PATH": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin:${env:PATH}"
+        }
+    },
+    "terminal.integrated.automationProfile.linux": {
+        "path": "/bin/zsh",
+        "args": ["-l", "-i"],
+        "env": {
+            "PATH": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin:${env:PATH}"
+        }
+    },
+    "terminal.integrated.automationProfile.windows": {
+        "path": "PowerShell",
+        "args": ["-NoProfile"],
+        "env": {
+            "PATH": "{{NVM_DIR}}\\versions\\node\\{{NODE_VERSION}}\\bin;${env:PATH}"
+        }
+    },
+    "npm.enableScriptExplorer": true,
+    "npm.scriptExplorerAction": "run",
+    "eslint.enable": true,
+    "eslint.nodePath": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/lib/node_modules",
+    "eslint.runtime": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin/node",
+    "eslint.autoFixOnSave": true,
+    "eslint.validate": [
+        "javascript",
+        "javascriptreact",
+        "typescript",
+        "typescriptreact"
+    ],
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit"
+    },
+    "security.workspace.trust.enabled": true,
+    "accessibility.signals.lineHasError": {
+        "sound": "on"
+    },
+    "accessibility.signals.lineHasWarning": {
+        "sound": "on"
+    },
+    "problems.decorations.enabled": true,
+    "problems.showCurrentInStatus": true,
+    "typescript.preferences.includePackageJsonAutoImports": "auto",
+    "typescript.updateImportsOnFileMove.enabled": "always",
+    "javascript.updateImportsOnFileMove.enabled": "always",
+    "typescript.npm": "{{NVM_DIR}}/versions/node/{{NODE_VERSION}}/bin/npm",
+    "npm.packageManager": "npm",
+    "npm.runSilent": true,
+    "workbench.secondarySideBar.showLabels": false,
+    "github.copilot.enable": {
+        "*": false
+    },
+    "terminal.integrated.inheritEnv": true,
+    "terminal.integrated.allowChords": false,
+    "extensions.autoCheckUpdates": false,
+    "extensions.autoUpdate": false
+}

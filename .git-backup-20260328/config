@@ -1,0 +1,12 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[coderabbit]
+	defaultBranch = main
+[user]
+	name = shigeo
+	email = shigeo@shigeos-MacBook-Pro.local

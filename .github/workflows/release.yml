@@ -1,0 +1,259 @@
+# ============================================================================
+# GitHub Actions - Release Workflow
+# Part of Professional Development Terminal Setup
+# ============================================================================
+# Automates releases when version tags are pushed.
+# ============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  # ========================================
+  # Validate Release
+  # ========================================
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z (e.g., 1.2.3)"
+            exit 1
+          fi
+
+      - name: Check package.json version
+        run: |
+          PKG_VERSION=$(grep -o '"version": *"[^"]*"' package.json | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Warning: package.json version ($PKG_VERSION) differs from tag ($TAG_VERSION)"
+          fi
+
+  # ========================================
+  # Run Tests
+  # ========================================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run syntax check
+        run: make syntax-check
+
+      - name: Run ShellCheck
+        run: make lint || true  # Don't fail on lint warnings
+
+      - name: Run tests
+        run: make test
+
+  # ========================================
+  # Build Release
+  # ========================================
+  build:
+    name: Build Release
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Create release archive
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Create distribution directory
+          mkdir -p dist
+          
+          # Create tarball (excluding dev files)
+          tar -czf "dist/version-manager-suite-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='dist' \
+            --exclude='node_modules' \
+            --exclude='.github' \
+            --exclude='tests' \
+            --exclude='alldocs' \
+            --exclude='.cursor' \
+            --exclude='.codacy' \
+            --exclude='.vscode' \
+            .
+          
+          # Create zip
+          zip -r "dist/version-manager-suite-${VERSION}.zip" . \
+            -x '.git/*' \
+            -x 'dist/*' \
+            -x 'node_modules/*' \
+            -x '.github/*' \
+            -x 'tests/*' \
+            -x 'alldocs/*' \
+            -x '.cursor/*' \
+            -x '.codacy/*' \
+            -x '.vscode/*'
+          
+          # Create checksums
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          
+          echo "Created release artifacts:"
+          ls -la
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1  # v4.6.1
+        with:
+          name: release-artifacts
+          path: dist/
+
+  # ========================================
+  # Create GitHub Release
+  # ========================================
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@cc203385981b70fc5b5a049660dfcf82b0d4277c  # v4.1.9
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # Generate changelog
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
+          fi
+          
+          # Create release notes
+          cat > release-notes.md << EOF
+          ## Version $VERSION
+          
+          ### Changes
+          
+          $CHANGES
+          
+          ### Installation
+          
+          \`\`\`bash
+          # Clone the repository
+          git clone https://github.com/${{ github.repository }}.git
+          cd version-management-setup
+          
+          # Run setup
+          ./setup.sh
+          \`\`\`
+          
+          ### Checksums
+          
+          \`\`\`
+          $(cat dist/checksums.txt)
+          \`\`\`
+          
+          ---
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG:-v0.0.0}...v$VERSION
+          EOF
+          
+          echo "Release notes generated"
+
+      - name: Create release
+        uses: softprops/action-gh-release@da05d552573bd3b6bfc93ebc9fccf1c9dc5bf54e  # v2.2.2
+        with:
+          tag_name: v${{ needs.validate.outputs.version }}
+          name: v${{ needs.validate.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          ls -la dist/ >> $GITHUB_STEP_SUMMARY
+
+  # ========================================
+  # Post-Release Notifications
+  # ========================================
+  notify:
+    name: Post-Release
+    runs-on: ubuntu-latest
+    needs: [validate, release]
+    if: success()
+    steps:
+      - name: Success notification
+        run: |
+          echo "✅ Release v${{ needs.validate.outputs.version }} published successfully!"
+          echo ""
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.validate.outputs.version }}"

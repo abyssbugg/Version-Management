@@ -1,0 +1,25 @@
+{
+    "recommendations": [
+        "timonwong.shellcheck",
+        "foxundermoon.shell-format",
+        "mads-hartmann.bash-ide-vscode",
+        "rogalmic.bash-debug",
+        "jetmartin.bats",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "esbenp.prettier-vscode",
+        "PKief.material-icon-theme",
+        "zhuangtongfa.material-theme",
+        "eamodio.gitlens",
+        "usernamehw.errorlens",
+        "editorconfig.editorconfig",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "DavidAnson.vscode-markdownlint",
+        "bierner.markdown-preview-github-styles",
+        "GitHub.copilot",
+        "ms-vscode-remote.remote-wsl",
+        "ms-vscode-remote.remote-containers"
+    ],
+    "unwantedRecommendations": []
+}

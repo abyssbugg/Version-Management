@@ -1,0 +1,39 @@
+{
+  "name": "version-management-setup",
+  "version": "3.0.0",
+  "description": "Professional Development Environment Automation Suite - Shell-based tooling for terminal and version management",
+  "private": true,
+  "main": "setup.sh",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "setup": "./setup.sh",
+    "validate": "./validate-setup.sh",
+    "test": "make test",
+    "test:unit": "make test-unit",
+    "test:integration": "make test-integration",
+    "lint": "make lint",
+    "health": "./tools/version-diagnostic-enhanced.sh",
+    "diagnostic": "./tools/system-diagnostics.sh",
+    "versions": "./version-manager.sh status"
+  },
+  "keywords": [
+    "development-environment",
+    "automation",
+    "version-management",
+    "shell-scripts",
+    "terminal-setup",
+    "nvm",
+    "pyenv",
+    "powerlevel10k"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/version-management-setup.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "shellcheck": "^3.0.0"
+  }
+}
