@@ -17,6 +17,7 @@ backup/
 .analysis/
 .archive/
 .cleanup-backup-*/
+.git-backup-*/
 .recovery/
 
 # Editor/tool local directories
