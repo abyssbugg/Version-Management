@@ -447,8 +447,38 @@ nvm_use_project_version() {
     fi
 }
 
+# Migrate global packages from a previous Node.js version to the current one
+# Uses `nvm reinstall-packages` so packages are re-installed fresh in the current version.
+# Args: from_version - the Node.js version to migrate packages from (e.g., "v24.4.0")
+# Returns: 0 on success, 1 on failure
+nvm_migrate_packages() {
+    local from_version="$1"
+
+    if [ -z "$from_version" ]; then
+        log_error "Source version not specified. Usage: nvm_migrate_packages <from_version>"
+        return 1
+    fi
+
+    if ! nvm_detect; then
+        log_error "nvm not available"
+        return 1
+    fi
+
+    local current_version
+    current_version=$(nvm_get_current)
+    log_info "Migrating global packages from $from_version to $current_version..."
+
+    if nvm reinstall-packages "$from_version" 2>&1; then
+        log_success "Global packages migrated from $from_version to $current_version"
+        return 0
+    else
+        log_error "Failed to migrate packages from $from_version"
+        return 1
+    fi
+}
+
 # Export functions for external use
 export -f nvm_detect nvm_install nvm_list_versions nvm_install_version
 export -f nvm_set_global nvm_set_local nvm_get_current nvm_validate_version
 export -f nvm_get_prompt_version nvm_is_node_project nvm_get_lts_versions
-export -f nvm_install_lts nvm_use_project_version
+export -f nvm_install_lts nvm_use_project_version nvm_migrate_packages
