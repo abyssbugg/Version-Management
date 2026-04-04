@@ -29,6 +29,10 @@ if [[ -f "${SCRIPT_DIR}/lib/jenv.sh" ]]; then
     source "${SCRIPT_DIR}/lib/jenv.sh"
 fi
 
+if [[ -f "${SCRIPT_DIR}/lib/phpenv.sh" ]]; then
+    source "${SCRIPT_DIR}/lib/phpenv.sh"
+fi
+
 # Default command
 DEFAULT_COMMAND="pro-status"
 
@@ -44,6 +48,7 @@ usage() {
     log_info "  install-go    - Install Go version from .go-version"
     log_info "  install-rust  - Install Rust version from rust-toolchain"
     log_info "  install-java  - Install Java version from .java-version"
+    log_info "  install-php   - Install PHP version from .php-version"
     log_info "  configure-nvm - Configure NVM for silent operation"
     exit 1
 }
@@ -263,6 +268,63 @@ show_pro_status() {
     fi
     
     echo
+
+    # Check PHP status
+    log_info "🐘 PHP Version Manager (phpenv):"
+    if command -v phpenv >/dev/null 2>&1; then
+        log_success "   phpenv is installed"
+        
+        # Check current PHP version
+        if command -v php >/dev/null 2>&1; then
+            local current_php
+            current_php=$(php -r 'echo PHP_VERSION;' 2>/dev/null || echo "unknown")
+            log_info "   Current PHP: $current_php"
+        else
+            log_warn "   PHP not available"
+        fi
+        
+        # Check .php-version
+        if [[ -f ".php-version" ]]; then
+            local php_version
+            php_version=$(cat .php-version 2>/dev/null || echo "unknown")
+            log_info "  📋 Project PHP: $php_version"
+            
+            # Check if phpenv version matches
+            if command -v phpenv >/dev/null 2>&1; then
+                local phpenv_version
+                phpenv_version=$(phpenv version-name 2>/dev/null || echo "unknown")
+                if [[ "$phpenv_version" == "$php_version" ]]; then
+                    log_success "   Versions match"
+                else
+                    log_warn "    Version mismatch"
+                fi
+            fi
+        else
+            log_warn "   .php-version not found"
+        fi
+        
+        # Check Composer
+        if command -v composer >/dev/null 2>&1; then
+            local composer_ver
+            composer_ver=$(composer --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+            log_success "   Composer: $composer_ver"
+        else
+            log_warn "   Composer not installed"
+        fi
+        
+        # Check Laravel
+        if command -v laravel >/dev/null 2>&1; then
+            log_success "   Laravel installer available"
+        elif [[ -f "artisan" ]]; then
+            log_info "   Laravel project detected"
+        fi
+    elif [[ -f "${SCRIPT_DIR}/lib/phpenv.sh" ]]; then
+        log_warn "    phpenv not installed (run setup to install)"
+    else
+        log_warn "    PHP support not available"
+    fi
+    
+    echo
 }
 
 # Install Node.js version from .nvmrc
@@ -286,7 +348,14 @@ install_node_version() {
     # Source nvm and install
     if source_nvm_if_available; then
         log_info "Installing Node.js v$node_version..."
-        if nvm install "$node_version"; then
+        local _sync_from
+        _sync_from=$(nvm current 2>/dev/null || echo "none")
+        local _install_args=("$node_version")
+        if [[ "$_sync_from" != "none" && "$_sync_from" != "system" ]]; then
+            _install_args+=("--reinstall-packages-from=$_sync_from")
+            log_info "Syncing global packages from $_sync_from"
+        fi
+        if nvm install "${_install_args[@]}"; then
             log_success "Node.js v$node_version installed successfully"
             if nvm use "$node_version"; then
                 log_success "Now using Node.js v$node_version"
@@ -389,6 +458,8 @@ main() {
             ;;
         install-java)
             ;;
+        install-php)
+            ;;
         configure-nvm)
             ;;
         -h|--help)
@@ -425,6 +496,9 @@ main() {
             ;;
         install-java)
             install_java_version
+            ;;
+        install-php)
+            install_php_version
             ;;
     esac
     
@@ -515,6 +589,54 @@ install_java_version() {
     else
         log_error "Failed to set Java $java_version"
         return 1
+    fi
+}
+
+# Install PHP version from .php-version
+install_php_version() {
+    log_info "🐘 Installing PHP version from .php-version..."
+    
+    if [[ ! -f ".php-version" ]]; then
+        log_error ".php-version file not found"
+        return 1
+    fi
+    
+    if ! command -v phpenv >/dev/null 2>&1; then
+        log_error "phpenv is not installed"
+        return 1
+    fi
+    
+    local php_version
+    php_version=$(cat .php-version)
+    log_info "Target PHP version: $php_version"
+    
+    # Install PHP version
+    log_info "Installing PHP $php_version..."
+    if phpenv install "$php_version"; then
+        log_success "PHP $php_version installed successfully"
+        if phpenv local "$php_version"; then
+            log_success "Set local PHP version to $php_version"
+        fi
+    else
+        log_error "Failed to install PHP $php_version"
+        return 1
+    fi
+    
+    # Install Composer if not present
+    if ! command -v composer >/dev/null 2>&1; then
+        log_info "Installing Composer..."
+        if command -v brew >/dev/null 2>&1; then
+            brew install composer
+        elif command -v composer_install >/dev/null 2>&1; then
+            if ! composer_install; then
+                log_error "Composer installation failed"
+                return 1
+            fi
+        else
+            log_error "Secure Composer installer unavailable (composer_install not found)"
+            return 1
+        fi
+        log_success "Composer installed"
     fi
 }
 

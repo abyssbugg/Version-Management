@@ -222,7 +222,7 @@ class FontnameParser:
         weights = self.weight_token
         aggressive = self.use_short_families[2]
         if not self.rename_oblique:
-            (weights, styles) = FontnameTools.make_oblique_style(weights, [])
+            (weights, _) = FontnameTools.make_oblique_style(weights, [])
         if self.use_short_families[1]:
             [ other, weights ] = FontnameTools.short_styles([ other, weights ], aggressive)
         weights = [ w if w != 'Oblique' else 'Obl' for w in weights ]

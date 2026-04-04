@@ -9,17 +9,18 @@ set -euo pipefail
 
 # Source required libraries
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
 
 # Source env.sh first (which sources logger.sh)
-source "$script_dir/lib/env.sh"
+source "$repo_root/lib/env.sh"
 
 # Source logger for consistent logging (env.sh provides fallbacks)
-source "$script_dir/lib/logger.sh" 2>/dev/null || true
+source "$repo_root/lib/logger.sh" 2>/dev/null || true
 
 # Configuration
-readonly TEMPLATE_FILE="$script_dir/config/vscode-settings.template.json"
-readonly OUTPUT_FILE="$script_dir/vscode-settings.json"
-readonly NVMRC_FILE="$script_dir/.nvmrc"
+readonly TEMPLATE_FILE="$repo_root/config/vscode-settings.template.json"
+readonly OUTPUT_FILE="$repo_root/vscode-settings.json"
+readonly NVMRC_FILE="$repo_root/.nvmrc"
 
 # Function to detect current Node.js version
 detect_node_version() {

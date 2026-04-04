@@ -656,6 +656,13 @@ transaction_get_name() {
 # =============================================================================
 # Creates named restore points that can be rolled back to later.
 
+# Validate restore point name to prevent path traversal / unsafe deletions.
+_validate_restore_point_name() {
+    local name="$1"
+    [[ -n "$name" ]] || return 1
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
 # Create a named restore point
 # Usage: create_restore_point "before_theme_change" "/path/to/file1" "/path/to/file2"
 create_restore_point() {
@@ -663,8 +670,8 @@ create_restore_point() {
     shift
     local files=("$@")
     
-    if [[ -z "$name" ]]; then
-        log_error "Restore point name required"
+    if ! _validate_restore_point_name "$name"; then
+        log_error "Invalid restore point name. Use only letters, numbers, '.', '_' or '-'."
         return 1
     fi
     
@@ -710,8 +717,8 @@ EOF
 restore_from_point() {
     local name="$1"
     
-    if [[ -z "$name" ]]; then
-        log_error "Restore point name required"
+    if ! _validate_restore_point_name "$name"; then
+        log_error "Invalid restore point name. Use only letters, numbers, '.', '_' or '-'."
         return 1
     fi
     
@@ -793,6 +800,11 @@ list_restore_points() {
 # Usage: delete_restore_point "point_name"
 delete_restore_point() {
     local name="$1"
+    if ! _validate_restore_point_name "$name"; then
+        log_error "Invalid restore point name. Use only letters, numbers, '.', '_' or '-'."
+        return 1
+    fi
+
     local restore_dir="$DEFAULT_BACKUP_DIR/restore_points/$name"
     
     if [[ ! -d "$restore_dir" ]]; then

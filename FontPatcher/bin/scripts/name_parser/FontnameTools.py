@@ -50,13 +50,13 @@ class FontnameTools:
     @staticmethod
     def concat(*all_things):
         """Flatten list of (strings or lists of strings) to a blank-separated string"""
-        all = []
+        result = []
         for thing in all_things:
-            if type(thing) is not list:
-                all.append(thing)
+            if not isinstance(thing, list):
+                result.append(thing)
             else:
-                all += thing
-        return ' '.join(FontnameTools.drop_empty(all))
+                result += thing
+        return ' '.join(FontnameTools.drop_empty(result))
 
     @staticmethod
     def unify_style_names(style_name):
@@ -323,24 +323,24 @@ class FontnameTools:
     def weight_to_string(w):
         """ Convert a PS/2 weight value to the common string approximation """
         if w < 150:
-            str = 'Thin'
+            weight_str = 'Thin'
         elif w < 250:
-            str = 'Extra-Light'
+            weight_str = 'Extra-Light'
         elif w < 350:
-            str = 'Light'
+            weight_str = 'Light'
         elif w < 450:
-            str = 'Regular'
+            weight_str = 'Regular'
         elif w < 550:
-            str = 'Medium'
+            weight_str = 'Medium'
         elif w < 650:
-            str = 'Semi-Bold'
+            weight_str = 'Semi-Bold'
         elif w < 750:
-            str = 'Bold'
+            weight_str = 'Bold'
         elif w < 850:
-            str = 'Extra-Bold'
+            weight_str = 'Extra-Bold'
         else:
-            str = 'Black'
-        return str
+            weight_str = 'Black'
+        return weight_str
 
     @staticmethod
     def is_keep_regular(basename):

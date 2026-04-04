@@ -80,7 +80,7 @@ _log() {
     # Format message for terminal output
     local formatted_message
     if _supports_color; then
-        formatted_message="${color}[$(_get_timestamp)] [$level]${NC} $message"
+        formatted_message="${color}[$(_get_timestamp)] [$level]${NC:-\033[0m} $message"
     else
         formatted_message="[$(_get_timestamp)] [$level] $message"
     fi

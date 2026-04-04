@@ -68,19 +68,8 @@ fnm_install() {
             ;;
     esac
 
-    # Fallback: install via official install script
-    if command -v curl >/dev/null 2>&1; then
-        log_info "Installing fnm via official install script"
-        if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; then
-            # Add to PATH for current session
-            export PATH="$HOME/.local/share/fnm:$PATH"
-            eval "$(fnm env)" 2>/dev/null || true
-            log_success "fnm installed successfully"
-            return 0
-        fi
-    fi
-
-    log_error "Failed to install fnm"
+    log_error "Failed to install fnm via package manager. Refusing to run remote install scripts (curl|bash)."
+    log_info "Install fnm with a trusted package manager, then rerun setup."
     return 1
 }
 

@@ -17,6 +17,7 @@
 #   Go        | .go-version  go.mod (+goenv)            | goenv local
 #   Ruby      | .ruby-version  Gemfile                  | rbenv local
 #   Java      | .java-version                           | jenv local
+#   PHP       | .php-version                            | phpenv local
 #   Rust      | rust-toolchain  rust-toolchain.toml     | rustup (native)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -206,11 +207,33 @@ aa_java() {
         && log_debug "auto-activate: Java → $wanted"
 }
 
+# --- PHP via phpenv ---
+aa_php() {
+    command -v phpenv >/dev/null 2>&1 || return 0
+    local php_file
+    php_file="$(_aa_find_up "$PWD" 3 ".php-version")" || return 0
+    local wanted
+    wanted="$(cat "$php_file" 2>/dev/null | tr -d '[:space:]')"
+    [[ -z "$wanted" ]] && return 0
+    local current
+    current="$(phpenv version-name 2>/dev/null)"
+    [[ "$current" == "$wanted" ]] && return 0
+    if phpenv versions --bare 2>/dev/null | grep -q "^${wanted}$"; then
+        phpenv local "$wanted" 2>/dev/null \
+            && log_debug "auto-activate: PHP → $wanted"
+    else
+        log_warn "auto-activate: PHP $wanted not installed. Run: phpenv install $wanted"
+    fi
+}
+
 # --- Node.js global symlink sync ---
-# After an nvm (or fnm) version switch, update /usr/local/bin/{node,npm,npx}
-# symlinks so desktop apps (Electron, VS Code extensions, etc.) see the new
-# version.  Runs silently — never prompts for a password.
+# After an nvm (or fnm) version switch, optionally update
+# /usr/local/bin/{node,npm,npx} symlinks so desktop apps (Electron, VS Code
+# extensions, etc.) see the new version.
+# Disabled by default. Set DEV_AUTO_SYNC_NODE_SYMLINKS=true to enable.
 _nvm_sync_symlinks() {
+    [[ "${DEV_AUTO_SYNC_NODE_SYMLINKS:-false}" == "true" ]] || return 0
+
     local nvm_bin=""
 
     # Determine the active Node bin directory
@@ -275,6 +298,7 @@ auto_activate_all() {
     aa_go
     aa_ruby
     aa_java
+    aa_php
     aa_rust
     aa_asdf
 }
@@ -301,8 +325,8 @@ auto_activate_setup() {
     cat >> "$shell_rc" <<'ZSHOOK'
 
 # >>> dev auto-activate hook <<<
-# Unified runtime auto-activation for Python, Node, Bun, Go, Ruby, Java, FNM, pyenv.
-# Auto-syncs /usr/local/bin/node symlinks on Node version change.
+# Unified runtime auto-activation for Python, Node, Bun, Go, Ruby, Java, PHP, FNM, pyenv.
+# Optional: set DEV_AUTO_SYNC_NODE_SYMLINKS=true to auto-sync /usr/local/bin/node symlinks.
 # Managed by version-management-setup — edit lib/auto-activate.sh to change.
 _dev_chpwd_hook() {
     # ---------- helpers ----------
@@ -319,8 +343,10 @@ _dev_chpwd_hook() {
     }
 
     # Sync /usr/local/bin/node symlinks to the active NVM/FNM version.
-    # Silent — never prompts for sudo.
+    # Disabled unless DEV_AUTO_SYNC_NODE_SYMLINKS=true.
     _aa_h_sync_node_symlinks() {
+        [[ "${DEV_AUTO_SYNC_NODE_SYMLINKS:-false}" == "true" ]] || return 0
+
         local _sn_bin=""
         if [[ -n "${NVM_DIR:-}" ]] && typeset -f nvm >/dev/null 2>&1; then
             local _sn_cur
@@ -394,8 +420,15 @@ _dev_chpwd_hook() {
             local _nvm_want
             _nvm_want="$(< "$_nvm_f" tr -d '[:space:]')"
             if [[ -n "$_nvm_want" && "${$(nvm current)#v}" != "${_nvm_want#v}" ]]; then
-                nvm use "$_nvm_want" --silent 2>/dev/null \
-                    || nvm install "$_nvm_want" --silent 2>/dev/null
+                if ! nvm use "$_nvm_want" --silent 2>/dev/null; then
+                    local _nvm_sync_src
+                    _nvm_sync_src="$(nvm current 2>/dev/null)"
+                    if [[ -n "$_nvm_sync_src" && "$_nvm_sync_src" != "none" && "$_nvm_sync_src" != "system" ]]; then
+                        nvm install "$_nvm_want" --reinstall-packages-from="$_nvm_sync_src" --silent 2>/dev/null
+                    else
+                        nvm install "$_nvm_want" --silent 2>/dev/null
+                    fi
+                fi
             fi
         fi
     fi
@@ -473,6 +506,20 @@ _dev_chpwd_hook() {
         fi
     fi
 
+    # ---------- PHP via phpenv ----------
+    if command -v phpenv >/dev/null 2>&1; then
+        local _php_f
+        _php_f="$(_aa_h_find_up "$PWD" 3 ".php-version")" 2>/dev/null
+        if [[ -n "$_php_f" ]]; then
+            local _php_want
+            _php_want="$(< "$_php_f" tr -d '[:space:]')"
+            if [[ -n "$_php_want" && "$(phpenv version-name 2>/dev/null)" != "$_php_want" ]]; then
+                phpenv local "$_php_want" 2>/dev/null \
+                    || print -P "%F{yellow}[auto-activate] PHP ${_php_want} not installed. Run: phpenv install ${_php_want}%f"
+            fi
+        fi
+    fi
+
     # Rust: rustup reads rust-toolchain / rust-toolchain.toml natively — no hook needed.
 }
 
@@ -487,10 +534,23 @@ if typeset -f nvm >/dev/null 2>&1; then
     _nvm_real=$(functions nvm)
     eval "_nvm_original() { ${_nvm_real#nvm*\{}"
     nvm() {
+        local _nvm_prev_ver
+        _nvm_prev_ver="$(_nvm_original current 2>/dev/null || echo "none")"
         _nvm_original "$@"
         local _nvm_ret=$?
         case "${1:-}" in
-            use|install|alias) _aa_h_sync_node_symlinks 2>/dev/null ;;
+            use|install|alias)
+                _aa_h_sync_node_symlinks 2>/dev/null
+                # Auto-sync global packages after install (skip if user specified --reinstall-packages-from)
+                if [[ "${1:-}" == "install" && "$*" != *"--reinstall-packages-from"* ]]; then
+                    local _nvm_new_ver
+                    _nvm_new_ver="$(_nvm_original current 2>/dev/null || echo "none")"
+                    if [[ "$_nvm_prev_ver" != "none" && "$_nvm_prev_ver" != "system" && "$_nvm_prev_ver" != "$_nvm_new_ver" ]]; then
+                        _nvm_original reinstall-packages "$_nvm_prev_ver" >/dev/null 2>&1 \
+                            || print -P "%F{yellow}[auto-activate] Could not sync packages from $_nvm_prev_ver%f"
+                    fi
+                fi
+                ;;
         esac
         return $_nvm_ret
     }
@@ -499,7 +559,8 @@ fi
 ZSHOOK
 
     log_success "dev auto-activate hook installed in $shell_rc"
-    log_info "Applies to: Python venv/pyenv, Node (nvm/fnm + symlink sync), Bun, Go (goenv), Ruby (rbenv), Java (jenv)"
+    log_info "Applies to: Python venv/pyenv, Node (nvm/fnm), Bun, Go (goenv), Ruby (rbenv), Java (jenv), PHP (phpenv)"
+    log_info "Optional symlink sync: set DEV_AUTO_SYNC_NODE_SYMLINKS=true to update /usr/local/bin/{node,npm,npx}"
     log_info "Restart your terminal or run: source $shell_rc"
     return 0
 }
@@ -523,5 +584,5 @@ auto_activate_remove() {
 
 # Export public API
 export -f auto_activate_all auto_activate_setup auto_activate_remove
-export -f aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java aa_rust aa_asdf
+export -f aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java aa_php aa_rust aa_asdf
 export -f _aa_find_up _nvm_sync_symlinks

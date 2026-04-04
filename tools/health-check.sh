@@ -57,7 +57,12 @@ check "VS Code CLI" "command -v code"
 echo
 
 echo " Project Files:"
-check ".nvmrc (Node 24.4.0)" "grep -q '24.4.0' .nvmrc 2>/dev/null"
+expected_node_version="$(tr -d '[:space:]' < .nvmrc 2>/dev/null || true)"
+if [[ -n "$expected_node_version" ]]; then
+    check ".nvmrc (Node ${expected_node_version})" "grep -qx '${expected_node_version}' .nvmrc 2>/dev/null"
+else
+    check ".nvmrc present" "[ -f .nvmrc ]"
+fi
 check ".python-version (3.12.11)" "grep -q '3.12.11' .python-version 2>/dev/null"
 check "VS Code settings" "[ -f vscode-settings.json ]"
 echo

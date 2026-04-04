@@ -58,12 +58,16 @@ _log_info()   { echo -e "  ${CYAN}ℹ $*${NC}"; }
 _run_test_file() {
     local test_file="$1"
     local result_file="$2"
+    local test_dir
+    local test_name
 
     [[ -x "$test_file" ]] || chmod +x "$test_file"
+    test_dir="$(dirname "$test_file")"
+    test_name="$(basename "$test_file")"
 
     local exit_code=0
     local output
-    output=$(bash "$test_file" 2>&1) || exit_code=$?
+    output=$(cd "$test_dir" && bash "./$test_name" 2>&1) || exit_code=$?
 
     if [[ $exit_code -eq 0 ]]; then
         echo "PASS" > "$result_file"

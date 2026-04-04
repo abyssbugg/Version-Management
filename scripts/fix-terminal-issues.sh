@@ -8,14 +8,15 @@ set -euo pipefail
 
 # Source library utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/logger.sh"
-source "${SCRIPT_DIR}/lib/env.sh"
-source "${SCRIPT_DIR}/lib/backup.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${REPO_ROOT}/lib/logger.sh"
+source "${REPO_ROOT}/lib/env.sh"
+source "${REPO_ROOT}/lib/backup.sh"
 
 # Configuration paths
 ZSHRC="$HOME/.zshrc"
 P10K_CONFIG="$HOME/.p10k.zsh"
-PROJECT_P10K_CONFIG="${SCRIPT_DIR}/config/professional-dev-p10k.zsh"
+PROJECT_P10K_CONFIG="${REPO_ROOT}/config/professional-dev-p10k.zsh"
 
 # Main diagnostic function
 run_terminal_diagnostics() {
@@ -152,7 +153,7 @@ install_fonts() {
     fi
     
     local fonts_installed=0
-    for font in "${SCRIPT_DIR}"/MesloLGS*.ttf; do
+    for font in "${REPO_ROOT}"/MesloLGS*.ttf; do
         if [[ -f "$font" ]]; then
             cp "$font" "$font_dir/"
             ((fonts_installed++))

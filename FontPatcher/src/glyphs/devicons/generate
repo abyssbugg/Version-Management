@@ -77,16 +77,15 @@ mapping.sort(key=(lambda x: x[1]))
 
 if not os.path.isfile(archive):
     print('Fetching Devicons archive "{}"\n'.format(archive))
-    if subprocess.call('curl -OL https://github.com/devicons/devicon/archive/refs/tags/' + archive, shell=True):
+    if subprocess.call(['curl', '-OL', 'https://github.com/devicons/devicon/archive/refs/tags/' + archive]):
         sys.exit('Error fetching Devicons archive')
 
 print('\nUnpacking Devicons archive')
-if subprocess.call('rm -rf devicon-* icons && tar zxf ' + archive + \
-        ' && mv devicon-*/icons .', shell=True):
+if subprocess.call(['sh', '-c', 'rm -rf devicon-* icons && tar zxf "$1" && mv devicon-*/icons .', '_', archive]):
     sys.exit('Error unpacking archive')
 
 print('\nMixing Vorillaz Devicons and possible fixes in')
-if subprocess.call('cp -r vorillaz fixed icons', shell=True):
+if subprocess.call(['cp', '-r', 'vorillaz', 'fixed', 'icons']):
     sys.exit('Error mixing ...')
 
 

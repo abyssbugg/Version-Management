@@ -172,8 +172,17 @@ nvm_install_version() {
         return 0
     fi
     
+    # Sync global packages from current version during install
+    local install_args=("$clean_version")
+    local sync_from
+    sync_from=$(nvm current 2>/dev/null || echo "none")
+    if [[ "$sync_from" != "none" && "$sync_from" != "system" ]]; then
+        install_args+=("--reinstall-packages-from=$sync_from")
+        log_info "Will sync global packages from $sync_from"
+    fi
+
     # Install the version
-    if nvm install "$clean_version" >/dev/null 2>&1; then
+    if nvm install "${install_args[@]}" >/dev/null 2>&1; then
         log_success "Node.js $version installed successfully"
         # Invalidate cache
         cache_delete "${NVM_CACHE_PREFIX}_versions"
@@ -214,9 +223,23 @@ nvm_set_global() {
         fi
     fi
     
+    # Capture previous default for package sync
+    local prev_default
+    prev_default=$(nvm alias default 2>/dev/null | grep -o 'v[0-9][0-9.]*' || echo "")
+
     log_info "Setting global Node.js version to $version"
     if nvm alias default "$clean_version" >/dev/null 2>&1; then
         log_success "Global Node.js version set to $version"
+        # Sync global packages from previous default
+        if [[ -n "$prev_default" && "${prev_default#v}" != "$clean_version" ]]; then
+            log_info "Syncing global packages from $prev_default to v$clean_version..."
+            nvm use "$clean_version" >/dev/null 2>&1
+            if nvm reinstall-packages "$prev_default" >/dev/null 2>&1; then
+                log_success "Global packages synced from $prev_default"
+            else
+                log_warn "Could not sync global packages from $prev_default"
+            fi
+        fi
         return 0
     else
         log_error "Failed to set global Node.js version"
@@ -400,8 +423,16 @@ nvm_install_lts() {
     fi
     
     log_info "Installing latest Node.js LTS version..."
-    
-    if nvm install --lts >/dev/null 2>&1; then
+
+    local sync_from
+    sync_from=$(nvm current 2>/dev/null || echo "none")
+    local lts_install_args=("--lts")
+    if [[ "$sync_from" != "none" && "$sync_from" != "system" ]]; then
+        lts_install_args+=("--reinstall-packages-from=$sync_from")
+        log_info "Will sync global packages from $sync_from"
+    fi
+
+    if nvm install "${lts_install_args[@]}" >/dev/null 2>&1; then
         log_success "Latest Node.js LTS version installed"
         # Invalidate cache
         cache_delete "${NVM_CACHE_PREFIX}_versions"

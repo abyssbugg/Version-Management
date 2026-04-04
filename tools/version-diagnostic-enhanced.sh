@@ -18,10 +18,12 @@ set -euo pipefail
 
 # Source foundational libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/logger.sh"
-source "${SCRIPT_DIR}/lib/env.sh"
-source "${SCRIPT_DIR}/lib/cache.sh"
-source "${SCRIPT_DIR}/lib/backup.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+source "${REPO_ROOT}/lib/logger.sh"
+source "${REPO_ROOT}/lib/env.sh"
+source "${REPO_ROOT}/lib/cache.sh"
+source "${REPO_ROOT}/lib/backup.sh"
 
 # Configuration with defaults
 ENABLE_COLORS="${ENABLE_COLORS:-true}"

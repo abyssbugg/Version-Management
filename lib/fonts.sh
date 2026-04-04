@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
 # Configuration
 # ============================================================================
 
-# Bundled fonts in the project
+# Optional local font files expected at repository root
 readonly BUNDLED_FONTS=(
     "MesloLGS NF Regular.ttf"
     "MesloLGS NF Bold.ttf"
@@ -151,7 +151,7 @@ font_validate_file() {
     [[ -f "$font_file" && -r "$font_file" ]]
 }
 
-# Check if all bundled fonts exist in project
+# Check if all optional local fonts exist in project root
 font_bundled_exist() {
     local missing=0
     
@@ -168,7 +168,7 @@ font_bundled_exist() {
 # Font Installation
 # ============================================================================
 
-# Install bundled fonts
+# Install local MesloLGS fonts when present at repository root
 font_install_bundled() {
     local target_dir
     target_dir=$(font_get_target_directory)
@@ -196,7 +196,7 @@ font_install_bundled() {
                 ((failed++))
             fi
         else
-            log_warn "Missing bundled font: $font"
+            log_warn "Missing local font file: $font"
             ((failed++))
         fi
     done
@@ -371,7 +371,7 @@ font_status() {
     echo "License:     $FONT_LICENSE"
 }
 
-# Generate checksums for bundled fonts
+# Generate checksums for local MesloLGS font files
 font_generate_checksums() {
     echo "# Font Checksums (SHA-256)"
     echo "# Generated: $(date -Iseconds)"

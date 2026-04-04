@@ -5,8 +5,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/logger.sh"
-source "${SCRIPT_DIR}/lib/theme-ops.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${REPO_ROOT}/lib/logger.sh"
+source "${REPO_ROOT}/lib/theme-ops.sh"
 
 show_usage() {
     echo "Usage: $0 [OPTION]"
@@ -118,7 +119,7 @@ customize_icons() {
 reset_icons() {
     log_info "Resetting to default icons..."
     local p10k_config="$HOME/.p10k.zsh"
-    local theme_dir="${SCRIPT_DIR}/config"
+    local theme_dir="${REPO_ROOT}/config"
 
     if [[ ! -f "$p10k_config" ]]; then
         log_error "No .p10k.zsh configuration found."

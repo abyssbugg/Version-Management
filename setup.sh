@@ -130,8 +130,8 @@ manage_fonts() {
 # Fix theme icons (replace emojis with proper Nerd Font icons)
 fix_theme_icons() {
     log_info " Fixing Theme Icons..."
-    if [[ -x "${SCRIPT_DIR}/theme-icon-manager.sh" ]]; then
-        "${SCRIPT_DIR}/theme-icon-manager.sh" --fix
+    if [[ -x "${SCRIPT_DIR}/scripts/theme-icon-manager.sh" ]]; then
+        "${SCRIPT_DIR}/scripts/theme-icon-manager.sh" --fix
     else
         log_error "Theme icon manager script not found or not executable"
         return 1
@@ -141,8 +141,8 @@ fix_theme_icons() {
 # Customize theme icons
 customize_theme_icons() {
     log_info " Customizing Theme Icons..."
-    if [[ -x "${SCRIPT_DIR}/theme-icon-manager.sh" ]]; then
-        "${SCRIPT_DIR}/theme-icon-manager.sh" --customize
+    if [[ -x "${SCRIPT_DIR}/scripts/theme-icon-manager.sh" ]]; then
+        "${SCRIPT_DIR}/scripts/theme-icon-manager.sh" --customize
     else
         log_error "Theme icon manager script not found or not executable"
         return 1

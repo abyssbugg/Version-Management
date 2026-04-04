@@ -55,10 +55,10 @@ print('Found {} entries'.format(len(mapping)))
 mapping.sort(key=(lambda x: x[1]))
 
 print('Fetching Font Awesome archive "{}"\n'.format(archive))
-if subprocess.call('curl -OL https://github.com/FortAwesome/Font-Awesome/releases/download/' + fa_version + '/' + archive, shell=True):
+if subprocess.call(['curl', '-OL', 'https://github.com/FortAwesome/Font-Awesome/releases/download/' + fa_version + '/' + archive]):
     sys.exit('Error fetching Font Awesome archive')
 print('\nUnpacking Font Awesome archive')
-if subprocess.call('rm -rf svgs fontawesome-free-*-desktop && unzip -q *.zip && mv fontawesome-free-*-desktop/svgs . && rm -rf fontawesome-free-*-desktop.zip', shell=True):
+if subprocess.call(['sh', '-c', 'rm -rf svgs fontawesome-free-*-desktop && unzip -q *.zip && mv fontawesome-free-*-desktop/svgs . && rm -rf fontawesome-free-*-desktop.zip']):
     sys.exit('Error unpacking archive')
 
 svg_dirs = os.listdir(vectorsdir)

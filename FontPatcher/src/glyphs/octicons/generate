@@ -68,10 +68,10 @@ print('Found {} entries'.format(len(old_mapping)))
 old_mapping.sort(key=(lambda x: x[0]))
 
 print('Fetching octicons archive "{}"\n'.format(archive))
-if subprocess.call('curl -OL https://github.com/primer/octicons/archive/' + archive, shell=True):
+if subprocess.call(['curl', '-OL', 'https://github.com/primer/octicons/archive/' + archive]):
     sys.exit('Error fetching octicons archive')
 print('\nUnpacking octicons archive')
-if subprocess.call('rm -rf icons octicons-* && tar zxf *.gz && mv octicons-*/icons . && rm -rf octicons-* && cp file-symlink-directory-*.svg icons', shell=True):
+if subprocess.call(['sh', '-c', 'rm -rf icons octicons-* && tar zxf *.gz && mv octicons-*/icons . && rm -rf octicons-* && cp file-symlink-directory-*.svg icons']):
     sys.exit('Error unpacking archive')
 
 svgs = os.listdir(vectorsdir)

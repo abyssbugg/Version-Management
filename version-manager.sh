@@ -5,7 +5,7 @@
 # Enhanced Version Management System v3.0.0
 # ============================================================================
 # A comprehensive, production-ready version management system that provides:
-# - Multi-language support (Node.js, Python, Ruby, Go, Rust, Java)
+# - Multi-language support (Node.js, Python, Ruby, Go, Rust, Java, PHP)
 # - Automatic version switching
 # - Performance optimizations
 # - CI/CD integration
@@ -65,6 +65,7 @@ if [[ "$ENABLE_COLORS" == "true" ]] && [[ -t 1 ]]; then
     WHITE='\033[0;37m'
     BOLD='\033[1m'
     RESET='\033[0m'
+    NC='\033[0m'
 else
     RED=''
     GREEN=''
@@ -75,6 +76,7 @@ else
     WHITE=''
     BOLD=''
     RESET=''
+    NC=''
 fi
 
 # ============================================================================
@@ -282,6 +284,11 @@ detect_version_managers() {
         managers+=("sdkman")
     fi
     
+    # PHP manager
+    if command_exists phpenv; then
+        managers+=("phpenv")
+    fi
+    
     # Universal manager
     if command_exists asdf; then
         managers+=("asdf")
@@ -451,18 +458,8 @@ install_fnm() {
         return 1
     fi
 
-    # Fallback: official install script
-    if command_exists curl; then
-        log_info "Installing FNM via official install script"
-        if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; then
-            export PATH="$HOME/.local/share/fnm:$PATH"
-            log_success "FNM installed successfully"
-            configure_fnm
-            return 0
-        fi
-    fi
-
-    log_error "Failed to install FNM"
+    log_error "Failed to install FNM via package manager. Refusing to execute remote install scripts (curl|bash)."
+    log_info "Install manually via a trusted package manager, then re-run: $SCRIPT_NAME install-fnm"
     return 1
 }
 
@@ -696,6 +693,99 @@ EOF
 }
 
 # ============================================================================
+# phpenv (PHP Version Manager) Functions
+# ============================================================================
+
+install_phpenv() {
+    log_info "Installing phpenv..."
+    
+    local os="$(get_os)"
+    
+    if ! check_internet; then
+        log_error "No internet connection available"
+        return 1
+    fi
+    
+    # Backup existing installation
+    if [[ -d "$HOME/.phpenv" ]]; then
+        log_warn "phpenv directory already exists. Creating backup..."
+        mv "$HOME/.phpenv" "$BACKUP_DIR/phpenv_$(date +%Y%m%d_%H%M%S)"
+    fi
+    
+    case "$os" in
+        macos)
+            if command_exists brew; then
+                brew install phpenv php-build
+            else
+                git clone https://github.com/phpenv/phpenv.git ~/.phpenv
+                git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
+            fi
+            ;;
+        linux)
+            git clone https://github.com/phpenv/phpenv.git ~/.phpenv
+            git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
+            ;;
+        *)
+            log_error "Unsupported OS for phpenv installation: $os"
+            return 1
+            ;;
+    esac
+    
+    if [[ $? -eq 0 ]]; then
+        log_success "phpenv installed successfully"
+        configure_phpenv
+        return 0
+    else
+        log_error "Failed to install phpenv"
+        return 1
+    fi
+}
+
+configure_phpenv() {
+    log_info "Configuring phpenv..."
+    
+    local shell_config="$(get_shell_config)"
+    backup_file "$shell_config"
+    
+    # Check if already configured
+    if grep -q "PHPENV_ROOT" "$shell_config" 2>/dev/null; then
+        log_info "phpenv already configured in $shell_config"
+        return 0
+    fi
+    
+    # Add phpenv configuration
+    cat >> "$shell_config" << 'EOF'
+
+# ============================================================================
+# phpenv Configuration (added by version-manager)
+# ============================================================================
+export PHPENV_ROOT="$HOME/.phpenv"
+export PATH="$PHPENV_ROOT/bin:$PATH"
+
+# Lazy load phpenv for faster shell startup
+phpenv() {
+    unset -f phpenv php composer
+    eval "$(command phpenv init -)"
+    phpenv "$@"
+}
+
+php() {
+    unset -f phpenv php composer
+    eval "$(command phpenv init -)"
+    php "$@"
+}
+
+composer() {
+    unset -f phpenv php composer
+    eval "$(command phpenv init -)"
+    composer "$@"
+}
+EOF
+    
+    log_success "phpenv configuration added to $shell_config"
+}
+
+# ============================================================================
 # Version Installation Functions
 # ============================================================================
 
@@ -780,6 +870,53 @@ install_ruby_version() {
         return 0
     else
         log_error "Failed to install Ruby $version"
+        return 1
+    fi
+}
+
+install_php_version() {
+    local version="${1:-8.3}"
+    
+    log_info "Installing PHP version: $version"
+    
+    # Ensure phpenv is installed
+    if ! command_exists phpenv; then
+        log_warn "phpenv not installed. Installing phpenv first..."
+        install_phpenv || return 1
+    fi
+    
+    # Install PHP version
+    if phpenv install "$version"; then
+        phpenv global "$version"
+        phpenv rehash
+        
+        # Install Composer if not present (secure installer path only)
+        if ! command_exists composer; then
+            log_info "Installing Composer..."
+            if command_exists brew; then
+                brew install composer
+            elif [[ -f "$SCRIPT_DIR/lib/phpenv.sh" ]]; then
+                # shellcheck source=lib/phpenv.sh
+                source "$SCRIPT_DIR/lib/phpenv.sh"
+                if ! command_exists composer_install || ! composer_install; then
+                    log_error "Failed to install Composer securely"
+                    return 1
+                fi
+            else
+                log_error "Cannot install Composer securely: missing lib/phpenv.sh"
+                return 1
+            fi
+        fi
+        
+        # Install Laravel installer
+        if command_exists composer; then
+            composer global require laravel/installer
+        fi
+        
+        log_success "PHP $version installed successfully"
+        return 0
+    else
+        log_error "Failed to install PHP $version"
         return 1
     fi
 }
@@ -882,11 +1019,18 @@ health_check() {
         echo "  Ruby: Not installed"
     fi
     
+    # PHP
+    if command_exists php; then
+        echo "  PHP: $(php -r 'echo PHP_VERSION;' 2>/dev/null)"
+    else
+        echo "  PHP: Not installed"
+    fi
+    
     echo
     
     # Check version files
     echo "Version Files:"
-    local version_files=(".nvmrc" ".python-version" ".ruby-version" ".tool-versions")
+    local version_files=(".nvmrc" ".python-version" ".ruby-version" ".php-version" ".tool-versions")
     for file in "${version_files[@]}"; do
         if [[ -f "$file" ]]; then
             echo "   $file: $(head -n1 "$file")"
@@ -919,6 +1063,64 @@ time_shell_startup() {
     echo $(((end - start) / 1000000))
 }
 
+configure_auto_switch() {
+    local auto_activate_lib="$SCRIPT_DIR/lib/auto-activate.sh"
+
+    if [[ ! -f "$auto_activate_lib" ]]; then
+        log_error "Auto-switch module not found: $auto_activate_lib"
+        return 1
+    fi
+
+    # shellcheck source=lib/auto-activate.sh
+    source "$auto_activate_lib"
+
+    if auto_activate_setup; then
+        log_success "Auto-switch configured via dev auto-activate hook"
+        return 0
+    fi
+
+    log_error "Failed to configure auto-switch"
+    return 1
+}
+
+configure_lazy_load() {
+    local shell_config
+    local preferred_shell="${SHELL##*/}"
+    if [[ "$preferred_shell" == "zsh" ]]; then
+        shell_config="${ZDOTDIR:-$HOME}/.zshrc"
+    else
+        shell_config="$(get_shell_config)"
+    fi
+    local perf_lib="$SCRIPT_DIR/lib/performance.sh"
+
+    if [[ ! -f "$perf_lib" ]]; then
+        log_error "Performance module not found: $perf_lib"
+        return 1
+    fi
+
+    backup_file "$shell_config"
+
+    if grep -q "# >>> version-manager lazy-load <<<" "$shell_config" 2>/dev/null; then
+        log_info "Lazy-load wrappers already configured in $shell_config"
+        return 0
+    fi
+
+    cat >> "$shell_config" << EOF
+
+# >>> version-manager lazy-load <<<
+# Load performance helper wrappers for nvm/pyenv on first use.
+if [[ -f "$perf_lib" ]]; then
+  source "$perf_lib"
+  declare -f setup_nvm_lazy >/dev/null 2>&1 && setup_nvm_lazy
+  declare -f setup_pyenv_lazy >/dev/null 2>&1 && setup_pyenv_lazy
+fi
+# <<< version-manager lazy-load <<<
+EOF
+
+    log_success "Lazy-load bootstrap block added to $shell_config"
+    return 0
+}
+
 # ============================================================================
 # Main Command Handler
 # ============================================================================
@@ -936,12 +1138,16 @@ ${BOLD}Commands:${RESET}
   ${GREEN}install-fnm${RESET}              Install FNM (Fast Node Manager)
   ${GREEN}install-pyenv${RESET}            Install pyenv (Python Version Manager)
   ${GREEN}install-rbenv${RESET}            Install rbenv (Ruby Version Manager)
+  ${GREEN}install-phpenv${RESET}           Install phpenv (PHP Version Manager)
   
   ${GREEN}install-node${RESET} [version]   Install Node.js version (default: lts)
   ${GREEN}install-python${RESET} [version] Install Python version (default: 3.12.0)
   ${GREEN}install-ruby${RESET} [version]   Install Ruby version (default: 3.0.0)
+  ${GREEN}install-php${RESET} [version]    Install PHP version (default: 8.3)
   
   ${GREEN}create-versions${RESET}          Create version files for current project
+  ${GREEN}auto-switch${RESET}              Install unified auto-activation hook
+  ${GREEN}lazy-load${RESET}                Add lazy-load bootstrap block to shell config
   ${GREEN}health-check${RESET}             Run comprehensive health check
   ${GREEN}update-all${RESET}               Update all version managers
   ${GREEN}clean-cache${RESET}              Clean cache files
@@ -963,6 +1169,12 @@ ${BOLD}Examples:${RESET}
   
   # Create version files for project
   $SCRIPT_NAME create-versions
+
+  # Enable project auto-switch hook
+  $SCRIPT_NAME auto-switch
+
+  # Configure lazy-load wrappers
+  $SCRIPT_NAME lazy-load
   
   # Run health check
   $SCRIPT_NAME health-check
@@ -1016,7 +1228,7 @@ main() {
     
     # Acquire lock for write operations
     case "$command" in
-        install-*|create-*|update-*|clean-*)
+        install-*|create-*|update-*|clean-*|auto-switch|lazy-load)
             acquire_lock || exit 1
             ;;
     esac
@@ -1028,6 +1240,7 @@ main() {
             install_fnm
             install_pyenv
             install_rbenv
+            install_phpenv
             ;;
         install-nvm)
             install_nvm "${args[1]}"
@@ -1041,6 +1254,9 @@ main() {
         install-rbenv)
             install_rbenv
             ;;
+        install-phpenv)
+            install_phpenv
+            ;;
         install-node)
             install_node_version "${args[1]}"
             ;;
@@ -1050,8 +1266,17 @@ main() {
         install-ruby)
             install_ruby_version "${args[1]}"
             ;;
+        install-php)
+            install_php_version "${args[1]}"
+            ;;
         create-versions)
             create_version_files "${args[1]}" "${args[2]}" "${args[3]}"
+            ;;
+        auto-switch)
+            configure_auto_switch
+            ;;
+        lazy-load)
+            configure_lazy_load
             ;;
         health-check)
             health_check

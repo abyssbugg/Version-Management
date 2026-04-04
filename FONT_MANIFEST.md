@@ -1,12 +1,14 @@
-# Bundled Font Manifest
+# Font Manifest
 
-This document describes the Nerd Font files bundled with the Professional Development Terminal Setup.
+This document describes MesloLGS Nerd Font files supported by the Professional Development Terminal Setup.
 
 ## Font Family
 
 **MesloLGS Nerd Font** - A patched version of Meslo LG with Nerd Font icons.
 
-## Bundled Files
+## Supported Local Files
+
+These files are optional and can be placed at the repository root for local installation workflows.
 
 | File | Style | Description |
 |------|-------|-------------|
@@ -60,15 +62,16 @@ MesloLGS Nerd Font includes glyphs from:
 
 ### Manual
 
-1. Double-click each `.ttf` file
-2. Click "Install" in the font preview window
-3. Configure your terminal to use "MesloLGS Nerd Font"
+1. Download or copy each `.ttf` file locally
+2. Double-click each `.ttf` file
+3. Click "Install" in the font preview window
+4. Configure your terminal to use "MesloLGS Nerd Font"
 
 ### Programmatic
 
 ```bash
 source lib/fonts.sh
-font_install_bundled
+font_install_bundled  # requires local MesloLGS*.ttf files at repository root
 ```
 
 ## Terminal Configuration

@@ -240,7 +240,7 @@ The automation suite is built on a foundation of reusable library utilities:
 ## ⚙️ Requirements
 
 - **PowerLevel10k**: Automatically installed if not present
-- **Nerd Font**: MesloLGS fonts included and auto-configured
+- **Nerd Font**: MesloLGS/compatible Nerd Fonts detected and auto-configured
 - **zsh**: Required shell (installation guided if needed)
 - **Git, Node.js, Python**: Managed through version managers
 - **Cross-platform support**: macOS, Linux, Windows (WSL)
@@ -253,7 +253,7 @@ The automation suite is built on a foundation of reusable library utilities:
    - Validates theme installation and provides troubleshooting
 
 2. **Version Manager Integration**: 
-   - Sets up Node.js (via nvm) using the version defined in `.nvmrc` (24.4.0 by default)
+   - Sets up Node.js (via nvm) using the version defined in `.nvmrc`
    - Configures Python (via pyenv) with version **3.12.11** (from `.python-version`)
    - Displays version information in terminal prompt
    - Handles version manager installation if missing
@@ -311,7 +311,7 @@ The automation suite provides full cross-platform support:
 The automation suite includes comprehensive troubleshooting capabilities:
 
 ### Font and Icon Issues
-1. **Automatic font installation**: MesloLGS Nerd Fonts are included
+1. **Automatic font installation**: MesloLGS Nerd Fonts can be installed via `setup-fonts-enhanced.sh`
 2. **VS Code integration**: Generated settings configure fonts automatically
 3. **Terminal configuration**: Scripts detect and configure terminal applications
 
