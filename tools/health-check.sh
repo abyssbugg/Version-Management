@@ -59,7 +59,8 @@ echo
 echo " Project Files:"
 expected_node_version="$(tr -d '[:space:]' < .nvmrc 2>/dev/null || true)"
 if [[ -n "$expected_node_version" ]]; then
-    check ".nvmrc (Node ${expected_node_version})" "grep -qx '${expected_node_version}' .nvmrc 2>/dev/null"
+    installed_node_version="$(node --version 2>/dev/null | sed 's/^v//' || true)"
+    check ".nvmrc (expects ${expected_node_version}, installed ${installed_node_version:-none})" "[[ '${installed_node_version}' == '${expected_node_version}' ]]"
 else
     check ".nvmrc present" "[ -f .nvmrc ]"
 fi
