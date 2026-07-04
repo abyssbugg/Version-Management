@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/logger.sh"
 source "${SCRIPT_DIR}/lib/env.sh"
 source "${SCRIPT_DIR}/lib/backup.sh"
+source "${SCRIPT_DIR}/lib/lock.sh"
 
 # Source language version management libraries if available
 if [[ -f "${SCRIPT_DIR}/lib/nvm.sh" ]]; then
@@ -468,6 +469,12 @@ main() {
         *)
             log_error "Unknown command: $command"
             usage
+            ;;
+    esac
+
+    case "$command" in
+        install-*|configure-nvm)
+            lock_with_trap "workstation-mutation" 30 || exit 1
             ;;
     esac
     

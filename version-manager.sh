@@ -34,8 +34,6 @@ BACKUP_DIR="${BACKUP_DIR:-$HOME/.local/backup/version-manager}"
 CONFIG_FILE="$CONFIG_DIR/config.yaml"
 STATE_FILE="$STATE_DIR/state.json"
 LOG_FILE="$LOG_DIR/version-manager-$(date +%Y%m%d).log"
-# Use user-owned directory for lock file (more secure than /tmp)
-LOCK_FILE="${STATE_DIR}/version-manager.lock"
 
 # Settings
 ENABLE_COLORS="${ENABLE_COLORS:-true}"
@@ -92,6 +90,9 @@ export SILENT_MODE
 
 # shellcheck source=lib/logger.sh
 source "$SCRIPT_DIR/lib/logger.sh"
+export VMS_STATE_DIR="${VMS_STATE_DIR:-$STATE_DIR}"
+# shellcheck source=lib/lock.sh
+source "$SCRIPT_DIR/lib/lock.sh"
 
 # Compatibility shim: allow callers that use log "LEVEL" "msg" directly
 log() {
@@ -198,25 +199,12 @@ check_internet() {
 # Acquire lock
 acquire_lock() {
     local timeout="${1:-30}"
-    local elapsed=0
-    
-    while [[ -f "$LOCK_FILE" ]] && [[ $elapsed -lt $timeout ]]; do
-        sleep 1
-        ((elapsed++))
-    done
-    
-    if [[ $elapsed -ge $timeout ]]; then
-        log_error "Failed to acquire lock after ${timeout}s"
-        return 1
-    fi
-    
-    echo "$$" > "$LOCK_FILE"
-    trap 'rm -f "$LOCK_FILE"' EXIT
+    lock_with_trap "version-manager" "$timeout"
 }
 
 # Release lock
 release_lock() {
-    rm -f "$LOCK_FILE"
+    lock_release "version-manager"
 }
 
 # ============================================================================

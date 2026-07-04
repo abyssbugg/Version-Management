@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/logger.sh"
 source "${SCRIPT_DIR}/lib/theme-ops.sh"
 source "${SCRIPT_DIR}/lib/backup.sh"
+source "${SCRIPT_DIR}/lib/lock.sh"
 
 # Default theme
 DEFAULT_THEME="professional"
@@ -158,6 +159,8 @@ main() {
             usage
             ;;
     esac
+
+    lock_with_trap "workstation-mutation" 30 || exit 1
     
     log_info " Installing $theme theme..."
     echo
