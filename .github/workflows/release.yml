@@ -69,7 +69,8 @@ jobs:
           PKG_VERSION=$(grep -o '"version": *"[^"]*"' package.json | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
           TAG_VERSION="${{ steps.version.outputs.version }}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Warning: package.json version ($PKG_VERSION) differs from tag ($TAG_VERSION)"
+            echo "::error::package.json version ($PKG_VERSION) does not match release tag ($TAG_VERSION). Bump package.json before tagging."
+            exit 1
           fi
 
   # ========================================
@@ -93,7 +94,7 @@ jobs:
         run: make syntax-check
 
       - name: Run ShellCheck
-        run: make lint || true  # Don't fail on lint warnings
+        run: make lint  # Gating: releases must not ship code that fails lint (P0-1)
 
       - name: Run tests
         run: make test
