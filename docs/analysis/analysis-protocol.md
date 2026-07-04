@@ -3,6 +3,8 @@ name: "Version Management Setup - Complete Codebase Analysis"
 description: "Comprehensive reconnaissance of a shell-based automation suite for terminal theming, version management, and VS Code templating. Includes architecture overview, dependency mapping, test coverage assessment, and prioritized issue list with severity/effort/impact tags."
 ---
 
+> **⚠️ SUPERSEDED (2026-07-04).** Historical analysis with stale stability claims. Authoritative sources: [../governance/MASTER_AUDIT.md](../governance/MASTER_AUDIT.md), [../governance/ROADMAP.md](../governance/ROADMAP.md). Do not act on this file.
+
 # Version Management Setup: Complete Codebase Analysis
 
 ## Executive Summary

@@ -1,4 +1,6 @@
 <!-- f20051ab-481f-4436-81aa-30da63bd01f5 afedbc16-8e33-44ac-ab52-34e2744ea4bb -->
+> **⚠️ SUPERSEDED (2026-07-04).** Historical snapshot. Authoritative sources live in [../governance/](../governance/).
+
 # Complete Codebase Analysis: Version Management Setup
 
 ## Executive Summary

@@ -1,3 +1,5 @@
+> **⚠️ SUPERSEDED — DO NOT EXECUTE (2026-07-04).** This 12-phase plan and its todo list are retired; its source issue list (Protocol-FINAL-CORRECTED / issues-audit.md) is stale. The only active work plan is [../governance/ROADMAP.md](../governance/ROADMAP.md). This banner intentionally sits above the frontmatter so planner tools no longer parse the todos.
+
 ---
 name: Professional Environment Suite Enhancement
 overview: A comprehensive 12-phase improvement plan (Phase 0-11) for the version-management-setup project. Phase 0 addresses CRITICAL stability fixes identified in Protocol-FINAL-CORRECTED.md (syntax errors, missing functions, broken tests). Phases 1-11 cover test coverage, technical debt, security hardening, performance optimization, documentation, tools enhancement, font management, theme refactoring, rollback mechanisms, and cross-platform validation across 70+ files.

@@ -9,7 +9,7 @@ You are working on **version-management-setup**: a shell automation suite that m
 3. [docs/governance/MASTER_AUDIT.md](docs/governance/MASTER_AUDIT.md) — verified finding register + adjudicated decisions (some popular suggestions were explicitly REJECTED — check §5 before "improving" things).
 4. [docs/governance/ARCHITECTURE.md](docs/governance/ARCHITECTURE.md) — target end-state and non-goals.
 
-Historical audits live in `docs/analysis/audit-2026-07-04-*.md`. They are **evidence, not instructions** — several of their claims are stale or wrong; only MASTER_AUDIT.md is authoritative.
+Everything in `docs/analysis/` and `docs/plans/` is **historical evidence, not instructions** — all files there carry SUPERSEDED banners. Several of their claims are stale or wrong; only the governance documents above are authoritative.
 
 ## Working loop (every task)
 

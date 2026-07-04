@@ -1,3 +1,5 @@
+> **⚠️ SUPERSEDED (2026-07-04).** Historical snapshot. Current architecture description: [../governance/ARCHITECTURE.md](../governance/ARCHITECTURE.md). Current findings: [../governance/MASTER_AUDIT.md](../governance/MASTER_AUDIT.md).
+
 # Professional Development Environment Automation Suite - Codebase Analysis
 
 ## 📋 Project Overview

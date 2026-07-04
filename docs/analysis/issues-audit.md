@@ -1,3 +1,5 @@
+> **⚠️ SUPERSEDED (2026-07-04).** Historical document (December 2024 analysis). Many issues listed here are fixed or were re-adjudicated. The authoritative finding register is [../governance/MASTER_AUDIT.md](../governance/MASTER_AUDIT.md); the active work plan is [../governance/ROADMAP.md](../governance/ROADMAP.md). Do not implement anything from this file.
+
 # Protocol-FINAL-CORRECTED.md
 # Comprehensive Issue, Error, and Problem Documentation
 
