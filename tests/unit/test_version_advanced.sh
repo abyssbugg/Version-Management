@@ -127,6 +127,43 @@ test_generate_docker_compose_creates_file() {
     rm -rf "$temp_dir"
 }
 
+# Test generated CI templates avoid pipe-to-shell installers and parse as YAML
+test_generate_ci_templates_avoid_pipe_to_shell_installers() {
+    local temp_dir=$(mktemp -d)
+    local old_pwd="$PWD"
+    cd "$temp_dir" || exit 1
+
+    mkdir -p .git
+    echo "test project" > README.md
+
+    generate_github_actions >/dev/null 2>&1
+    generate_gitlab_ci >/dev/null 2>&1
+    generate_circleci >/dev/null 2>&1
+
+    local files=(
+        ".github/workflows/version-manager.yml"
+        ".gitlab-ci.yml"
+        ".circleci/config.yml"
+    )
+
+    local file
+    for file in "${files[@]}"; do
+        assert_file_exists "$file" "$file is generated"
+
+        local forbidden
+        forbidden=$(grep -nE '(curl|wget)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' "$file" || true)
+        assert_equals "" "$forbidden" "$file does not contain pipe-to-shell installers"
+
+        if python3 -c 'import yaml' >/dev/null 2>&1; then
+            python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$file"
+            assert_equals "0" "$?" "$file parses as YAML"
+        fi
+    done
+
+    cd "$old_pwd" || exit 1
+    rm -rf "$temp_dir"
+}
+
 # Test generate_all_ci function exists
 test_generate_all_ci_function_exists() {
     if declare -f generate_all_ci >/dev/null 2>&1; then
@@ -198,6 +235,7 @@ test_generate_docker_compose_function_exists
 test_generate_github_actions_creates_file
 test_generate_dockerfile_node_creates_file
 test_generate_docker_compose_creates_file
+test_generate_ci_templates_avoid_pipe_to_shell_installers
 test_generate_all_ci_function_exists
 test_generate_docker_configs_function_exists
 test_all_cicd_generator_functions_exist

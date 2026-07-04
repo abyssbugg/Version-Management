@@ -158,9 +158,10 @@ jobs:
         node-version: [20.x, 22.x]
         python-version: [3.11, 3.12]
         go-version: [1.22.x, 1.23.x]
-        rust-version: [1.80.x, 1.81.x]
+        rust-version: [1.80.0, 1.81.0]
         java-version: [17, 21]
         
+    # Template note: pin third-party actions by commit SHA in production workflows.
     steps:
     - uses: actions/checkout@v4
     
@@ -181,11 +182,9 @@ jobs:
         go-version: ${{ matrix.go-version }}
         
     - name: Setup Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust-version }}
-        profile: minimal
-        override: true
+      run: |
+        rustup toolchain install "${{ matrix.rust-version }}" --profile minimal
+        rustup default "${{ matrix.rust-version }}"
         
     - name: Setup Java
       uses: actions/setup-java@v4
@@ -193,37 +192,8 @@ jobs:
         distribution: 'temurin'
         java-version: ${{ matrix.java-version }}
         
-    - name: Install version managers
+    - name: Install dependencies
       run: |
-        # Install nvm
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-        
-        # Install pyenv
-        curl https://pyenv.run | bash
-        export PYENV_ROOT="$HOME/.pyenv"
-        export PATH="$PYENV_ROOT/bin:$PATH"
-        eval "$(pyenv init -)"
-        
-        # Install goenv
-        git clone https://github.com/goenv/goenv.git ~/.goenv
-        export GOENV_ROOT="$HOME/.goenv"
-        export PATH="$GOENV_ROOT/bin:$PATH"
-        eval "$(goenv init -)"
-        
-        # Install rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
-        
-        # Install jenv
-        git clone https://github.com/jenv/jenv.git ~/.jenv
-        mkdir -p ~/.jenv/versions
-        export JENV_ROOT="$HOME/.jenv"
-        export PATH="$JENV_ROOT/bin:$PATH"
-        eval "$(jenv init -)"
-        
-        # Install dependencies
         npm ci
         pip install -r requirements.txt
         
@@ -257,41 +227,39 @@ variables:
   JAVA_VERSION: "17.0.12"
 
 before_script:
-  - echo "Installing version managers..."
-  # Install nvm
-  - curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-  - export NVM_DIR="$HOME/.nvm"
-  - source "$NVM_DIR/nvm.sh"
-  
-  # Install pyenv
-  - curl https://pyenv.run | bash
-  - export PYENV_ROOT="$HOME/.pyenv"
-  - export PATH="$PYENV_ROOT/bin:$PATH"
-  - eval "$(pyenv init -)"
-  
-  # Install goenv
-  - git clone https://github.com/goenv/goenv.git ~/.goenv
-  - export GOENV_ROOT="$HOME/.goenv"
-  - export PATH="$GOENV_ROOT/bin:$PATH"
-  - eval "$(goenv init -)"
-  
-  # Install rustup
-  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  - source "$HOME/.cargo/env"
-  
-  # Install jenv
-  - git clone https://github.com/jenv/jenv.git ~/.jenv
-  - mkdir -p ~/.jenv/versions
-  - export JENV_ROOT="$HOME/.jenv"
-  - export PATH="$JENV_ROOT/bin:$PATH"
-  - eval "$(jenv init -)"
+  - echo "Using official language images; pin image digests for stricter supply-chain control."
 
 test-job:
   stage: test
-  image: ubuntu:latest
+  image: node:${NODE_VERSION}
   script:
     - ./version-manager.sh health-check
     - npm test
+
+python-test:
+  stage: test
+  image: python:${PYTHON_VERSION}
+  script:
+    - python --version
+    - if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+go-test:
+  stage: test
+  image: golang:${GO_VERSION}
+  script:
+    - go version
+
+rust-test:
+  stage: test
+  image: rust:${RUST_VERSION}
+  script:
+    - rustc --version
+
+java-test:
+  stage: test
+  image: eclipse-temurin:${JAVA_VERSION}
+  script:
+    - java -version
 EOF
     
     log_success "GitLab CI configuration generated at $ci_file"
@@ -312,61 +280,20 @@ generate_circleci() {
     cat > "$config_file" << 'EOF'
 version: 2.1
 
-orbs:
-  node: circleci/node@5.0.0
-  python: circleci/python@2.1.0
-  go: circleci/go@1.7.0
-  rust: circleci/rust@1.5.0
-  java: circleci/java@1.5.0
-
 jobs:
   test:
+    parameters:
+      node-version:
+        type: string
+        default: "20.19.2"
     docker:
-      - image: cimg/base:current
+      - image: "cimg/node:<< parameters.node-version >>"
     steps:
       - checkout
-      - node/install:
-          node-version: '20.19.2'
-      - python/install:
-          python-version: '3.12.11'
-      - go/install:
-          go-version: '1.23.4'
-      - rust/install:
-          toolchain: '1.81.0'
-      - java/install:
-          version: '17.0.12'
-      
       - run:
-          name: Install version managers
+          name: Install dependencies
           command: |
-            # Install nvm
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-            export NVM_DIR="$HOME/.nvm"
-            source "$NVM_DIR/nvm.sh"
-            
-            # Install pyenv
-            curl https://pyenv.run | bash
-            export PYENV_ROOT="$HOME/.pyenv"
-            export PATH="$PYENV_ROOT/bin:$PATH"
-            eval "$(pyenv init -)"
-            
-            # Install goenv
-            git clone https://github.com/goenv/goenv.git ~/.goenv
-            export GOENV_ROOT="$HOME/.goenv"
-            export PATH="$GOENV_ROOT/bin:$PATH"
-            eval "$(goenv init -)"
-            
-            # Install rustup
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            source "$HOME/.cargo/env"
-            
-            # Install jenv
-            git clone https://github.com/jenv/jenv.git ~/.jenv
-            mkdir -p ~/.jenv/versions
-            export JENV_ROOT="$HOME/.jenv"
-            export PATH="$JENV_ROOT/bin:$PATH"
-            eval "$(jenv init -)"
-            
+            npm ci
       - run:
           name: Run version manager health check
           command: |
@@ -377,10 +304,71 @@ jobs:
           command: |
             npm test
 
+  python-test:
+    parameters:
+      python-version:
+        type: string
+        default: "3.12.11"
+    docker:
+      - image: "cimg/python:<< parameters.python-version >>"
+    steps:
+      - checkout
+      - run:
+          name: Check Python
+          command: |
+            python --version
+            if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+  go-test:
+    parameters:
+      go-version:
+        type: string
+        default: "1.23.4"
+    docker:
+      - image: "cimg/go:<< parameters.go-version >>"
+    steps:
+      - checkout
+      - run:
+          name: Check Go
+          command: |
+            go version
+
+  rust-test:
+    parameters:
+      rust-version:
+        type: string
+        default: "1.81.0"
+    docker:
+      - image: "cimg/rust:<< parameters.rust-version >>"
+    steps:
+      - checkout
+      - run:
+          name: Check Rust
+          command: |
+            rustc --version
+
+  java-test:
+    parameters:
+      java-version:
+        type: string
+        default: "17.0.12"
+    docker:
+      - image: "cimg/openjdk:<< parameters.java-version >>"
+    steps:
+      - checkout
+      - run:
+          name: Check Java
+          command: |
+            java -version
+
 workflows:
   version-manager-test:
     jobs:
       - test
+      - python-test
+      - go-test
+      - rust-test
+      - java-test
 EOF
     
     log_success "CircleCI configuration generated at $config_file"
