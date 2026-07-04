@@ -22,6 +22,9 @@ if (( ${BASH_VERSINFO[0]:-0} >= 4 )); then
     declare -gA COMMAND_CACHE 2>/dev/null || declare -A COMMAND_CACHE
     declare -gA VERSION_CACHE 2>/dev/null || declare -A VERSION_CACHE
     declare -gA STARTUP_TIMES 2>/dev/null || declare -A STARTUP_TIMES
+else
+    VERSION_CACHE_KEYS=()
+    VERSION_CACHE_VALUES=()
 fi
 
 # Performance configuration
@@ -29,6 +32,7 @@ PERF_STARTUP_THRESHOLD_MS="${PERF_STARTUP_THRESHOLD_MS:-500}"
 PERF_PARALLEL_DETECTION="${PERF_PARALLEL_DETECTION:-true}"
 PERF_LOG_STARTUP="${PERF_LOG_STARTUP:-false}"
 PERF_STARTUP_LOG="${PERF_STARTUP_LOG:-$HOME/.cache/version-manager/startup.log}"
+PERF_CACHE_DIR="${PERF_CACHE_DIR:-$HOME/.cache/version-manager/performance}"
 
 # ============================================================================
 # Command Caching
@@ -51,21 +55,100 @@ cache_command() {
     fi
 }
 
-# Get cached version of a command's output
-# Usage: cached_version=$(cache_version "node --version" "node")
+_performance_log_warn() {
+    local message="$1"
+
+    if declare -f log_warn >/dev/null 2>&1; then
+        log_warn "$message"
+    else
+        echo "WARNING: $message" >&2
+    fi
+}
+
+_cache_version_get_fallback() {
+    local cache_name="$1"
+    local cache_index
+
+    for cache_index in "${!VERSION_CACHE_KEYS[@]}"; do
+        if [[ "${VERSION_CACHE_KEYS[$cache_index]}" == "$cache_name" ]]; then
+            echo "${VERSION_CACHE_VALUES[$cache_index]}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+_cache_version_set_fallback() {
+    local cache_name="$1"
+    local version="$2"
+    local cache_index
+
+    for cache_index in "${!VERSION_CACHE_KEYS[@]}"; do
+        if [[ "${VERSION_CACHE_KEYS[$cache_index]}" == "$cache_name" ]]; then
+            VERSION_CACHE_VALUES[cache_index]="$version"
+            return 0
+        fi
+    done
+
+    VERSION_CACHE_KEYS+=("$cache_name")
+    VERSION_CACHE_VALUES+=("$version")
+}
+
+_cache_version_file() {
+    local cache_name="$1"
+    local cache_key
+
+    cache_key=$(printf '%s' "$cache_name" | shasum -a 256 2>/dev/null | cut -d' ' -f1)
+    if [[ -z "$cache_key" ]]; then
+        cache_key=$(printf '%s' "$cache_name" | md5 2>/dev/null | awk '{print $NF}')
+    fi
+    if [[ -z "$cache_key" ]]; then
+        cache_key=$(printf '%s' "$cache_name" | tr -c 'A-Za-z0-9_-' '_')
+    fi
+
+    printf '%s/version-%s.cache\n' "$PERF_CACHE_DIR" "$cache_key"
+}
+
+# Get cached version of a command's output using argv execution.
+# Usage: cached_version=$(cache_version "node" node --version)
 cache_version() {
-    local cmd="$1"
-    local key="${2:-$cmd}"
+    local cache_name="$1"
+    shift
+
+    if [[ -z "$cache_name" || "$#" -eq 0 ]]; then
+        return 1
+    fi
     
-    if $_PERF_HAS_ASSOC && [[ -n "${VERSION_CACHE[$key]+x}" ]]; then
-        echo "${VERSION_CACHE[$key]}"
+    if $_PERF_HAS_ASSOC && [[ -n "${VERSION_CACHE[$cache_name]+x}" ]]; then
+        echo "${VERSION_CACHE[$cache_name]}"
+        return 0
+    fi
+
+    if ! $_PERF_HAS_ASSOC && _cache_version_get_fallback "$cache_name"; then
+        return 0
+    fi
+
+    local cache_file
+    cache_file=$(_cache_version_file "$cache_name")
+    if [[ -f "$cache_file" ]]; then
+        cat "$cache_file"
         return 0
     fi
     
     local version
-    version=$(eval "$cmd" 2>/dev/null) || return 1
-    $_PERF_HAS_ASSOC && VERSION_CACHE[$key]="$version"
+    version=$("$@" 2>/dev/null) || return 1
+    if $_PERF_HAS_ASSOC; then
+        VERSION_CACHE[$cache_name]="$version"
+    else
+        _cache_version_set_fallback "$cache_name" "$version"
+    fi
+    mkdir -p "$PERF_CACHE_DIR" 2>/dev/null && printf '%s\n' "$version" > "$cache_file" 2>/dev/null
     echo "$version"
+}
+
+cache_version_argv() {
+    cache_version "$@"
 }
 
 # Clear all caches
@@ -74,6 +157,10 @@ clear_caches() {
         COMMAND_CACHE=()
         VERSION_CACHE=()
     fi
+
+    VERSION_CACHE_KEYS=()
+    VERSION_CACHE_VALUES=()
+    rm -f "$PERF_CACHE_DIR"/version-*.cache 2>/dev/null || true
 }
 
 # ============================================================================
@@ -326,7 +413,7 @@ perf_report() {
 # Export Functions
 # ============================================================================
 
-export -f cache_command cache_version clear_caches
+export -f cache_command cache_version cache_version_argv clear_caches
 export -f perf_checkpoint perf_elapsed measure_shell_startup log_startup_time
 export -f detect_version_managers_parallel detect_version_managers_sequential
 export -f generate_lazy_wrapper setup_nvm_lazy setup_pyenv_lazy

@@ -275,39 +275,6 @@ get_cached_setup_state() {
     cache_get "setup_state_$state_key" "$ttl"
 }
 
-# Get cache statistics
-cache_stats() {
-    echo "=== Cache Statistics ==="
-    
-    if [ -d "$CACHE_DIR" ]; then
-        echo "Cache Directory: $CACHE_DIR"
-        
-        local cache_count
-        cache_count=$(find "$CACHE_DIR" -type f | wc -l)
-        echo "Total Entries: $cache_count"
-        
-        if [ "$cache_count" -gt 0 ]; then
-            echo "Disk Usage: $(du -sh "$CACHE_DIR" | cut -f1)"
-            
-            local oldest_file
-            oldest_file=$(_find_files_by_mtime "$CACHE_DIR" | head -n 1)
-            if [ -n "$oldest_file" ]; then
-                echo "Oldest Entry: $(basename "$oldest_file")"
-            fi
-
-            local newest_file
-            newest_file=$(_find_files_by_mtime "$CACHE_DIR" | tail -n 1)
-            if [ -n "$newest_file" ]; then
-                echo "Newest Entry: $(basename "$newest_file")"
-            fi
-        fi
-    else
-        echo "Cache directory not found"
-    fi
-    
-    echo "===================="
-}
-
 # Setup cleanup on script exit
 setup_cache_cleanup() {
     trap 'cache_cleanup; cache_limit_size' EXIT
@@ -317,7 +284,7 @@ setup_cache_cleanup() {
 export -f init_cache_dir cache_set cache_get cache_delete cache_clear cache_cleanup
 export -f cache_limit_size cache_dependency_check get_cached_dependency_check
 export -f cache_user_preference get_cached_user_preference cache_setup_state
-export -f get_cached_setup_state cache_stats setup_cache_cleanup
+export -f get_cached_setup_state setup_cache_cleanup
 
 # Initialize cache system
 cache_init() {
@@ -354,6 +321,34 @@ cache_key() {
     
     # Replace problematic characters for filesystem
     echo "$key_base" | tr '/' '_' | tr ' ' '_' | tr -d '()[]{}*?'
+}
+
+_cache_validate_namespace() {
+    local namespace="$1"
+
+    if [[ ! "$namespace" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        log_error "Invalid cache namespace: $namespace"
+        return 1
+    fi
+
+    return 0
+}
+
+_cache_validate_cache_dir_for_delete() {
+    if [ -z "$CACHE_DIR" ] || [ "$CACHE_DIR" = "/" ]; then
+        log_error "Refusing to delete unsafe cache directory: ${CACHE_DIR:-<empty>}"
+        return 1
+    fi
+
+    case "$CACHE_DIR" in
+        "$HOME/.cache/version-management-setup"|"${XDG_CACHE_HOME:-}/version-management-setup")
+            return 0
+            ;;
+        *)
+            log_error "Refusing to delete unexpected cache directory: $CACHE_DIR"
+            return 1
+            ;;
+    esac
 }
 
 # Check if cache entry is valid (not expired)
@@ -396,6 +391,8 @@ cache_namespace_get() {
     local namespace="$1"
     local identifier="$2"
     local context="${3:-}"
+
+    _cache_validate_namespace "$namespace" || return 1
     
     if [ "$CACHE_ENABLED" != "1" ]; then
         return 1
@@ -420,6 +417,8 @@ cache_namespace_set() {
     local identifier="$2"
     local value="$3"
     local context="${4:-}"
+
+    _cache_validate_namespace "$namespace" || return 1
     
     if [ "$CACHE_ENABLED" != "1" ]; then
         return 0
@@ -446,6 +445,8 @@ cache_namespace_clear() {
     local namespace="$1"
     local identifier="${2:-}"
     local context="${3:-}"
+
+    _cache_validate_namespace "$namespace" || return 1
     
     if [ -z "$identifier" ]; then
         # Clear entire namespace
@@ -462,6 +463,7 @@ cache_namespace_clear() {
 # Clear all cache (namespaced variant)
 cache_namespace_clear_all() {
     if [ -d "$CACHE_DIR" ]; then
+        _cache_validate_cache_dir_for_delete || return 1
         rm -rf "$CACHE_DIR"
         cache_init
     fi
@@ -746,24 +748,29 @@ cache_backup_files() {
 
 # Get cache statistics
 cache_stats() {
+    local blue="${BLUE:-}"
+    local cyan="${CYAN:-}"
+    local yellow="${YELLOW:-}"
+    local reset="${NC:-}"
+
     if [ "$CACHE_ENABLED" != "1" ]; then
-        echo -e "${YELLOW}Cache is disabled${NC}"
+        echo -e "${yellow}Cache is disabled${reset}"
         return 0
     fi
     
     if [ ! -d "$CACHE_DIR" ]; then
-        echo -e "${YELLOW}Cache directory does not exist${NC}"
+        echo -e "${yellow}Cache directory does not exist${reset}"
         return 0
     fi
     
-    echo -e "${BLUE} Cache Statistics${NC}"
+    echo -e "${blue} Cache Statistics${reset}"
     echo "==================="
     
     # Count cache entries by namespace
     for namespace in version-managers files commands themes; do
         if [ -d "$CACHE_DIR/$namespace" ]; then
             local count=$(find "$CACHE_DIR/$namespace" -name "*.cache" -type f 2>/dev/null | wc -l | tr -d ' ')
-            echo -e "${CYAN}$namespace:${NC} $count entries"
+            echo -e "${cyan}$namespace:${reset} $count entries"
         fi
     done
     
@@ -771,17 +778,17 @@ cache_stats() {
     local total_size
     if command -v du >/dev/null 2>&1; then
         total_size=$(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1)
-        echo -e "${CYAN}Total size:${NC} $total_size"
+        echo -e "${cyan}Total size:${reset} $total_size"
     fi
     
     # Cache hit rate (if access log exists)
     if [ -f "$CACHE_DIR/metadata/access.log" ]; then
         local total_accesses=$(wc -l < "$CACHE_DIR/metadata/access.log" 2>/dev/null || echo "0")
-        echo -e "${CYAN}Total accesses:${NC} $total_accesses"
+        echo -e "${cyan}Total accesses:${reset} $total_accesses"
     fi
     
-    echo -e "${CYAN}TTL:${NC} ${CACHE_TTL:-$DEFAULT_TTL}s"
-    echo -e "${CYAN}Max entries:${NC} $CACHE_MAX_SIZE"
+    echo -e "${cyan}TTL:${reset} ${CACHE_TTL:-$DEFAULT_TTL}s"
+    echo -e "${cyan}Max entries:${reset} $CACHE_MAX_SIZE"
 }
 
 # Invalidate cache for specific operations
@@ -797,33 +804,51 @@ cache_invalidate_themes() {
     cache_namespace_clear "themes"
 }
 
-# Safe execution with cache fallback
-cache_safe_execute() {
-    local namespace="$1"
-    local identifier="$2"
-    local command="$3"
-    local context="${4:-}"
-    
-    # Try cache first
+# Execute argv and cache successful non-empty output.
+cache_exec_argv() {
+    local cache_key="$1"
+    local ttl="$2"
+    shift 2
+
+    if [ -z "$cache_key" ]; then
+        log_error "cache_exec_argv requires a cache key"
+        return 1
+    fi
+
+    if [ "$#" -eq 0 ]; then
+        log_error "cache_exec_argv requires a command"
+        return 1
+    fi
+
     local cached_result
-    if cached_result=$(cache_namespace_get "$namespace" "$identifier" "$context"); then
+    if cached_result=$(cache_get "$cache_key" "$ttl"); then
         echo "$cached_result"
         return 0
     fi
-    
-    # Execute command and cache result
+
     local result
-    if result=$(eval "$command" 2>/dev/null); then
-        if [ $? -eq 0 ] && [ -n "$result" ]; then
-            cache_set "$namespace" "$identifier" "$result" "$context"
-            echo "$result"
-            return 0
-        fi
+    result=$("$@" 2>/dev/null)
+    local exit_code=$?
+
+    if [ "$exit_code" -ne 0 ]; then
+        return "$exit_code"
     fi
-    
-    # Fallback: execute command without caching
-    eval "$command"
-    return $?
+
+    if [ -n "$result" ]; then
+        cache_set "$cache_key" "$result" "$ttl"
+    fi
+
+    echo "$result"
+    return 0
+}
+
+# Safe argv execution with cache fallback
+cache_safe_execute() {
+    local cache_key="$1"
+    local ttl="$2"
+    shift 2
+
+    cache_exec_argv "$cache_key" "$ttl" "$@"
 }
 
 # ============================================================================
@@ -847,4 +872,4 @@ export -f cache_namespace_get cache_namespace_set cache_namespace_clear cache_na
 export -f cache_pyenv_versions cache_nvm_list cache_file_content cache_command_exists
 export -f cache_theme_files cache_package_json cache_backup_files
 export -f cache_invalidate_version_managers cache_invalidate_files cache_invalidate_themes
-export -f cache_safe_execute cache_stats cache_cleanup_old
+export -f cache_exec_argv cache_safe_execute cache_stats cache_cleanup_old
