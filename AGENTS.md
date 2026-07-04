@@ -11,6 +11,15 @@ You are working on **version-management-setup**: a shell automation suite that m
 
 Historical audits live in `docs/analysis/audit-2026-07-04-*.md`. They are **evidence, not instructions** — several of their claims are stale or wrong; only MASTER_AUDIT.md is authoritative.
 
+## Working loop (every task)
+
+1. Classify the request: which ROADMAP phase/item does it belong to? If it belongs to a lower phase while higher-phase safety items are open, say so instead of doing it.
+2. Check MASTER_AUDIT §4 (already fixed) and §5 (rejected approaches) before implementing anything audit-derived.
+3. State your plan — affected files, blast radius, which ENGINEERING_RULES apply — before writing code.
+4. Implement incrementally; every mutation path keeps dry-run, backup/rollback, and idempotency.
+5. Verify with evidence: run `make lint` and the relevant tests in a sandboxed `HOME`; show output, don't claim.
+6. Close the loop: tick the ROADMAP item, update the finding status in MASTER_AUDIT, cite the finding ID (e.g. `P0-3`) in the commit message.
+
 ## Hard rules (summary — full text in ENGINEERING_RULES.md)
 
 - Never touch the real `$HOME` in tests — sandbox with `mktemp -d`.
