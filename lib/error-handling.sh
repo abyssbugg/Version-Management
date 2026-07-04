@@ -62,7 +62,94 @@ handle_error() {
 # Retry Logic
 # ============================================================================
 
+# Execute a command given as argv array, with retry logic. Preferred API.
+# Arguments are passed verbatim to the command — shell metacharacters in
+# arguments are inert (no eval, no word-splitting, no globbing).
+# Usage: SAFE_EXEC_RETRIES=3 SAFE_EXEC_DELAY=2 safe_exec_argv cmd [args...]
+# Env:
+#   SAFE_EXEC_RETRIES - max attempts (default: $MAX_RETRIES)
+#   SAFE_EXEC_DELAY   - seconds between attempts (default: $RETRY_DELAY)
+safe_exec_argv() {
+    local max_retries="${SAFE_EXEC_RETRIES:-$MAX_RETRIES}"
+    local retry_delay="${SAFE_EXEC_DELAY:-$RETRY_DELAY}"
+    local attempt=0
+
+    if [[ $# -eq 0 || -z "$1" ]]; then
+        log_error "safe_exec_argv: command argument must not be empty"
+        return 1
+    fi
+
+    while (( attempt < max_retries )); do
+        if "$@"; then
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        log_warn "Command failed (attempt $attempt/$max_retries): $1"
+
+        if (( attempt < max_retries )); then
+            log_debug "Retrying in $retry_delay seconds..."
+            sleep "$retry_delay"
+        fi
+    done
+
+    log_error "Command failed after $max_retries attempts: $1"
+    return 1
+}
+
+# Argv twin of safe_exec_backoff: retry with exponential backoff.
+# Usage: SAFE_EXEC_RETRIES=5 SAFE_EXEC_DELAY=1 safe_exec_backoff_argv cmd [args...]
+safe_exec_backoff_argv() {
+    local max_retries="${SAFE_EXEC_RETRIES:-5}"
+    local delay="${SAFE_EXEC_DELAY:-1}"
+    local attempt=0
+
+    if [[ $# -eq 0 || -z "$1" ]]; then
+        log_error "safe_exec_backoff_argv: command argument must not be empty"
+        return 1
+    fi
+
+    while (( attempt < max_retries )); do
+        if "$@"; then
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        log_warn "Command failed (attempt $attempt/$max_retries): $1"
+
+        if (( attempt < max_retries )); then
+            log_debug "Retrying in $delay seconds (exponential backoff)..."
+            sleep "$delay"
+            delay=$((delay * 2))
+        fi
+    done
+
+    log_error "Command failed after $max_retries attempts with backoff: $1"
+    return 1
+}
+
+# Execute a TRUSTED literal shell string (pipes/redirections allowed).
+# SECURITY CONTRACT: the argument MUST be a hard-coded literal written by a
+# maintainer — never assembled from variables or user input. This is the only
+# sanctioned string-execution escape hatch (ENGINEERING_RULES §2).
+# Usage: safe_exec_shell_trusted "cmd | grep foo"
+safe_exec_shell_trusted() {
+    local command="$1"
+
+    if [[ -z "$command" ]]; then
+        log_error "safe_exec_shell_trusted: command argument must not be empty"
+        return 1
+    fi
+
+    log_debug "safe_exec_shell_trusted: executing trusted literal: $command"
+    # eval is intentional and contained: trusted-literal contract above.
+    eval "$command"
+}
+
 # Execute command with retry logic
+# DEPRECATED: string-command API — use safe_exec_argv (or
+# safe_exec_shell_trusted for literal pipelines). Retained for backward
+# compatibility; emits a warning on every call.
 # Usage: safe_exec "command" [max_retries] [retry_delay]
 # Args:
 #   $1 - Command to execute
@@ -79,6 +166,7 @@ safe_exec() {
         log_error "safe_exec: command argument must not be empty"
         return 1
     fi
+    log_warn "safe_exec is deprecated: pass argv to safe_exec_argv, or use safe_exec_shell_trusted for literal pipelines"
     # NOTE: eval is used here intentionally to support composite shell commands
     # (e.g., pipes, redirections). Callers MUST pass only trusted, controlled
     # command strings — never pass user-supplied input directly.
@@ -102,6 +190,7 @@ safe_exec() {
 }
 
 # Execute command with exponential backoff
+# DEPRECATED: string-command API — use safe_exec_backoff_argv.
 # Usage: safe_exec_backoff "command" [max_retries] [initial_delay]
 # Args:
 #   $1 - Command to execute
@@ -118,6 +207,7 @@ safe_exec_backoff() {
         log_error "safe_exec_backoff: command argument must not be empty"
         return 1
     fi
+    log_warn "safe_exec_backoff is deprecated: pass argv to safe_exec_backoff_argv"
     # NOTE: eval is used here intentionally — see safe_exec() note above.
     # Only pass trusted, controlled command strings.
 
@@ -225,6 +315,7 @@ setup_error_trap() {
 
 # Export functions for use in sourcing scripts
 export -f handle_error safe_exec safe_exec_backoff
+export -f safe_exec_argv safe_exec_backoff_argv safe_exec_shell_trusted
 export -f register_cleanup run_cleanup
 export -f require_command require_file require_dir
 export -f setup_error_trap
