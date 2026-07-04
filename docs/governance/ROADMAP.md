@@ -23,12 +23,12 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 
 ## Phase 2 — Execution & Injection Surface (P0-4, P0-5, P1-1, P1-2)
 
-- [ ] **2.1** Add `safe_exec_argv cmd arg...` and `safe_exec_shell_trusted "literal"` to `lib/error-handling.sh`; migrate callers of `safe_exec`/`safe_exec_backoff`; deprecate string forms (warn on use). *(Per MASTER_AUDIT §5.2 — argv arrays, NOT `bash -c`)*
-- [ ] **2.2** Same treatment for `cache_safe_execute` (`lib/cache.sh:816,825`) and `cache_version` (`lib/performance.sh:66`).
-- [ ] **2.3** Atomic locking: replace check-then-write (`version-manager.sh:203-213`) with `mkdir`-based acquisition; extract to `lib/` and adopt in every mutating entry point.
-- [ ] **2.4** Validate cache namespace `^[A-Za-z0-9_-]+$` before `rm -rf` (`lib/cache.sh:452,465`).
-- [ ] **2.5** Regenerate CI templates in `version-advanced.sh`: `actions/setup-node`/`setup-python` etc. where available; download→checksum-verify→execute otherwise. Kill all 9 pipe-to-shell lines. *(P0-5)*
-- [ ] **2.6** Deduplicate `cache_stats` (`lib/cache.sh:279` vs `:748`) and rationalize the flat-vs-namespaced cache API. *(P1-8)*
+- [x] **2.1** Add `safe_exec_argv cmd arg...` and `safe_exec_shell_trusted "literal"` to `lib/error-handling.sh`; migrate callers of `safe_exec`/`safe_exec_backoff`; deprecate string forms (warn on use). *(Per MASTER_AUDIT §5.2 — argv arrays, NOT `bash -c`) — done in `321ae5e`; caller inventory verified empty (tests/docs only); 19 injection-regression assertions*
+- [x] **2.2** Same treatment for `cache_safe_execute` (`lib/cache.sh:816,825`) and `cache_version` (`lib/performance.sh:66`). *(done in `50216cf`)*
+- [x] **2.3** Atomic locking: replace check-then-write (`version-manager.sh:203-213`) with `mkdir`-based acquisition; extract to `lib/` and adopt in every mutating entry point. *(done in `026cdd3`: new `lib/lock.sh` with stale-reclaim + ownership-checked release; adopted by version-manager.sh, setup-theme.sh, setup-versions.sh)*
+- [x] **2.4** Validate cache namespace `^[A-Za-z0-9_-]+$` before `rm -rf` (`lib/cache.sh:452,465`). *(done in `50216cf`; canary-tested)*
+- [x] **2.5** Regenerate CI templates in `version-advanced.sh`: `actions/setup-node`/`setup-python` etc. where available; download→checksum-verify→execute otherwise. Kill all 9 pipe-to-shell lines. *(P0-5 — done in `68eb4a0`; grep-proven zero pipe-to-shell, PyYAML-validated output)*
+- [x] **2.6** Deduplicate `cache_stats` (`lib/cache.sh:279` vs `:748`) and rationalize the flat-vs-namespaced cache API. *(P1-8 — done in `50216cf`)*
 
 ## Phase 3 — Transactional Mutation Framework (P3-1, P1-3)
 

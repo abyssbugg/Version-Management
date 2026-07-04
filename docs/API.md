@@ -108,7 +108,10 @@ Standardized error handling with retry logic.
 | Function | Description | Usage |
 |----------|-------------|-------|
 | `handle_error` | Handle and log errors | `trap 'handle_error $LINENO' ERR` |
-| `safe_exec` | Execute with retry | `safe_exec "curl url" 3 2` |
+| `safe_exec_argv` | Execute argv with retry (preferred; args are inert) | `SAFE_EXEC_RETRIES=3 safe_exec_argv curl -fsSL "$url"` |
+| `safe_exec_backoff_argv` | Argv retry with exponential backoff | `safe_exec_backoff_argv git clone "$repo"` |
+| `safe_exec_shell_trusted` | Trusted-literal shell string (pipes ok; literals ONLY) | `safe_exec_shell_trusted "ls \| wc -l"` |
+| `safe_exec` | DEPRECATED — use `safe_exec_argv` | `safe_exec "curl url" 3 2` |
 | `safe_exec_backoff` | Execute with exponential backoff | `safe_exec_backoff "cmd" 5` |
 | `require_command` | Validate command exists | `require_command "git"` |
 | `require_file` | Validate file exists | `require_file "/path"` |
