@@ -13,11 +13,11 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 *Nothing here changes features. Everything here closes a hole that can damage a user's machine or ship broken code.*
 
 - [x] **1.1** Sandbox the integration test harness: export `HOME=$(mktemp -d)` + `XDG_CONFIG_HOME` in `tests/helpers.sh` `setup_test` (currently empty, `tests/helpers.sh:147-150`) and enforce in `tests/test_runner.sh` before any test sources a mutating script. Acceptance: `make test-integration` never touches the real `$HOME`. *(P0-3 — done in `d4e752d`: runner-level per-test sandbox + helpers-level sandbox for direct execution; verified via identical ~/.zshrc checksums)*
-- [ ] **1.2** Remove `|| true` from release lint (`release.yml:96`); encode tolerated findings in `.shellcheckrc`/inline suppressions. Acceptance: seeded lint error blocks release. *(P0-1)*
-- [ ] **1.3** Fail release on package.json ↔ tag mismatch (`release.yml:69-72`): replace warning with `exit 1`. *(P0-2)*
-- [ ] **1.4** Add `--dry-run` (default) + `--confirm` to `tools/update-global-node-symlinks.sh`; fix the passwordless-sudo confirmation bypass (`:37`). Add confirm + backup to the `/etc/shells` append in `scripts/fix-terminal-issues.sh:96`. *(P0-6)*
-- [ ] **1.5** Add pre-commit job and gitleaks secret-scan job to `test.yml`. *(P1-5, P2-10 fast wins)*
-- [ ] **1.6** Make `tools/validate-quality.sh` exit non-zero on mandatory failures; add `--advisory`. *(P1-7)*
+- [x] **1.2** Remove `|| true` from release lint (`release.yml:96`); encode tolerated findings in `.shellcheckrc`/inline suppressions. Acceptance: seeded lint error blocks release. *(P0-1 — done in `8f6d269`)*
+- [x] **1.3** Fail release on package.json ↔ tag mismatch (`release.yml:69-72`): replace warning with `exit 1`. *(P0-2 — done in `8f6d269`)*
+- [x] **1.4** Add `--dry-run` (default) + `--confirm` to `tools/update-global-node-symlinks.sh`; fix the passwordless-sudo confirmation bypass (`:37`). Add confirm + backup to the `/etc/shells` append in `scripts/fix-terminal-issues.sh:96`. *(P0-6 — done in `0c6b674`: plan-by-default on update AND restore paths; /etc/shells gets diff preview + backup + interactive/--confirm/VMS_CONFIRM consent)*
+- [x] **1.5** Add pre-commit job and gitleaks secret-scan job to `test.yml`. *(P1-5, P2-10 fast wins — done in `8f6d269`; both actions SHA-pinned and verified against GitHub API)*
+- [x] **1.6** Make `tools/validate-quality.sh` exit non-zero on mandatory failures; add `--advisory`. *(P1-7 — done in `78369bf`)*
 
 **Phase gate:** CI red on any of: lint failure in release, version mismatch, secret detected, test writing outside sandbox HOME.
 
