@@ -146,12 +146,56 @@ restore_command() {
 # Test setup and teardown
 setup_test() {
   echo "Setting up test environment..."
-  # Add setup steps here
+
+  if [[ -n "${_VMS_TEST_HOME:-}" && "${HOME:-}" == "$_VMS_TEST_HOME" ]]; then
+    mkdir -p "$HOME/.config" "$HOME/.cache"
+    touch "$HOME/.zshrc"
+    return 0
+  fi
+
+  _VMS_REAL_HOME="${HOME:-}"
+  _VMS_REAL_XDG_CONFIG_HOME="${XDG_CONFIG_HOME-}"
+  _VMS_REAL_XDG_CACHE_HOME="${XDG_CACHE_HOME-}"
+  _VMS_TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/vms-test-home.XXXXXX")
+
+  mkdir -p "$_VMS_TEST_HOME/.config" "$_VMS_TEST_HOME/.cache"
+  touch "$_VMS_TEST_HOME/.zshrc"
+
+  export HOME="$_VMS_TEST_HOME"
+  export XDG_CONFIG_HOME="$_VMS_TEST_HOME/.config"
+  export XDG_CACHE_HOME="$_VMS_TEST_HOME/.cache"
 }
 
 teardown_test() {
   echo "Tearing down test environment..."
-  # Cleanup steps
+
+  local sandbox="${_VMS_TEST_HOME:-}"
+
+  if [[ -n "${_VMS_REAL_HOME+x}" ]]; then
+    export HOME="$_VMS_REAL_HOME"
+  fi
+
+  if [[ -n "${_VMS_REAL_XDG_CONFIG_HOME+x}" ]]; then
+    if [[ -n "$_VMS_REAL_XDG_CONFIG_HOME" ]]; then
+      export XDG_CONFIG_HOME="$_VMS_REAL_XDG_CONFIG_HOME"
+    else
+      unset XDG_CONFIG_HOME
+    fi
+  fi
+
+  if [[ -n "${_VMS_REAL_XDG_CACHE_HOME+x}" ]]; then
+    if [[ -n "$_VMS_REAL_XDG_CACHE_HOME" ]]; then
+      export XDG_CACHE_HOME="$_VMS_REAL_XDG_CACHE_HOME"
+    else
+      unset XDG_CACHE_HOME
+    fi
+  fi
+
+  if [[ -n "$sandbox" && "$sandbox" == */vms-test-home.* ]]; then
+    rm -rf "$sandbox"
+  fi
+
+  unset _VMS_TEST_HOME _VMS_REAL_HOME _VMS_REAL_XDG_CONFIG_HOME _VMS_REAL_XDG_CACHE_HOME
 }
 
 # =============================================================================

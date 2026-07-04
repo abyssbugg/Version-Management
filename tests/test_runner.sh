@@ -67,7 +67,22 @@ _run_test_file() {
 
     local exit_code=0
     local output
-    output=$(cd "$test_dir" && bash "./$test_name" 2>&1) || exit_code=$?
+    local sandbox
+    sandbox=$(mktemp -d "${TMPDIR:-/tmp}/vms-test-home.XXXXXX")
+    mkdir -p "$sandbox/.config" "$sandbox/.cache"
+    touch "$sandbox/.zshrc"
+
+    output=$(
+        cd "$test_dir" && \
+            HOME="$sandbox" \
+            XDG_CONFIG_HOME="$sandbox/.config" \
+            XDG_CACHE_HOME="$sandbox/.cache" \
+            bash "./$test_name" 2>&1
+    ) || exit_code=$?
+
+    if [[ "$sandbox" == */vms-test-home.* ]]; then
+        rm -rf "$sandbox"
+    fi
 
     if [[ $exit_code -eq 0 ]]; then
         echo "PASS" > "$result_file"

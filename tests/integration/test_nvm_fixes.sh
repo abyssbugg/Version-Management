@@ -4,7 +4,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "$SCRIPT_DIR/../helpers.sh"
+setup_test
 source "$ROOT_DIR/scripts/fix-nvm-issues.sh"
+trap teardown_test EXIT
 
 # Test: fix_nvm_issues function exists and runs without error
 test_fix_nvm_issues_runs() {
@@ -34,4 +36,6 @@ test_nvm_fix_functions_defined() {
 test_fix_nvm_issues_runs
 test_nvm_fix_functions_defined
 
+teardown_test
+trap - EXIT
 exit 0
