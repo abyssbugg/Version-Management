@@ -36,5 +36,5 @@ Everything in `docs/analysis/` and `docs/plans/` is **historical evidence, not i
 make lint          # ShellCheck
 make syntax-check
 make test-unit
-make test-integration   # WARNING: until ROADMAP 1.1 lands, this can mutate the real ~/.zshrc — run only in a sandboxed HOME
+make test-integration   # sandboxed HOME since ROADMAP 1.1 (d4e752d) — safe to run
 ```

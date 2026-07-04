@@ -6,6 +6,5 @@ This file is intentionally a pointer, not a copy: duplicated governance drifts, 
 
 Critical warnings that bear repeating:
 
-- `make test-integration` can mutate the real `~/.zshrc` until ROADMAP 1.1 lands — sandbox `HOME` first.
 - Sourced libraries in `lib/` deliberately lack `set -euo pipefail`. Do not "fix" this.
 - Check `docs/governance/MASTER_AUDIT.md` §5 before implementing any audit suggestion — several were adjudicated as wrong.
