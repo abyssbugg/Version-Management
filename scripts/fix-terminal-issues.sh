@@ -17,6 +17,7 @@ source "${REPO_ROOT}/lib/backup.sh"
 ZSHRC="$HOME/.zshrc"
 P10K_CONFIG="$HOME/.p10k.zsh"
 PROJECT_P10K_CONFIG="${REPO_ROOT}/config/professional-dev-p10k.zsh"
+CONFIRM_SYSTEM_CHANGES=false
 
 # Main diagnostic function
 run_terminal_diagnostics() {
@@ -77,6 +78,64 @@ run_terminal_diagnostics() {
     echo
 }
 
+confirm_etc_shells_append() {
+    local zsh_path="$1"
+
+    if [[ "$CONFIRM_SYSTEM_CHANGES" == "true" || "${VMS_CONFIRM:-}" == "1" ]]; then
+        return 0
+    fi
+
+    local response=""
+    if [[ -t 0 ]]; then
+        read -r -p "Append $zsh_path to /etc/shells? [y/N]: " response
+    else
+        log_warn "Confirmation required to modify /etc/shells; re-run with --confirm or VMS_CONFIRM=1"
+        return 1
+    fi
+
+    if [[ "$response" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+        return 0
+    fi
+
+    log_info "Skipped /etc/shells update"
+    return 1
+}
+
+append_zsh_to_etc_shells() {
+    local zsh_path="$1"
+
+    if [[ "$zsh_path" != /* || ! -x "$zsh_path" ]]; then
+        log_error "Invalid zsh path: $zsh_path"
+        return 1
+    fi
+
+    if grep -Fxq "$zsh_path" /etc/shells 2>/dev/null; then
+        return 0
+    fi
+
+    log_info "Adding zsh to /etc/shells..."
+
+    local planned_shells
+    planned_shells=$(mktemp)
+    cp /etc/shells "$planned_shells"
+    printf '%s\n' "$zsh_path" >> "$planned_shells"
+
+    log_info "Planned /etc/shells change:"
+    diff -u /etc/shells "$planned_shells" || true
+    rm -f "$planned_shells"
+
+    if ! confirm_etc_shells_append "$zsh_path"; then
+        return 1
+    fi
+
+    local backup_path="${TMPDIR:-/tmp}/etc-shells.backup.$(date +%Y%m%d_%H%M%S)"
+    cp /etc/shells "$backup_path"
+    log_success "Backed up /etc/shells to $backup_path"
+
+    printf '%s\n' "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+    log_success "Added $zsh_path to /etc/shells"
+}
+
 # Fix shell configuration
 fix_shell_configuration() {
     log_info " Fixing Shell Configuration"
@@ -91,10 +150,7 @@ fix_shell_configuration() {
             zsh_path=$(command -v zsh)
             
             # Add zsh to /etc/shells if not already there
-            if ! grep -q "$zsh_path" /etc/shells 2>/dev/null; then
-                log_info "Adding zsh to /etc/shells..."
-                echo "$zsh_path" | sudo tee -a /etc/shells
-            fi
+            append_zsh_to_etc_shells "$zsh_path"
             
             # Change shell
             chsh -s "$zsh_path"
@@ -210,7 +266,10 @@ show_usage() {
     cat << EOF
 Terminal Configuration Diagnostic and Fix Tool
 
-Usage: $0 [command]
+Usage: $0 [--confirm] [command]
+
+Options:
+    --confirm   Apply privileged system changes without prompting
 
 Commands:
   diagnose    Run full diagnostic (default)
@@ -230,7 +289,29 @@ EOF
 
 # Main function
 main() {
-    local command="${1:-diagnose}"
+    local command="diagnose"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --confirm)
+                CONFIRM_SYSTEM_CHANGES=true
+                shift
+                ;;
+            diagnose|fix-shell|fix-p10k|fix-fonts|fix-all|test)
+                command="$1"
+                shift
+                ;;
+            help|--help|-h)
+                command="help"
+                shift
+                ;;
+            *)
+                log_error "Unknown command: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
     
     case "$command" in
         diagnose)

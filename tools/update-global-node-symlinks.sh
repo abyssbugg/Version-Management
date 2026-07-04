@@ -11,6 +11,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DRY_RUN=true
 
 # Source logging
 source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
@@ -24,22 +25,27 @@ source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
 # Safety Checks
 # ============================================================================
 
-check_sudo_access() {
-    if ! sudo -n true 2>/dev/null; then
-        log_warn "This operation requires sudo access"
-        echo
-        echo "This script will:"
-        echo "  1. Backup existing symlinks in /usr/local/bin/"
-        echo "  2. Create new symlinks to your current NVM Node.js"
-        echo
-        echo "This allows desktop apps to use your NVM-managed Node.js."
-        echo
-        read -r -p "Continue? [y/N]: " response
-        if [[ ! "$response" =~ ^[Yy] ]]; then
-            log_info "Operation cancelled"
-            exit 0
-        fi
+describe_current_target() {
+    local path="$1"
+
+    if [[ -L "$path" ]]; then
+        readlink "$path" 2>/dev/null || echo "unknown"
+    elif [[ -e "$path" ]]; then
+        echo "regular file"
+    else
+        echo "missing"
     fi
+}
+
+show_symlink_plan() {
+    local node_path="$1"
+    local npm_path="$2"
+    local npx_path="$3"
+
+    log_info "Plan for /usr/local/bin symlinks:"
+    echo "  /usr/local/bin/node: $(describe_current_target /usr/local/bin/node) → $node_path"
+    echo "  /usr/local/bin/npm:  $(describe_current_target /usr/local/bin/npm) → $npm_path"
+    echo "  /usr/local/bin/npx:  $(describe_current_target /usr/local/bin/npx) → $npx_path"
 }
 
 backup_existing_symlinks() {
@@ -118,8 +124,13 @@ update_global_node_symlinks() {
     log_info "Current NVM version: v$current_version"
     echo
     
-    # Safety checks
-    check_sudo_access
+    show_symlink_plan "$node_path" "$npm_path" "$npx_path"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo
+        log_info "Dry run only. Re-run with --confirm to apply this plan."
+        exit 0
+    fi
     
     # Backup existing
     local backup_path
@@ -197,11 +208,15 @@ Options:
     update          Update symlinks to current NVM version (default)
     restore PATH    Restore symlinks from backup directory
     status          Show current symlink status
+    -n, --dry-run   Print the plan without changing anything (default)
+    --confirm       Apply the planned privileged changes
     -h, --help      Show this help
 
 Examples:
-    $(basename "$0")                              # Update symlinks
-    $(basename "$0") restore /tmp/backup-123      # Restore from backup
+    $(basename "$0")                              # Show update plan
+    $(basename "$0") --confirm                    # Apply update plan
+    $(basename "$0") restore /tmp/backup-123      # Show restore plan
+    $(basename "$0") --confirm restore /tmp/backup-123
     $(basename "$0") status                       # Check current status
 
 Why use this?
@@ -237,29 +252,84 @@ show_status() {
     done
 }
 
+show_restore_plan() {
+    local backup_dir="$1"
+
+    if [[ ! -d "$backup_dir" ]]; then
+        log_error "Backup directory not found: $backup_dir"
+        exit 1
+    fi
+
+    log_info "Plan to restore symlinks from: $backup_dir"
+    for cmd in node npm npx; do
+        if [[ -e "$backup_dir/$cmd" ]]; then
+            echo "  /usr/local/bin/$cmd: $(describe_current_target "/usr/local/bin/$cmd") → $backup_dir/$cmd"
+        fi
+    done
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo
+        log_info "Dry run only. Re-run with --confirm to apply this plan."
+        exit 0
+    fi
+}
+
 # ============================================================================
 # Main
 # ============================================================================
 
 main() {
-    local command="${1:-update}"
+    local command="update"
+    local restore_path=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --confirm)
+                DRY_RUN=false
+                shift
+                ;;
+            update|status)
+                command="$1"
+                shift
+                ;;
+            restore)
+                command="restore"
+                shift
+                restore_path="${1:-}"
+                if [[ -n "$restore_path" ]]; then
+                    shift
+                fi
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option or command: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
     
     case "$command" in
         update|"")
             update_global_node_symlinks
             ;;
         restore)
-            if [[ -z "${2:-}" ]]; then
+            if [[ -z "$restore_path" ]]; then
                 log_error "Please specify backup directory"
                 exit 1
             fi
-            restore_symlinks "$2"
+            show_restore_plan "$restore_path"
+            restore_symlinks "$restore_path"
             ;;
         status)
             show_status
-            ;;
-        -h|--help)
-            show_usage
             ;;
         *)
             log_error "Unknown command: $command"
