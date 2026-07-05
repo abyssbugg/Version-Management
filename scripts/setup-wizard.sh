@@ -67,7 +67,7 @@ show_progress() {
     local percent=$((current * 100 / total))
     local filled=$((current * width / total))
     local empty=$((width - filled))
-    
+
     printf "\r  Progress: ["
     printf "%${filled}s" | tr ' ' '█'
     printf "%${empty}s" | tr ' ' '░'
@@ -80,7 +80,7 @@ show_step() {
     local step_num=$1
     local step_title=$2
     ((CURRENT_STEP++))
-    
+
     echo
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${BOLD}  Step $step_num: $step_title${NC}"
@@ -93,16 +93,16 @@ prompt_yes_no() {
     local prompt="$1"
     local default="${2:-y}"
     local response
-    
+
     if [[ "$default" == "y" ]]; then
         prompt="$prompt [Y/n]: "
     else
         prompt="$prompt [y/N]: "
     fi
-    
+
     read -r -p "  $prompt" response
     response="${response:-$default}"
-    
+
     [[ "$response" =~ ^[Yy] ]]
 }
 
@@ -111,17 +111,17 @@ prompt_select() {
     local prompt="$1"
     shift
     local options=("$@")
-    
+
     echo -e "  ${prompt}"
     echo
-    
+
     local i=1
     for opt in "${options[@]}"; do
         echo -e "    ${CYAN}$i)${NC} $opt"
         ((i++))
     done
     echo
-    
+
     local choice
     while true; do
         read -r -p "  Enter choice (1-${#options[@]}): " choice
@@ -138,7 +138,7 @@ show_spinner() {
     local pid=$1
     local message="${2:-Working...}"
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    
+
     while kill -0 "$pid" 2>/dev/null; do
         for ((i=0; i<${#spinstr}; i++)); do
             printf "\r  ${spinstr:$i:1} %s" "$message"
@@ -252,7 +252,7 @@ mark_first_run_complete() {
 # Step 1: Welcome
 step_welcome() {
     show_header
-    
+
     echo -e "  ${BOLD}Welcome to the Professional Development Environment Setup!${NC}"
     echo
     echo "  This wizard will guide you through setting up:"
@@ -262,14 +262,14 @@ step_welcome() {
     echo -e "    ${CYAN}•${NC} VS Code integration"
     echo -e "    ${CYAN}•${NC} Nerd Fonts for icon support"
     echo
-    
+
     if is_first_run; then
         echo -e "  ${GREEN}This appears to be your first time running the wizard.${NC}"
     else
         echo -e "  ${DIM}You've run this wizard before. Previous settings may be updated.${NC}"
     fi
     echo
-    
+
     if ! prompt_yes_no "Ready to begin?"; then
         echo
         echo "  Setup cancelled. Run again when you're ready!"
@@ -280,9 +280,9 @@ step_welcome() {
 # Step 2: System Check
 step_system_check() {
     show_step 1 "System Requirements Check"
-    
+
     local issues=0
-    
+
     # Check shell
     echo "  Checking shell environment..."
     if [[ -n "${ZSH_VERSION:-}" ]] || [[ "$(basename "$SHELL")" == "zsh" ]]; then
@@ -292,7 +292,7 @@ step_system_check() {
         show_info "Some features require zsh. Consider switching: chsh -s \$(which zsh)"
         ((issues++))
     fi
-    
+
     # Check git
     if command -v git >/dev/null 2>&1; then
         show_success "Git installed: $(git --version | head -1)"
@@ -300,7 +300,7 @@ step_system_check() {
         show_error "Git not found - required for installation"
         ((issues++))
     fi
-    
+
     # Check curl/wget
     if command -v curl >/dev/null 2>&1; then
         show_success "curl available"
@@ -310,7 +310,7 @@ step_system_check() {
         show_error "Neither curl nor wget found - required for downloads"
         ((issues++))
     fi
-    
+
     # Check Homebrew on macOS
     if [[ "$(uname -s)" == "Darwin" ]]; then
         if command -v brew >/dev/null 2>&1; then
@@ -319,7 +319,7 @@ step_system_check() {
             show_warning "Homebrew not found (recommended for macOS)"
         fi
     fi
-    
+
     echo
     if [[ $issues -gt 0 ]]; then
         show_warning "Found $issues issue(s). Some features may not work."
@@ -329,14 +329,14 @@ step_system_check() {
     else
         show_success "All system requirements met!"
     fi
-    
+
     sleep 1
 }
 
 # Step 3: Profile Selection
 step_profile_selection() {
     show_step 2 "Select Installation Profile"
-    
+
     echo "  Choose a setup profile based on your needs:"
     echo
     echo -e "    ${CYAN}1)${NC} ${BOLD}Minimal${NC} - Essential tools only"
@@ -350,11 +350,11 @@ step_profile_selection() {
     echo
     echo -e "    ${CYAN}4)${NC} ${BOLD}Custom${NC} - Choose individual components"
     echo
-    
+
     local choice
     read -r -p "  Enter choice (1-4) [2]: " choice
     choice="${choice:-2}"
-    
+
     case "$choice" in
         1) SELECTED_PROFILE="minimal" ;;
         2) SELECTED_PROFILE="standard" ;;
@@ -362,7 +362,7 @@ step_profile_selection() {
         4) SELECTED_PROFILE="custom" ;;
         *) SELECTED_PROFILE="standard" ;;
     esac
-    
+
     echo
     show_success "Selected profile: $SELECTED_PROFILE"
 }
@@ -372,9 +372,9 @@ step_custom_selection() {
     if [[ "$SELECTED_PROFILE" != "custom" ]]; then
         return
     fi
-    
+
     show_step 3 "Select Components"
-    
+
     INSTALL_THEME=$(prompt_yes_no "Install PowerLevel10k theme?" && echo "true" || echo "false")
     INSTALL_NVM=$(prompt_yes_no "Install NVM (Node.js)?" && echo "true" || echo "false")
     INSTALL_PYENV=$(prompt_yes_no "Install pyenv (Python)?" && echo "true" || echo "false")
@@ -388,10 +388,10 @@ step_custom_selection() {
 # Step 5: Confirmation
 step_confirmation() {
     show_step 4 "Confirm Installation"
-    
+
     echo "  The following will be installed/configured:"
     echo
-    
+
     case "$SELECTED_PROFILE" in
         minimal)
             echo -e "    ${GREEN}✓${NC} PowerLevel10k Theme"
@@ -431,11 +431,11 @@ step_confirmation() {
             [[ "$INSTALL_FONTS" == "true" ]] && echo -e "    ${GREEN}✓${NC} Nerd Fonts" && ((TOTAL_STEPS++))
             ;;
     esac
-    
+
     echo
     echo -e "  ${DIM}A backup will be created before making changes.${NC}"
     echo
-    
+
     if ! prompt_yes_no "Proceed with installation?"; then
         echo
         echo "  Installation cancelled."
@@ -446,14 +446,14 @@ step_confirmation() {
 # Step 6: Installation
 step_install() {
     show_step 5 "Installing Components"
-    
+
     CURRENT_STEP=0
-    
+
     # Create restore point
     echo "  Creating restore point..."
     create_restore_point "wizard_$(date +%Y%m%d_%H%M%S)" "$HOME/.zshrc" "$HOME/.p10k.zsh" 2>/dev/null || true
     show_success "Restore point created"
-    
+
     # Install based on profile
     case "$SELECTED_PROFILE" in
         minimal)
@@ -497,11 +497,11 @@ step_install() {
 install_component() {
     local component="$1"
     ((CURRENT_STEP++))
-    
+
     echo
     show_progress "$CURRENT_STEP" "$TOTAL_STEPS"
     echo
-    
+
     case "$component" in
         theme)
             echo "  Installing PowerLevel10k theme..."
@@ -565,14 +565,14 @@ install_component() {
             show_info "Install fonts manually from: MesloLGS*.ttf files"
             ;;
     esac
-    
+
     sleep 0.5
 }
 
 # Step 7: Completion
 step_completion() {
     show_header
-    
+
     echo -e "  ${GREEN}${BOLD} Setup Complete!${NC}"
     echo
     echo "  Your development environment has been configured."
@@ -596,9 +596,9 @@ step_completion() {
     echo -e "    ${CYAN}./tools/system-diagnostics.sh --dashboard${NC}"
     echo "                           - Check system health"
     echo
-    
+
     mark_first_run_complete
-    
+
     echo -e "  ${DIM}Setup wizard completed at $(date)${NC}"
     echo
 }
@@ -618,7 +618,7 @@ main() {
     INSTALL_JENV="false"
     INSTALL_VSCODE="false"
     INSTALL_FONTS="false"
-    
+
     # Run wizard steps
     step_welcome
     step_system_check

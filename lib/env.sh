@@ -9,7 +9,7 @@ _ENV_SH_LOADED=1
 # Environment Setup Utilities for Version Management Setup
 # =============================================================================
 # Provides environment detection and setup functions for cross-platform compatibility
-# 
+#
 # Functions:
 #   - detect_shell        : Detect current shell (bash/zsh)
 #   - detect_os           : Detect operating system platform
@@ -47,13 +47,13 @@ fi
 # Detect the current shell being used
 detect_shell() {
     local shell_name=""
-    
+
     # Method 1: Check SHELL environment variable
     if [[ -n "${SHELL:-}" ]]; then
         shell_name=$(basename "$SHELL")
         log_debug "Shell detected from \$SHELL: $shell_name"
     fi
-    
+
     # Method 2: Check process name if SHELL is not reliable
     if [[ -z "$shell_name" ]] || [[ "$shell_name" == "sh" ]]; then
         if command -v ps >/dev/null 2>&1; then
@@ -65,7 +65,7 @@ detect_shell() {
             fi
         fi
     fi
-    
+
     # Method 3: Check ZSH_VERSION or BASH_VERSION
     if [[ -z "$shell_name" ]] || [[ "$shell_name" == "sh" ]]; then
         if [[ -n "${ZSH_VERSION:-}" ]]; then
@@ -76,12 +76,12 @@ detect_shell() {
             log_debug "Shell detected from BASH_VERSION"
         fi
     fi
-    
+
     # Normalize shell name
     case "$shell_name" in
         *zsh*) echo "zsh" ;;
         *bash*) echo "bash" ;;
-        *) 
+        *)
             log_warn "Unknown shell detected: $shell_name, defaulting to bash"
             echo "bash"
             ;;
@@ -95,11 +95,11 @@ detect_shell() {
 # Detect the operating system platform
 detect_os() {
     local os_type=""
-    
+
     if command -v uname >/dev/null 2>&1; then
         local uname_output
         uname_output=$(uname -s)
-        
+
         case "$uname_output" in
             Darwin*)
                 os_type="macos"
@@ -122,7 +122,7 @@ detect_os() {
         log_error "uname command not available, cannot detect OS"
         os_type="unknown"
     fi
-    
+
     echo "$os_type"
 }
 
@@ -135,12 +135,12 @@ validate_env_var() {
     local var_name="$1"
     local expected_value="${2:-}"
     local allow_empty="${3:-false}"
-    
+
     if [[ -z "$var_name" ]]; then
         log_error "validate_env_var: Variable name is required"
         return 1
     fi
-    
+
     # Check if variable is set
     if [[ -z "${!var_name:-}" ]]; then
         if [[ "$allow_empty" == "true" ]]; then
@@ -151,7 +151,7 @@ validate_env_var() {
             return 1
         fi
     fi
-    
+
     # Check expected value if provided
     if [[ -n "$expected_value" ]]; then
         if [[ "${!var_name}" == "$expected_value" ]]; then
@@ -162,7 +162,7 @@ validate_env_var() {
             return 1
         fi
     fi
-    
+
     log_debug "Environment variable $var_name is set: ${!var_name}"
     return 0
 }
@@ -178,27 +178,27 @@ detect_nvm() {
         log_debug "NVM detected via command"
         return 0
     fi
-    
+
     # Check if nvm function is loaded
     if declare -f nvm >/dev/null 2>&1; then
         log_debug "NVM detected as function"
         return 0
     fi
-    
+
     # Check common nvm installation paths
     local nvm_paths=(
         "$HOME/.nvm/nvm.sh"
         "/usr/local/opt/nvm/nvm.sh"
         "/opt/homebrew/opt/nvm/nvm.sh"
     )
-    
+
     for nvm_path in "${nvm_paths[@]}"; do
         if [[ -f "$nvm_path" ]]; then
             log_debug "NVM script found at: $nvm_path"
             return 0
         fi
     done
-    
+
     log_debug "NVM not detected"
     return 1
 }
@@ -209,7 +209,7 @@ detect_pyenv() {
         log_debug "pyenv detected"
         return 0
     fi
-    
+
     log_debug "pyenv not detected"
     return 1
 }
@@ -222,23 +222,23 @@ detect_pyenv() {
 setup_path_mod() {
     local new_path="$1"
     local position="${2:-prepend}"  # prepend or append
-    
+
     if [[ -z "$new_path" ]]; then
         log_error "setup_path_mod: Path is required"
         return 1
     fi
-    
+
     if [[ ! -d "$new_path" ]]; then
         log_warn "Path does not exist: $new_path"
         return 1
     fi
-    
+
     # Check if path is already in PATH
     if [[ ":$PATH:" == *":$new_path:"* ]]; then
         log_debug "Path already in PATH: $new_path"
         return 0
     fi
-    
+
     # Add to PATH
     case "$position" in
         prepend)
@@ -254,7 +254,7 @@ setup_path_mod() {
             return 1
             ;;
     esac
-    
+
     return 0
 }
 
@@ -266,14 +266,14 @@ setup_path_mod() {
 setup_nvm_silent() {
     local config_file="${1:-.nvmrc-config}"
     local enable_silent="${2:-true}"
-    
+
     if [[ ! -f "$config_file" ]]; then
         log_warn "NVM config file not found: $config_file"
         return 1
     fi
-    
+
     log_debug "Reading NVM configuration from: $config_file"
-    
+
     if [[ "$enable_silent" == "true" ]]; then
         export NVM_SILENT=true
         log_info "NVM_SILENT enabled for quieter operation"
@@ -281,7 +281,7 @@ setup_nvm_silent() {
         unset NVM_SILENT
         log_info "NVM_SILENT disabled for verbose operation"
     fi
-    
+
     return 0
 }
 
@@ -347,10 +347,10 @@ check_nvm_silent_configured() {
 # Display environment summary
 show_env_summary() {
     local shell_type os_type
-    
+
     shell_type=$(detect_shell)
     os_type=$(detect_os)
-    
+
     log_info "Environment Summary:"
     log_info "  Shell: $shell_type"
     log_info "  OS: $os_type"

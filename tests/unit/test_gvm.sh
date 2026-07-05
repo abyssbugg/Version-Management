@@ -34,7 +34,7 @@ test_gvm_validate_version_format_valid() {
     else
         assert_equals "valid" "invalid" "1.21.5 should be valid format"
     fi
-    
+
     if _gvm_validate_version "1.23.4" 2>/dev/null; then
         assert_equals "true" "true" "Valid version format 1.23.4 accepted"
     else
@@ -50,13 +50,13 @@ test_gvm_validate_version_format_invalid() {
     else
         assert_equals "rejected" "accepted" "'invalid' should be rejected"
     fi
-    
+
     if ! _gvm_validate_version "1.21" 2>/dev/null; then
         assert_equals "true" "true" "Invalid version '1.21' (no patch) rejected"
     else
         assert_equals "rejected" "accepted" "'1.21' should be rejected"
     fi
-    
+
     if ! _gvm_validate_version "go1.21.5" 2>/dev/null; then
         assert_equals "true" "true" "Invalid version 'go1.21.5' (with prefix) rejected"
     else
@@ -68,16 +68,16 @@ test_gvm_validate_version_format_invalid() {
 test_gvm_is_go_project_with_go_mod() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create go.mod file
     echo "module test" > go.mod
-    
+
     if gvm_is_go_project; then
         assert_equals "true" "true" "Detected Go project with go.mod"
     else
         assert_equals "detected" "not_detected" "Should detect go.mod as Go project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -86,16 +86,16 @@ test_gvm_is_go_project_with_go_mod() {
 test_gvm_is_go_project_with_go_version() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create .go-version file
     echo "1.23.4" > .go-version
-    
+
     if gvm_is_go_project; then
         assert_equals "true" "true" "Detected Go project with .go-version"
     else
         assert_equals "detected" "not_detected" "Should detect .go-version as Go project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -104,16 +104,16 @@ test_gvm_is_go_project_with_go_version() {
 test_gvm_is_go_project_not_go() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create a non-Go file
     echo "test" > test.txt
-    
+
     if ! gvm_is_go_project; then
         assert_equals "true" "true" "Correctly identified non-Go project"
     else
         assert_equals "not_detected" "detected" "Should not detect as Go project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -133,14 +133,14 @@ test_all_exported_functions_exist() {
                      "gvm_set_global" "gvm_set_local" "gvm_get_current" "gvm_validate_version"
                      "gvm_get_prompt_version" "gvm_is_go_project")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 10 exported functions exist"
     else

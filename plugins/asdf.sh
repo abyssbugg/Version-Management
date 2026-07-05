@@ -26,15 +26,15 @@ asdf_detect() {
 
 asdf_install() {
     echo "Installing asdf..."
-    
+
     if asdf_detect; then
         echo "asdf is already installed"
         return 0
     fi
-    
+
     local os_type
     os_type=$(uname -s)
-    
+
     case "$os_type" in
         Darwin)
             if command -v brew >/dev/null 2>&1; then
@@ -51,7 +51,7 @@ asdf_install() {
             return 1
             ;;
     esac
-    
+
     echo "asdf installed successfully"
     echo "Add to your shell: source \$HOME/.asdf/asdf.sh"
     return 0
@@ -71,7 +71,7 @@ asdf_list() {
         echo "asdf not installed"
         return 1
     fi
-    
+
     echo "Installed plugins:"
     asdf plugin list 2>/dev/null || echo "  (none)"
     echo
@@ -82,30 +82,30 @@ asdf_list() {
 asdf_use() {
     local plugin="$1"
     local version="$2"
-    
+
     if ! asdf_detect; then
         echo "asdf not installed"
         return 1
     fi
-    
+
     if [[ -z "$plugin" ]] || [[ -z "$version" ]]; then
         echo "Usage: asdf_use <plugin> <version>"
         echo "Example: asdf_use nodejs 20.10.0"
         return 1
     fi
-    
+
     # Check if plugin is installed
     if ! asdf plugin list 2>/dev/null | grep -q "^${plugin}$"; then
         echo "Plugin $plugin not installed. Installing..."
         asdf plugin add "$plugin" || return 1
     fi
-    
+
     # Check if version is installed
     if ! asdf list "$plugin" 2>/dev/null | grep -q "$version"; then
         echo "Version $version not installed. Installing..."
         asdf install "$plugin" "$version" || return 1
     fi
-    
+
     asdf global "$plugin" "$version"
     echo "Now using $plugin $version"
 }
@@ -121,12 +121,12 @@ asdf_cleanup() {
 # Add a plugin
 asdf_plugin_add() {
     local plugin="$1"
-    
+
     if ! asdf_detect; then
         echo "asdf not installed"
         return 1
     fi
-    
+
     asdf plugin add "$plugin"
 }
 
@@ -134,12 +134,12 @@ asdf_plugin_add() {
 asdf_install_version() {
     local plugin="$1"
     local version="$2"
-    
+
     if ! asdf_detect; then
         echo "asdf not installed"
         return 1
     fi
-    
+
     asdf install "$plugin" "$version"
 }
 
@@ -149,7 +149,7 @@ asdf_plugin_list_all() {
         echo "asdf not installed"
         return 1
     fi
-    
+
     echo "Available plugins (showing first 20):"
     asdf plugin list all 2>/dev/null | head -20
     echo "..."

@@ -30,7 +30,7 @@ validate_shellcheck() {
     if [[ -n "$output" ]]; then
         issues=$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')
     fi
-    
+
     if [[ $issues -lt 50 ]]; then
         echo -e "${GREEN} ShellCheck: $issues issues (EXCELLENT)${NC}"
         return 0
@@ -46,14 +46,14 @@ validate_shellcheck() {
 validate_syntax() {
     echo "Validating syntax for all scripts..."
     local failed=0
-    
+
     while IFS= read -r -d '' script; do
         if ! bash -n "$script" 2>/dev/null; then
             echo -e "${RED} Syntax error in: $script${NC}"
             failed=$((failed + 1))
         fi
     done < <(find . -name "*.sh" -type f -not -path "./backups/*" -print0)
-    
+
     if [[ $failed -eq 0 ]]; then
         echo -e "${GREEN} All scripts pass syntax validation${NC}"
         return 0
@@ -90,11 +90,11 @@ main() {
         echo -e "${YELLOW}ADVISORY MODE - failures do not gate${NC}"
     fi
     echo
-    
+
     local score=0
     local syntax_status=0
     local shellcheck_status=0
-    
+
     if validate_syntax; then
         score=$((score + 1))
     else
@@ -106,10 +106,10 @@ main() {
     else
         shellcheck_status=1
     fi
-    
+
     echo
     echo "Overall Score: $score/2"
-    
+
     if [[ $score -eq 2 ]]; then
         echo -e "${GREEN} Excellent code quality!${NC}"
         return 0

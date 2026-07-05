@@ -25,7 +25,7 @@ PHPENV_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if phpenv is available, 1 if not
 phpenv_detect() {
     log_debug "Detecting phpenv installation"
-    
+
     if command -v phpenv >/dev/null 2>&1; then
         local phpenv_version
         phpenv_version=$(phpenv --version 2>/dev/null | head -n1 | cut -d' ' -f2)
@@ -41,15 +41,15 @@ phpenv_detect() {
 # Returns: 0 on success, 1 on failure
 phpenv_install() {
     log_info "Installing phpenv..."
-    
+
     if phpenv_detect; then
         log_info "phpenv already installed"
         return 0
     fi
-    
+
     local os_type
     os_type=$(detect_os)
-    
+
     if ! command -v git >/dev/null 2>&1; then
         log_error "Git is required to install phpenv"
         return 1
@@ -121,21 +121,21 @@ phpenv_install() {
 # Returns: 0 on success, 1 on failure
 phpenv_list_versions() {
     log_debug "Listing available PHP versions"
-    
+
     if ! phpenv_detect; then
         log_error "phpenv not available"
         return 1
     fi
-    
+
     local cache_key="${PHPENV_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached PHP versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching PHP versions from phpenv"
     local versions
     if versions=$(phpenv install --list 2>/dev/null); then
@@ -153,29 +153,29 @@ phpenv_list_versions() {
 # Returns: 0 on success, 1 on failure
 phpenv_install_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "PHP version not specified"
         return 1
     fi
-    
+
     if ! _phpenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! phpenv_detect; then
         log_error "phpenv not available"
         return 1
     fi
-    
+
     log_info "Installing PHP $version..."
-    
+
     # Check if already installed
     if phpenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_info "PHP $version already installed"
         return 0
     fi
-    
+
     # Install the version
     if phpenv install "$version" 2>/dev/null; then
         log_success "PHP $version installed successfully"
@@ -193,21 +193,21 @@ phpenv_install_version() {
 # Returns: 0 on success, 1 on failure
 phpenv_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "PHP version not specified"
         return 1
     fi
-    
+
     if ! _phpenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! phpenv_detect; then
         log_error "phpenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! phpenv_validate_version "$version"; then
         log_warn "PHP $version not found, attempting to install..."
@@ -215,7 +215,7 @@ phpenv_set_global() {
             return 1
         fi
     fi
-    
+
     log_info "Setting global PHP version to $version"
     if phpenv global "$version" 2>/dev/null; then
         phpenv rehash 2>/dev/null || true
@@ -232,21 +232,21 @@ phpenv_set_global() {
 # Returns: 0 on success, 1 on failure
 phpenv_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "PHP version not specified"
         return 1
     fi
-    
+
     if ! _phpenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! phpenv_detect; then
         log_error "phpenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! phpenv_validate_version "$version"; then
         log_warn "PHP $version not found, attempting to install..."
@@ -254,9 +254,9 @@ phpenv_set_local() {
             return 1
         fi
     fi
-    
+
     log_info "Setting local PHP version to $version"
-    
+
     # Create .php-version file
     if echo "$version" > .php-version; then
         # Set phpenv local version
@@ -278,12 +278,12 @@ phpenv_set_local() {
 # Returns: current PHP version string
 phpenv_get_current() {
     log_debug "Getting current PHP version"
-    
+
     if ! phpenv_detect; then
         echo "system"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(phpenv version-name 2>/dev/null); then
         echo "$current_version"
@@ -299,19 +299,19 @@ phpenv_get_current() {
 # Returns: 0 if version exists, 1 if not
 phpenv_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "PHP version not specified"
         return 1
     fi
-    
+
     if ! phpenv_detect; then
         log_error "phpenv not available"
         return 1
     fi
-    
+
     log_debug "Validating PHP version: $version"
-    
+
     if phpenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_debug "PHP version $version is installed"
         return 0
@@ -330,13 +330,13 @@ phpenv_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _phpenv_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         log_error "Invalid PHP version format: $version"
         log_info "Expected format: major.minor.patch (e.g., 8.3.12)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -348,7 +348,7 @@ _phpenv_validate_version() {
 # Returns: 0 if Composer is available, 1 if not
 composer_detect() {
     log_debug "Detecting Composer installation"
-    
+
     if command -v composer >/dev/null 2>&1; then
         local composer_version
         composer_version=$(composer --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -364,12 +364,12 @@ composer_detect() {
 # Returns: 0 on success, 1 on failure
 composer_install() {
     log_info "Installing Composer..."
-    
+
     if composer_detect; then
         log_info "Composer already installed"
         return 0
     fi
-    
+
     # Require PHP to be available
     if ! command -v php >/dev/null 2>&1; then
         log_error "PHP is required to install Composer"
@@ -378,7 +378,7 @@ composer_install() {
 
     local os_type
     os_type=$(detect_os)
-    
+
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
@@ -391,20 +391,20 @@ composer_install() {
             fi
             ;;
     esac
-    
+
     # Official Composer installer
     if command -v curl >/dev/null 2>&1; then
         local installer_url="https://getcomposer.org/installer"
         local expected_sig
         expected_sig=$(curl -sSL https://composer.github.io/installer.sig 2>/dev/null)
-        
+
         local tmp_dir
         tmp_dir=$(mktemp -d)
-        
+
         if curl -sSL "$installer_url" -o "$tmp_dir/composer-setup.php"; then
             local actual_sig
             actual_sig=$(php -r "echo hash_file('sha384', '$tmp_dir/composer-setup.php');" 2>/dev/null)
-            
+
             if [[ "$expected_sig" == "$actual_sig" ]]; then
                 if php "$tmp_dir/composer-setup.php" --install-dir=/usr/local/bin --filename=composer 2>/dev/null \
                    || sudo php "$tmp_dir/composer-setup.php" --install-dir=/usr/local/bin --filename=composer 2>/dev/null; then
@@ -415,11 +415,11 @@ composer_install() {
             else
                 log_error "Composer installer signature verification failed"
             fi
-            
+
             rm -rf "$tmp_dir"
         fi
     fi
-    
+
     log_error "Failed to install Composer"
     return 1
 }
@@ -428,7 +428,7 @@ composer_install() {
 # Returns: 0 on success, 1 on failure
 laravel_install() {
     log_info "Installing Laravel installer..."
-    
+
     if ! composer_detect; then
         log_warn "Composer not installed. Installing Composer first..."
         if ! composer_install; then
@@ -436,12 +436,12 @@ laravel_install() {
             return 1
         fi
     fi
-    
+
     if composer global show laravel/installer 2>/dev/null | grep -q "laravel/installer"; then
         log_info "Laravel installer already installed"
         return 0
     fi
-    
+
     if composer global require laravel/installer; then
         log_success "Laravel installer installed successfully"
         log_info "You can now create projects with: laravel new my-project"
@@ -468,12 +468,12 @@ phpenv_get_prompt_version() {
     if ! phpenv_detect; then
         return 1
     fi
-    
+
     local current_version
     current_version=$(phpenv_get_current)
     local global_version
     global_version=$(phpenv global 2>/dev/null || echo "system")
-    
+
     # Only show if different from global or if project-specific
     if [ -f ".php-version" ] || [ "$current_version" != "$global_version" ]; then
         echo "$current_version"

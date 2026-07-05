@@ -46,27 +46,27 @@ generate_text_report() {
     echo "Generated: $(date)"
     echo "Period: Last $REPORT_PERIOD days"
     echo
-    
+
     # Overview section
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  OVERVIEW"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    
+
     local total_sessions total_commands version_switches theme_changes errors
     total_sessions=$(metrics_get_stat "total_sessions" || echo "0")
     total_commands=$(metrics_get_stat "total_commands" || echo "0")
     version_switches=$(metrics_get_stat "version_switches" || echo "0")
     theme_changes=$(metrics_get_stat "theme_changes" || echo "0")
     errors=$(metrics_get_stat "errors_encountered" || echo "0")
-    
+
     printf "  %-25s %10s\n" "Total Sessions:" "${total_sessions:-0}"
     printf "  %-25s %10s\n" "Total Commands:" "${total_commands:-0}"
     printf "  %-25s %10s\n" "Version Switches:" "${version_switches:-0}"
     printf "  %-25s %10s\n" "Theme Changes:" "${theme_changes:-0}"
     printf "  %-25s %10s\n" "Errors:" "${errors:-0}"
     echo
-    
+
     # Calculate health score
     local health_score=100
     if [[ ${errors:-0} -gt 0 && ${total_commands:-0} -gt 0 ]]; then
@@ -74,17 +74,17 @@ generate_text_report() {
         health_score=$((100 - error_rate))
         [[ $health_score -lt 0 ]] && health_score=0
     fi
-    
+
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  HEALTH SCORE"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    
+
     # Visual health bar
     local bar_width=40
     local filled=$((health_score * bar_width / 100))
     local empty=$((bar_width - filled))
-    
+
     printf "  ["
     if [[ $health_score -ge 80 ]]; then
         printf "${GREEN}"
@@ -98,7 +98,7 @@ generate_text_report() {
     printf "%${empty}s" | tr ' ' '░'
     printf "] %d%%\n" "$health_score"
     echo
-    
+
     if [[ $health_score -ge 90 ]]; then
         echo "  Status: ${GREEN}Excellent${NC} - System running smoothly"
     elif [[ $health_score -ge 70 ]]; then
@@ -109,30 +109,30 @@ generate_text_report() {
         echo "  Status: ${RED}Poor${NC} - Multiple issues detected"
     fi
     echo
-    
+
     # Usage patterns
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  USAGE PATTERNS"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    
+
     if [[ ${total_sessions:-0} -gt 0 ]]; then
         local avg_commands=$((${total_commands:-0} / ${total_sessions:-1}))
         printf "  %-25s %10s\n" "Avg commands/session:" "$avg_commands"
-        
+
         local avg_switches=$((${version_switches:-0} * 100 / ${total_sessions:-1}))
         printf "  %-25s %10s%%\n" "Sessions with switches:" "$avg_switches"
     else
         echo "  No usage data available yet."
     fi
     echo
-    
+
     # Recent activity
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  RECENT ACTIVITY (Last 10 events)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    
+
     if [[ -f "$METRICS_EVENTS" ]]; then
         tail -10 "$METRICS_EVENTS" 2>/dev/null | while IFS=, read -r timestamp session category action label value; do
             printf "  %-20s %-15s %s\n" "${timestamp:0:19}" "$category" "$action"
@@ -141,35 +141,35 @@ generate_text_report() {
         echo "  No events recorded yet."
     fi
     echo
-    
+
     # Recommendations
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  RECOMMENDATIONS"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    
+
     local recommendations=0
-    
+
     if [[ ${errors:-0} -gt 5 ]]; then
         echo "  • Run diagnostics to investigate errors: ./tools/system-diagnostics.sh"
         ((recommendations++))
     fi
-    
+
     if [[ ${version_switches:-0} -eq 0 && ${total_sessions:-0} -gt 3 ]]; then
         echo "  • Consider using .nvmrc/.python-version files for automatic switching"
         ((recommendations++))
     fi
-    
+
     if [[ ${total_sessions:-0} -lt 5 ]]; then
         echo "  • Continue using the tools to build up usage data"
         ((recommendations++))
     fi
-    
+
     if [[ $recommendations -eq 0 ]]; then
         echo "  ✓ No specific recommendations at this time."
     fi
     echo
-    
+
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Report complete. Run 'metrics_dashboard' for interactive view."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -184,14 +184,14 @@ generate_json_report() {
     version_switches=$(metrics_get_stat "version_switches" || echo "0")
     theme_changes=$(metrics_get_stat "theme_changes" || echo "0")
     errors=$(metrics_get_stat "errors_encountered" || echo "0")
-    
+
     local health_score=100
     if [[ ${errors:-0} -gt 0 && ${total_commands:-0} -gt 0 ]]; then
         local error_rate=$((errors * 100 / total_commands))
         health_score=$((100 - error_rate))
         [[ $health_score -lt 0 ]] && health_score=0
     fi
-    
+
     cat << EOF
 {
     "report_date": "$(date -Iseconds)",
@@ -229,11 +229,11 @@ generate_markdown_report() {
     version_switches=$(metrics_get_stat "version_switches" || echo "0")
     theme_changes=$(metrics_get_stat "theme_changes" || echo "0")
     errors=$(metrics_get_stat "errors_encountered" || echo "0")
-    
+
     cat << EOF
 # Analytics Report
 
-**Generated:** $(date)  
+**Generated:** $(date)
 **Period:** Last $REPORT_PERIOD days
 
 ## Overview
@@ -259,7 +259,7 @@ EOF
 
     echo "**Score:** $health_score%"
     echo
-    
+
     if [[ $health_score -ge 90 ]]; then
         echo "**Status:**  Excellent - System running smoothly"
     elif [[ $health_score -ge 70 ]]; then
@@ -269,7 +269,7 @@ EOF
     else
         echo "**Status:**  Poor - Multiple issues detected"
     fi
-    
+
     cat << EOF
 
 ## Data Storage
@@ -316,7 +316,7 @@ EOF
 main() {
     local output_file=""
     local show_dashboard=false
-    
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -f|--format)
@@ -350,15 +350,15 @@ main() {
                 ;;
         esac
     done
-    
+
     # Initialize metrics
     metrics_init
-    
+
     if [[ "$show_dashboard" == "true" ]]; then
         metrics_dashboard
         exit 0
     fi
-    
+
     # Generate report
     local report
     case "$REPORT_FORMAT" in
@@ -372,7 +372,7 @@ main() {
             report=$(generate_text_report)
             ;;
     esac
-    
+
     # Output report
     if [[ -n "$output_file" ]]; then
         echo "$report" > "$output_file"

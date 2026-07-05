@@ -24,7 +24,7 @@ PYVM_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if pyenv is available, 1 if not
 pyvm_detect() {
     log_debug "Detecting pyenv installation"
-    
+
     if command -v pyenv >/dev/null 2>&1; then
         local pyenv_version=$(pyenv --version 2>/dev/null | cut -d' ' -f2)
         log_info "pyenv detected: version $pyenv_version"
@@ -39,14 +39,14 @@ pyvm_detect() {
 # Returns: 0 on success, 1 on failure
 pyvm_install() {
     log_info "Installing pyenv..."
-    
+
     if pyvm_detect; then
         log_info "pyenv already installed"
         return 0
     fi
-    
+
     local os_type=$(detect_os)
-    
+
     if ! command -v git >/dev/null 2>&1; then
         log_error "Git is required to install pyenv"
         return 1
@@ -113,21 +113,21 @@ pyvm_install() {
 # Returns: 0 on success, 1 on failure
 pyvm_list_versions() {
     log_debug "Listing available Python versions"
-    
+
     if ! pyvm_detect; then
         log_error "pyenv not available"
         return 1
     fi
-    
+
     local cache_key="${PYVM_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached Python versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching Python versions from pyenv"
     local versions
     if versions=$(pyenv versions --bare 2>/dev/null); then
@@ -145,29 +145,29 @@ pyvm_list_versions() {
 # Returns: 0 on success, 1 on failure
 pyvm_install_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Python version not specified"
         return 1
     fi
-    
+
     if ! _pyvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! pyvm_detect; then
         log_error "pyenv not available"
         return 1
     fi
-    
+
     log_info "Installing Python $version..."
-    
+
     # Check if already installed
     if pyenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_info "Python $version already installed"
         return 0
     fi
-    
+
     # Install the version
     if pyenv install --skip-existing "$version" 2>/dev/null; then
         log_success "Python $version installed successfully"
@@ -185,21 +185,21 @@ pyvm_install_version() {
 # Returns: 0 on success, 1 on failure
 pyvm_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Python version not specified"
         return 1
     fi
-    
+
     if ! _pyvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! pyvm_detect; then
         log_error "pyenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! pyvm_validate_version "$version"; then
         log_warn "Python $version not found, attempting to install..."
@@ -207,7 +207,7 @@ pyvm_set_global() {
             return 1
         fi
     fi
-    
+
     log_info "Setting global Python version to $version"
     if pyenv global "$version" 2>/dev/null; then
         log_success "Global Python version set to $version"
@@ -223,21 +223,21 @@ pyvm_set_global() {
 # Returns: 0 on success, 1 on failure
 pyvm_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Python version not specified"
         return 1
     fi
-    
+
     if ! _pyvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! pyvm_detect; then
         log_error "pyenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! pyvm_validate_version "$version"; then
         log_warn "Python $version not found, attempting to install..."
@@ -245,9 +245,9 @@ pyvm_set_local() {
             return 1
         fi
     fi
-    
+
     log_info "Setting local Python version to $version"
-    
+
     # Create .python-version file
     if echo "$version" > .python-version; then
         # Set pyenv local version
@@ -268,12 +268,12 @@ pyvm_set_local() {
 # Returns: current Python version string
 pyvm_get_current() {
     log_debug "Getting current Python version"
-    
+
     if ! pyvm_detect; then
         echo "system"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(pyenv version-name 2>/dev/null); then
         echo "$current_version"
@@ -289,19 +289,19 @@ pyvm_get_current() {
 # Returns: 0 if version exists, 1 if not
 pyvm_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Python version not specified"
         return 1
     fi
-    
+
     if ! pyvm_detect; then
         log_error "pyenv not available"
         return 1
     fi
-    
+
     log_debug "Validating Python version: $version"
-    
+
     if pyenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_debug "Python version $version is installed"
         return 0
@@ -320,13 +320,13 @@ pyvm_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _pyvm_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         log_error "Invalid Python version format: $version"
         log_info "Expected format: major.minor.patch (e.g., 3.12.8)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -340,10 +340,10 @@ pyvm_get_prompt_version() {
     if ! pyvm_detect; then
         return 1
     fi
-    
+
     local current_version=$(pyvm_get_current)
     local global_version=$(pyenv global 2>/dev/null || echo "system")
-    
+
     # Only show if different from global or if project-specific
     if [ -f ".python-version" ] || [ "$current_version" != "$global_version" ]; then
         echo "$current_version"
@@ -364,6 +364,7 @@ pyvm_is_python_project() {
 # Args: [max_depth] — how many parent directories to climb (default: 3)
 # Outputs: path to the activate script on stdout
 # Returns: 0 if found, 1 if not
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 _pyvm_find_venv() {
     local dir="$PWD"
     local max_depth="${1:-3}"

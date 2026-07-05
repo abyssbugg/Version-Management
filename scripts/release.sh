@@ -59,7 +59,7 @@ get_current_version() {
 parse_version() {
     local version="$1"
     local major minor patch
-    
+
     IFS='.' read -r major minor patch <<< "$version"
     echo "$major $minor $patch"
 }
@@ -68,10 +68,10 @@ parse_version() {
 bump_version() {
     local current="$1"
     local bump_type="$2"
-    
+
     local major minor patch
     read -r major minor patch <<< "$(parse_version "$current")"
-    
+
     case "$bump_type" in
         major)
             echo "$((major + 1)).0.0"
@@ -91,7 +91,7 @@ bump_version() {
 # Update version in package.json
 update_package_version() {
     local new_version="$1"
-    
+
     if [[ -f "$VERSION_FILE" ]]; then
         if [[ "$(uname -s)" == "Darwin" ]]; then
             sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$new_version\"/" "$VERSION_FILE"
@@ -105,7 +105,7 @@ update_package_version() {
 # Update version in README badge (if exists)
 update_readme_version() {
     local new_version="$1"
-    
+
     if [[ -f "$README_FILE" ]]; then
         # Update version badge if present
         if grep -q "version-[0-9]" "$README_FILE"; then
@@ -128,13 +128,13 @@ generate_changelog() {
     local from_tag="$1"
     local to_ref="${2:-HEAD}"
     local version="$3"
-    
+
     local changelog=""
     local date
     date=$(date +%Y-%m-%d)
-    
+
     changelog+="## [$version] - $date\n\n"
-    
+
     # Get commits since last tag
     local commits
     if [[ -n "$from_tag" ]] && git rev-parse "$from_tag" >/dev/null 2>&1; then
@@ -142,24 +142,24 @@ generate_changelog() {
     else
         commits=$(git log --pretty=format:"%s|%h" --no-merges -50 2>/dev/null || echo "")
     fi
-    
+
     # Categorize commits
     declare -A categories
     for type in "${!COMMIT_TYPES[@]}"; do
         categories[$type]=""
     done
     categories["other"]=""
-    
+
     while IFS='|' read -r message hash; do
         [[ -z "$message" ]] && continue
-        
+
         local matched=false
         for type in "${!COMMIT_TYPES[@]}"; do
             if [[ "$message" =~ ^$type(\(.+\))?:\ (.+) ]]; then
                 local scope="${BASH_REMATCH[1]}"
                 local desc="${BASH_REMATCH[2]}"
                 scope="${scope//[()]/}"
-                
+
                 if [[ -n "$scope" ]]; then
                     categories[$type]+="- **$scope:** $desc ($hash)\n"
                 else
@@ -169,12 +169,12 @@ generate_changelog() {
                 break
             fi
         done
-        
+
         if [[ "$matched" == "false" ]]; then
             categories["other"]+="- $message ($hash)\n"
         fi
     done <<< "$commits"
-    
+
     # Build changelog sections
     for type in feat fix perf docs refactor test chore build ci; do
         if [[ -n "${categories[$type]:-}" ]]; then
@@ -182,24 +182,24 @@ generate_changelog() {
             changelog+="${categories[$type]}\n"
         fi
     done
-    
+
     if [[ -n "${categories["other"]:-}" ]]; then
         changelog+="### Other Changes\n\n"
         changelog+="${categories["other"]}\n"
     fi
-    
+
     echo -e "$changelog"
 }
 
 # Prepend to changelog file
 update_changelog_file() {
     local new_content="$1"
-    
+
     if [[ -f "$CHANGELOG_FILE" ]]; then
         # Read existing content (skip header)
         local existing
         existing=$(tail -n +3 "$CHANGELOG_FILE" 2>/dev/null || echo "")
-        
+
         {
             echo "# Changelog"
             echo
@@ -218,7 +218,7 @@ update_changelog_file() {
             echo -e "$new_content"
         } > "$CHANGELOG_FILE"
     fi
-    
+
     log_success "Updated CHANGELOG.md"
 }
 
@@ -235,7 +235,7 @@ get_latest_tag() {
 create_tag() {
     local version="$1"
     local message="${2:-Release v$version}"
-    
+
     git tag -a "v$version" -m "$message"
     log_success "Created tag v$version"
 }
@@ -243,24 +243,24 @@ create_tag() {
 # Create release commit
 create_release_commit() {
     local version="$1"
-    
+
     git add -A
     git commit -m "chore(release): v$version
 
 - Updated version to $version
 - Generated changelog
 - Prepared release artifacts"
-    
+
     log_success "Created release commit"
 }
 
 # Push release
 push_release() {
     local version="$1"
-    
+
     git push origin HEAD
     git push origin "v$version"
-    
+
     log_success "Pushed release to origin"
 }
 
@@ -274,20 +274,20 @@ create_github_release() {
     local changelog="$2"
     local draft="${3:-false}"
     local prerelease="${4:-false}"
-    
+
     if ! command -v gh >/dev/null 2>&1; then
         log_warn "GitHub CLI (gh) not installed. Skipping GitHub release creation."
         log_info "Install with: brew install gh"
         return 1
     fi
-    
+
     local gh_args=("release" "create" "v$version")
     gh_args+=("--title" "v$version")
     gh_args+=("--notes" "$changelog")
-    
+
     [[ "$draft" == "true" ]] && gh_args+=("--draft")
     [[ "$prerelease" == "true" ]] && gh_args+=("--prerelease")
-    
+
     if gh "${gh_args[@]}"; then
         log_success "Created GitHub release v$version"
         return 0
@@ -304,15 +304,15 @@ create_github_release() {
 # Run pre-release checks
 run_checks() {
     log_info "Running pre-release checks..."
-    
+
     local issues=0
-    
+
     # Check git status
     if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
         log_warn "Working directory has uncommitted changes"
         ((issues++))
     fi
-    
+
     # Check we're on main/master
     local branch
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -320,7 +320,7 @@ run_checks() {
         log_warn "Not on main/master branch (current: $branch)"
         ((issues++))
     fi
-    
+
     # Run tests if available
     if [[ -f "$SCRIPT_DIR/Makefile" ]]; then
         log_info "Running tests..."
@@ -331,7 +331,7 @@ run_checks() {
             ((issues++))
         fi
     fi
-    
+
     # Run linting if available
     if [[ -f "$SCRIPT_DIR/scripts/lint-shell.sh" ]]; then
         log_info "Running linter..."
@@ -342,12 +342,12 @@ run_checks() {
             ((issues++))
         fi
     fi
-    
+
     if [[ $issues -gt 0 ]]; then
         log_warn "Found $issues issue(s). Consider addressing before release."
         return 1
     fi
-    
+
     log_success "All pre-release checks passed"
     return 0
 }
@@ -362,16 +362,16 @@ interactive_release() {
     echo "║            Release Automation                              ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo
-    
+
     local current_version
     current_version=$(get_current_version)
     local latest_tag
     latest_tag=$(get_latest_tag)
-    
+
     echo "  Current version: $current_version"
     echo "  Latest tag:      ${latest_tag:-none}"
     echo
-    
+
     # Select bump type
     echo "  Select version bump type:"
     echo
@@ -380,11 +380,11 @@ interactive_release() {
     echo "    3) major  - Breaking changes (X.0.0)"
     echo "    4) custom - Enter version manually"
     echo
-    
+
     local choice
     read -r -p "  Enter choice [1]: " choice
     choice="${choice:-1}"
-    
+
     local new_version
     case "$choice" in
         1) new_version=$(bump_version "$current_version" "patch") ;;
@@ -395,49 +395,49 @@ interactive_release() {
             ;;
         *) new_version=$(bump_version "$current_version" "patch") ;;
     esac
-    
+
     echo
     echo "  New version: $new_version"
     echo
-    
+
     # Run checks
     run_checks || true
     echo
-    
+
     # Confirm
     read -r -p "  Proceed with release v$new_version? [y/N]: " confirm
     if [[ ! "$confirm" =~ ^[Yy] ]]; then
         echo "  Release cancelled."
         exit 0
     fi
-    
+
     echo
     log_info "Starting release process..."
-    
+
     # Update version
     update_package_version "$new_version"
     update_readme_version "$new_version"
-    
+
     # Generate changelog
     local changelog
     changelog=$(generate_changelog "$latest_tag" "HEAD" "$new_version")
     update_changelog_file "$changelog"
-    
+
     # Create commit and tag
     create_release_commit "$new_version"
     create_tag "$new_version"
-    
+
     echo
     read -r -p "  Push to origin? [y/N]: " push_confirm
     if [[ "$push_confirm" =~ ^[Yy] ]]; then
         push_release "$new_version"
-        
+
         read -r -p "  Create GitHub release? [y/N]: " gh_confirm
         if [[ "$gh_confirm" =~ ^[Yy] ]]; then
             create_github_release "$new_version" "$changelog"
         fi
     fi
-    
+
     echo
     log_success "Release v$new_version complete!"
     echo
@@ -490,7 +490,7 @@ EOF
 main() {
     local command="${1:-interactive}"
     shift || true
-    
+
     case "$command" in
         interactive|-i)
             interactive_release

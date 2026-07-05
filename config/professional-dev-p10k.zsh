@@ -86,7 +86,7 @@ if [[ "$P10K_PROF_AUTO_DETECT_ENV" == "true" ]]; then
   if [[ -f .python-version ]] || [[ -f pyproject.toml ]] || [[ -f requirements.txt ]] || [[ -f Pipfile ]]; then
     $P10K_PROF_ENABLE_PYENV && _p10k_prof_right_elements+=(pyenv)
   fi
-  
+
   # Detect Node.js environment
   if [[ -f package.json ]] || [[ -f .nvmrc ]] || [[ -f yarn.lock ]] || [[ -f pnpm-lock.yaml ]]; then
     $P10K_PROF_ENABLE_NODE && _p10k_prof_right_elements+=(node_version)
@@ -384,17 +384,17 @@ fi
 
   # Custom prefix.
   # typeset -g POWERLEVEL9K_DIR_PREFIX='in '
-  
+
   # Custom directory content expansion with all desired icons
   typeset -g POWERLEVEL9K_DIR_CONTENT_EXPANSION='  ${${P9K_CONTENT#/Users/$USER}#/}'
-  
+
   # Custom directory icon (folder icon for all directories)
   typeset -g POWERLEVEL9K_DIR_VISUAL_IDENTIFIER_EXPANSION=''
-  
+
   # Custom icon for home directory
   typeset -g POWERLEVEL9K_DIR_HOME_VISUAL_IDENTIFIER_EXPANSION=''
-  
-  # Custom icon for subdirectories of home 
+
+  # Custom icon for subdirectories of home
   typeset -g POWERLEVEL9K_DIR_HOME_SUBFOLDER_VISUAL_IDENTIFIER_EXPANSION=''
 
   #####################################[ vcs: git status ]######################################
@@ -794,14 +794,14 @@ fi
   typeset -g POWERLEVEL9K_RANGER_BACKGROUND=0
   # Custom icon.
   # typeset -g POWERLEVEL9K_RANGER_VISUAL_IDENTIFIER_EXPANSION='⭐'
-  
+
   ####################[ yazi: yazi shell (https://github.com/sxyazi/yazi) ]#####################
   # Yazi shell color.
   typeset -g POWERLEVEL9K_YAZI_FOREGROUND=3
   typeset -g POWERLEVEL9K_YAZI_BACKGROUND=0
   # Custom icon.
   # typeset -g POWERLEVEL9K_YAZI_VISUAL_IDENTIFIER_EXPANSION='⭐'
-  
+
   ######################[ nnn: nnn shell (https://github.com/jarun/nnn) ]#######################
   # Nnn shell color.
   typeset -g POWERLEVEL9K_NNN_FOREGROUND=0
@@ -1813,7 +1813,7 @@ fi
     local shell_name=${${SHELL:t}:-zsh}
     p10k segment -f 0 -b 8 -i '' -t "$shell_name"
   }
-  
+
   function instant_prompt_shell_type() {
     prompt_shell_type
   }

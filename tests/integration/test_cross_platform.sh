@@ -14,10 +14,10 @@ source "$SCRIPT_DIR/tests/helpers.sh"
 
 test_platform_detection() {
     start_test "Platform is supported"
-    
+
     local os
     os=$(uname -s)
-    
+
     case "$os" in
         Darwin)
             pass "macOS detected - fully supported"
@@ -36,16 +36,16 @@ test_platform_detection() {
             fail "Unknown platform: $os"
             ;;
     esac
-    
+
     end_test
 }
 
 test_architecture() {
     start_test "Architecture is supported"
-    
+
     local arch
     arch=$(uname -m)
-    
+
     case "$arch" in
         x86_64|amd64)
             pass "x86_64 architecture - fully supported"
@@ -57,7 +57,7 @@ test_architecture() {
             warn "Unusual architecture: $arch - may have limitations"
             ;;
     esac
-    
+
     end_test
 }
 
@@ -67,16 +67,16 @@ test_architecture() {
 
 test_shell_compatibility() {
     start_test "Shell is zsh"
-    
+
     local shell
     shell=$(basename "${SHELL:-/bin/bash}")
-    
+
     if [[ "$shell" == "zsh" ]]; then
         pass "zsh is default shell"
     else
         warn "Default shell is $shell (zsh recommended)"
     fi
-    
+
     # Check if zsh is available
     if command -v zsh >/dev/null 2>&1; then
         local zsh_version
@@ -85,16 +85,16 @@ test_shell_compatibility() {
     else
         fail "zsh not installed"
     fi
-    
+
     end_test
 }
 
 test_bash_version() {
     start_test "Bash version is adequate"
-    
+
     local bash_version
     bash_version="${BASH_VERSION:-unknown}"
-    
+
     if [[ "$bash_version" == "unknown" ]]; then
         fail "Cannot determine bash version"
     else
@@ -106,7 +106,7 @@ test_bash_version() {
             skip "Bash $bash_version (4.0+ recommended for associative arrays)"
         fi
     fi
-    
+
     end_test
 }
 
@@ -116,7 +116,7 @@ test_bash_version() {
 
 test_git_available() {
     start_test "Git is installed"
-    
+
     if command -v git >/dev/null 2>&1; then
         local version
         version=$(git --version | head -1)
@@ -124,13 +124,13 @@ test_git_available() {
     else
         fail "Git not installed"
     fi
-    
+
     end_test
 }
 
 test_curl_or_wget() {
     start_test "curl or wget available"
-    
+
     if command -v curl >/dev/null 2>&1; then
         pass "curl available"
     elif command -v wget >/dev/null 2>&1; then
@@ -138,7 +138,7 @@ test_curl_or_wget() {
     else
         fail "Neither curl nor wget installed"
     fi
-    
+
     end_test
 }
 
@@ -148,9 +148,9 @@ test_curl_or_wget() {
 
 test_version_managers_installable() {
     start_test "Version manager paths are valid"
-    
+
     local managers_found=0
-    
+
     # Check NVM
     if [[ -d "${NVM_DIR:-$HOME/.nvm}" ]] || command -v nvm >/dev/null 2>&1; then
         pass "NVM: available"
@@ -158,7 +158,7 @@ test_version_managers_installable() {
     else
         info "NVM: not installed"
     fi
-    
+
     # Check pyenv
     if [[ -d "${PYENV_ROOT:-$HOME/.pyenv}" ]] || command -v pyenv >/dev/null 2>&1; then
         pass "pyenv: available"
@@ -166,7 +166,7 @@ test_version_managers_installable() {
     else
         info "pyenv: not installed"
     fi
-    
+
     # Check goenv
     if [[ -d "$HOME/.goenv" ]] || command -v goenv >/dev/null 2>&1; then
         pass "goenv: available"
@@ -174,7 +174,7 @@ test_version_managers_installable() {
     else
         info "goenv: not installed"
     fi
-    
+
     # Check rustup
     if command -v rustup >/dev/null 2>&1; then
         pass "rustup: available"
@@ -182,7 +182,7 @@ test_version_managers_installable() {
     else
         info "rustup: not installed"
     fi
-    
+
     # Check jenv
     if [[ -d "$HOME/.jenv" ]] || command -v jenv >/dev/null 2>&1; then
         pass "jenv: available"
@@ -190,13 +190,13 @@ test_version_managers_installable() {
     else
         info "jenv: not installed"
     fi
-    
+
     if [[ $managers_found -ge 2 ]]; then
         pass "$managers_found version managers available"
     else
         warn "Only $managers_found version managers found (2+ recommended)"
     fi
-    
+
     end_test
 }
 
@@ -206,31 +206,31 @@ test_version_managers_installable() {
 
 test_home_directory_writable() {
     start_test "Home directory is writable"
-    
+
     local test_file="$HOME/.version-manager-test-$$"
-    
+
     if touch "$test_file" 2>/dev/null; then
         rm -f "$test_file"
         pass "Home directory writable"
     else
         fail "Cannot write to home directory"
     fi
-    
+
     end_test
 }
 
 test_config_directory_creatable() {
     start_test "Config directories can be created"
-    
+
     local test_dir="$HOME/.config/version-manager-test-$$"
-    
+
     if mkdir -p "$test_dir" 2>/dev/null; then
         rmdir "$test_dir"
         pass "Can create config directories"
     else
         fail "Cannot create config directories"
     fi
-    
+
     end_test
 }
 
@@ -240,11 +240,11 @@ test_config_directory_creatable() {
 
 test_font_directories_exist() {
     start_test "Font directories accessible"
-    
+
     local os
     os=$(uname -s)
     local font_dirs=()
-    
+
     case "$os" in
         Darwin)
             font_dirs=("$HOME/Library/Fonts" "/Library/Fonts")
@@ -253,20 +253,20 @@ test_font_directories_exist() {
             font_dirs=("$HOME/.local/share/fonts" "$HOME/.fonts" "/usr/share/fonts")
             ;;
     esac
-    
+
     local found=0
     for dir in "${font_dirs[@]}"; do
         if [[ -d "$dir" ]] || mkdir -p "$dir" 2>/dev/null; then
             ((found++))
         fi
     done
-    
+
     if [[ $found -gt 0 ]]; then
         pass "Found $found font directory locations"
     else
         warn "No font directories accessible"
     fi
-    
+
     end_test
 }
 
@@ -276,7 +276,7 @@ test_font_directories_exist() {
 
 test_project_structure() {
     start_test "Project structure is intact"
-    
+
     local required_dirs=(
         "lib"
         "config"
@@ -284,7 +284,7 @@ test_project_structure() {
         "tools"
         "scripts"
     )
-    
+
     local missing=0
     for dir in "${required_dirs[@]}"; do
         if [[ ! -d "$SCRIPT_DIR/$dir" ]]; then
@@ -292,24 +292,24 @@ test_project_structure() {
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         pass "All required directories present"
     fi
-    
+
     end_test
 }
 
 test_core_scripts_executable() {
     start_test "Core scripts are executable"
-    
+
     local scripts=(
         "setup.sh"
         "setup-theme.sh"
         "setup-versions.sh"
         "validate-setup.sh"
     )
-    
+
     local not_executable=0
     for script in "${scripts[@]}"; do
         if [[ -f "$SCRIPT_DIR/$script" ]]; then
@@ -321,24 +321,24 @@ test_core_scripts_executable() {
             fail "$script not found"
         fi
     done
-    
+
     if [[ $not_executable -eq 0 ]]; then
         pass "All core scripts are executable"
     fi
-    
+
     end_test
 }
 
 test_library_modules_sourceable() {
     start_test "Library modules can be sourced"
-    
+
     local libs=(
         "lib/logger.sh"
         "lib/env.sh"
         "lib/backup.sh"
         "lib/cache.sh"
     )
-    
+
     local failed=0
     for lib in "${libs[@]}"; do
         if [[ -f "$SCRIPT_DIR/$lib" ]]; then
@@ -352,11 +352,11 @@ test_library_modules_sourceable() {
             warn "$lib: not found"
         fi
     done
-    
+
     if [[ $failed -eq 0 ]]; then
         pass "All library modules have valid syntax"
     fi
-    
+
     end_test
 }
 
@@ -373,37 +373,37 @@ run_tests() {
     echo "Shell: ${SHELL:-unknown}"
     echo "Date: $(date)"
     echo
-    
+
     echo "━━━ Platform Detection ━━━"
     test_platform_detection
     test_architecture
-    
+
     echo
     echo "━━━ Shell Compatibility ━━━"
     test_shell_compatibility
     test_bash_version
-    
+
     echo
     echo "━━━ Core Dependencies ━━━"
     test_git_available
     test_curl_or_wget
-    
+
     echo
     echo "━━━ Version Managers ━━━"
     test_version_managers_installable
-    
+
     echo
     echo "━━━ File System ━━━"
     test_home_directory_writable
     test_config_directory_creatable
     test_font_directories_exist
-    
+
     echo
     echo "━━━ Project Structure ━━━"
     test_project_structure
     test_core_scripts_executable
     test_library_modules_sourceable
-    
+
     echo
     print_summary
 }

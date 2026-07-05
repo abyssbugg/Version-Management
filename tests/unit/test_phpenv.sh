@@ -44,13 +44,13 @@ test_phpenv_validate_version_format_valid() {
     else
         assert_equals "valid" "invalid" "8.3.12 should be valid format"
     fi
-    
+
     if _phpenv_validate_version "8.2.0" 2>/dev/null; then
         assert_equals "true" "true" "Valid version format 8.2.0 accepted"
     else
         assert_equals "valid" "invalid" "8.2.0 should be valid format"
     fi
-    
+
     if _phpenv_validate_version "7.4.33" 2>/dev/null; then
         assert_equals "true" "true" "Valid version format 7.4.33 accepted"
     else
@@ -65,13 +65,13 @@ test_phpenv_validate_version_format_invalid() {
     else
         assert_equals "rejected" "accepted" "'invalid' should be rejected"
     fi
-    
+
     if ! _phpenv_validate_version "8.3" 2>/dev/null; then
         assert_equals "true" "true" "Invalid version '8.3' (no patch) rejected"
     else
         assert_equals "rejected" "accepted" "'8.3' should be rejected"
     fi
-    
+
     if ! _phpenv_validate_version "php8.3.12" 2>/dev/null; then
         assert_equals "true" "true" "Invalid version 'php8.3.12' (with prefix) rejected"
     else
@@ -83,15 +83,15 @@ test_phpenv_validate_version_format_invalid() {
 test_phpenv_is_php_project_with_composer_json() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     echo '{"require": {"php": ">=8.1"}}' > composer.json
-    
+
     if phpenv_is_php_project; then
         assert_equals "true" "true" "Detected PHP project with composer.json"
     else
         assert_equals "detected" "not_detected" "Should detect composer.json as PHP project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -100,15 +100,15 @@ test_phpenv_is_php_project_with_composer_json() {
 test_phpenv_is_php_project_with_php_version() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     echo "8.3.12" > .php-version
-    
+
     if phpenv_is_php_project; then
         assert_equals "true" "true" "Detected PHP project with .php-version"
     else
         assert_equals "detected" "not_detected" "Should detect .php-version as PHP project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -117,15 +117,15 @@ test_phpenv_is_php_project_with_php_version() {
 test_phpenv_is_php_project_with_artisan() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     touch artisan
-    
+
     if phpenv_is_php_project; then
         assert_equals "true" "true" "Detected PHP project with artisan"
     else
         assert_equals "detected" "not_detected" "Should detect artisan as PHP project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -134,15 +134,15 @@ test_phpenv_is_php_project_with_artisan() {
 test_phpenv_is_php_project_not_php() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     echo "test" > test.txt
-    
+
     if ! phpenv_is_php_project; then
         assert_equals "true" "true" "Correctly identified non-PHP project"
     else
         assert_equals "not_detected" "detected" "Should not detect as PHP project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -181,14 +181,14 @@ test_all_exported_functions_exist() {
                      "phpenv_get_prompt_version" "phpenv_is_php_project"
                      "composer_detect" "composer_install" "laravel_install" "laravel_detect_project")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 14 exported functions exist"
     else

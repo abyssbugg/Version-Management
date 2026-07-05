@@ -59,12 +59,12 @@ show_pro_status() {
     log_info " Version Managers Professional Status"
     log_info "======================================="
     echo
-    
+
     # Check NVM status
     log_info "🟢 Node Version Manager (NVM):"
     if check_nvm_installed; then
         log_success "   NVM is installed"
-        
+
         # Check current Node version
         if command -v node >/dev/null 2>&1; then
             local current_node
@@ -73,13 +73,13 @@ show_pro_status() {
         else
             log_warn "   Node.js not available"
         fi
-        
+
         # Check .nvmrc version
         if [[ -f ".nvmrc" ]]; then
             local nvmrc_version
             nvmrc_version=$(cat .nvmrc 2>/dev/null || echo "unknown")
             log_info "  📋 Project Node.js: v$nvmrc_version"
-            
+
             # Check if versions match
             if command -v node >/dev/null 2>&1; then
                 local current_clean
@@ -93,7 +93,7 @@ show_pro_status() {
         else
             log_warn "   .nvmrc not found"
         fi
-        
+
         # Check NVM_SILENT configuration
         if check_nvm_silent_configured; then
             log_success "   NVM silent mode configured"
@@ -104,14 +104,14 @@ show_pro_status() {
         log_error "   NVM not installed"
         log_info "   Install with: git clone https://github.com/nvm-sh/nvm.git ~/.nvm && cd ~/.nvm && git checkout v0.39.7"
     fi
-    
+
     echo
-    
+
     # Check pyenv status
     log_info "🐍 Python Version Manager (pyenv):"
     if check_pyenv_installed; then
         log_success "   pyenv is installed"
-        
+
         # Check current Python version
         if command -v python3 >/dev/null 2>&1; then
             local current_python
@@ -120,13 +120,13 @@ show_pro_status() {
         else
             log_warn "   Python3 not available"
         fi
-        
+
         # Check .python-version
         if [[ -f ".python-version" ]]; then
             local python_version
             python_version=$(cat .python-version 2>/dev/null || echo "unknown")
             log_info "  📋 Project Python: $python_version"
-            
+
             # Check if pyenv version is active
             if command -v pyenv >/dev/null 2>&1; then
                 local pyenv_version
@@ -144,14 +144,14 @@ show_pro_status() {
         log_error "   pyenv not installed"
         log_info "   Install with: git clone https://github.com/pyenv/pyenv.git ~/.pyenv"
     fi
-    
+
     echo
-    
+
     # Check Go status
     log_info " Go Version Manager (gvm/goenv):"
     if command -v goenv >/dev/null 2>&1; then
         log_success "   goenv is installed"
-        
+
         # Check current Go version
         if command -v go >/dev/null 2>&1; then
             local current_go
@@ -160,13 +160,13 @@ show_pro_status() {
         else
             log_warn "   Go not available"
         fi
-        
+
         # Check .go-version
         if [[ -f ".go-version" ]]; then
             local go_version
             go_version=$(cat .go-version 2>/dev/null || echo "unknown")
             log_info "  📋 Project Go: $go_version"
-            
+
             # Check if goenv version is active
             if command -v goenv >/dev/null 2>&1; then
                 local goenv_version
@@ -185,14 +185,14 @@ show_pro_status() {
     else
         log_warn "    Go support not available"
     fi
-    
+
     echo
-    
+
     # Check Rust status
     log_info "🦀 Rust Version Manager (rustup):"
     if command -v rustup >/dev/null 2>&1; then
         log_success "   rustup is installed"
-        
+
         # Check current Rust version
         if command -v rustc >/dev/null 2>&1; then
             local current_rust
@@ -201,13 +201,13 @@ show_pro_status() {
         else
             log_warn "   Rust compiler not available"
         fi
-        
+
         # Check rust-toolchain
         if [[ -f "rust-toolchain" ]]; then
             local rust_version
             rust_version=$(cat rust-toolchain 2>/dev/null || echo "unknown")
             log_info "  📋 Project Rust: $rust_version"
-            
+
             # Check if rustup version is active
             if command -v rustup >/dev/null 2>&1; then
                 local rustup_version
@@ -226,14 +226,14 @@ show_pro_status() {
     else
         log_warn "    Rust support not available"
     fi
-    
+
     echo
-    
+
     # Check Java status
     log_info "☕ Java Version Manager (jenv):"
     if command -v jenv >/dev/null 2>&1; then
         log_success "   jenv is installed"
-        
+
         # Check current Java version
         if command -v java >/dev/null 2>&1; then
             local current_java
@@ -242,13 +242,13 @@ show_pro_status() {
         else
             log_warn "   Java not available"
         fi
-        
+
         # Check .java-version
         if [[ -f ".java-version" ]]; then
             local java_version
             java_version=$(cat .java-version 2>/dev/null || echo "unknown")
             log_info "  📋 Project Java: $java_version"
-            
+
             # Check if jenv version is active
             if command -v jenv >/dev/null 2>&1; then
                 local jenv_version
@@ -267,14 +267,14 @@ show_pro_status() {
     else
         log_warn "    Java support not available"
     fi
-    
+
     echo
 
     # Check PHP status
     log_info "🐘 PHP Version Manager (phpenv):"
     if command -v phpenv >/dev/null 2>&1; then
         log_success "   phpenv is installed"
-        
+
         # Check current PHP version
         if command -v php >/dev/null 2>&1; then
             local current_php
@@ -283,13 +283,13 @@ show_pro_status() {
         else
             log_warn "   PHP not available"
         fi
-        
+
         # Check .php-version
         if [[ -f ".php-version" ]]; then
             local php_version
             php_version=$(cat .php-version 2>/dev/null || echo "unknown")
             log_info "  📋 Project PHP: $php_version"
-            
+
             # Check if phpenv version matches
             if command -v phpenv >/dev/null 2>&1; then
                 local phpenv_version
@@ -303,7 +303,7 @@ show_pro_status() {
         else
             log_warn "   .php-version not found"
         fi
-        
+
         # Check Composer
         if command -v composer >/dev/null 2>&1; then
             local composer_ver
@@ -312,7 +312,7 @@ show_pro_status() {
         else
             log_warn "   Composer not installed"
         fi
-        
+
         # Check Laravel
         if command -v laravel >/dev/null 2>&1; then
             log_success "   Laravel installer available"
@@ -324,28 +324,28 @@ show_pro_status() {
     else
         log_warn "    PHP support not available"
     fi
-    
+
     echo
 }
 
 # Install Node.js version from .nvmrc
 install_node_version() {
     log_info " Installing Node.js version from .nvmrc..."
-    
+
     if [[ ! -f ".nvmrc" ]]; then
         log_error ".nvmrc file not found"
         return 1
     fi
-    
+
     if ! check_nvm_installed; then
         log_error "NVM is not installed"
         return 1
     fi
-    
+
     local node_version
     node_version=$(cat .nvmrc)
     log_info "Target Node.js version: v$node_version"
-    
+
     # Source nvm and install
     if source_nvm_if_available; then
         log_info "Installing Node.js v$node_version..."
@@ -374,21 +374,21 @@ install_node_version() {
 # Install Python version from .python-version
 install_python_version() {
     log_info "🐍 Installing Python version from .python-version..."
-    
+
     if [[ ! -f ".python-version" ]]; then
         log_error ".python-version file not found"
         return 1
     fi
-    
+
     if ! check_pyenv_installed; then
         log_error "pyenv is not installed"
         return 1
     fi
-    
+
     local python_version
     python_version=$(cat .python-version)
     log_info "Target Python version: $python_version"
-    
+
     # Install Python version
     log_info "Installing Python $python_version..."
     if pyenv install "$python_version"; then
@@ -405,30 +405,30 @@ install_python_version() {
 # Configure NVM for silent operation
 configure_nvm_silent() {
     log_info " Configuring NVM for silent operation..."
-    
+
     if ! check_nvm_installed; then
         log_error "NVM is not installed"
         return 1
     fi
-    
+
     local zshrc="$HOME/.zshrc"
     if [[ ! -f "$zshrc" ]]; then
         log_error "$HOME/.zshrc not found"
         return 1
     fi
-    
+
     # Backup .zshrc
     if ! create_backup "$zshrc"; then
         log_error "Failed to backup ~/.zshrc"
         return 1
     fi
-    
+
     # Check if NVM_SILENT is already configured
     if grep -q "export NVM_SILENT" "$zshrc"; then
         log_success "NVM_SILENT already configured"
         return 0
     fi
-    
+
     # Add NVM_SILENT configuration
     log_info "Adding NVM_SILENT configuration to ~/.zshrc..."
     {
@@ -436,7 +436,7 @@ configure_nvm_silent() {
         echo "# Professional terminal setup - silence nvm output"
         echo "export NVM_SILENT=true"
     } >> "$zshrc"
-    
+
     log_success "NVM silent mode configured"
     log_info " Restart your terminal or run 'source ~/.zshrc' to apply changes"
 }
@@ -444,7 +444,7 @@ configure_nvm_silent() {
 # Main function
 main() {
     local command="${1:-$DEFAULT_COMMAND}"
-    
+
     # Validate command parameter
     case "$command" in
         pro-status)
@@ -477,10 +477,10 @@ main() {
             lock_with_trap "workstation-mutation" 30 || exit 1
             ;;
     esac
-    
+
     log_info " Version Manager Setup: $command"
     echo
-    
+
     # Execute command
     case "$command" in
         pro-status)
@@ -508,28 +508,28 @@ main() {
             install_php_version
             ;;
     esac
-    
+
     exit 0
 }
 
 # Install Go version from .go-version
 install_go_version() {
     log_info " Installing Go version from .go-version..."
-    
+
     if [[ ! -f ".go-version" ]]; then
         log_error ".go-version file not found"
         return 1
     fi
-    
+
     if ! command -v goenv >/dev/null 2>&1; then
         log_error "goenv is not installed"
         return 1
     fi
-    
+
     local go_version
     go_version=$(cat .go-version)
     log_info "Target Go version: $go_version"
-    
+
     # Install Go version
     log_info "Installing Go $go_version..."
     if goenv install "$go_version"; then
@@ -546,21 +546,21 @@ install_go_version() {
 # Install Rust version from rust-toolchain
 install_rust_version() {
     log_info "🦀 Installing Rust version from rust-toolchain..."
-    
+
     if [[ ! -f "rust-toolchain" ]]; then
         log_error "rust-toolchain file not found"
         return 1
     fi
-    
+
     if ! command -v rustup >/dev/null 2>&1; then
         log_error "rustup is not installed"
         return 1
     fi
-    
+
     local rust_version
     rust_version=$(cat rust-toolchain)
     log_info "Target Rust version: $rust_version"
-    
+
     # Install Rust version
     log_info "Installing Rust $rust_version..."
     if rustup toolchain install "$rust_version"; then
@@ -574,21 +574,21 @@ install_rust_version() {
 # Install Java version from .java-version
 install_java_version() {
     log_info "☕ Installing Java version from .java-version..."
-    
+
     if [[ ! -f ".java-version" ]]; then
         log_error ".java-version file not found"
         return 1
     fi
-    
+
     if ! command -v jenv >/dev/null 2>&1; then
         log_error "jenv is not installed"
         return 1
     fi
-    
+
     local java_version
     java_version=$(cat .java-version)
     log_info "Target Java version: $java_version"
-    
+
     # Set local Java version
     log_info "Setting Java $java_version..."
     if jenv local "$java_version"; then
@@ -602,21 +602,21 @@ install_java_version() {
 # Install PHP version from .php-version
 install_php_version() {
     log_info "🐘 Installing PHP version from .php-version..."
-    
+
     if [[ ! -f ".php-version" ]]; then
         log_error ".php-version file not found"
         return 1
     fi
-    
+
     if ! command -v phpenv >/dev/null 2>&1; then
         log_error "phpenv is not installed"
         return 1
     fi
-    
+
     local php_version
     php_version=$(cat .php-version)
     log_info "Target PHP version: $php_version"
-    
+
     # Install PHP version
     log_info "Installing PHP $php_version..."
     if phpenv install "$php_version"; then
@@ -628,7 +628,7 @@ install_php_version() {
         log_error "Failed to install PHP $php_version"
         return 1
     fi
-    
+
     # Install Composer if not present
     if ! command -v composer >/dev/null 2>&1; then
         log_info "Installing Composer..."

@@ -11,7 +11,7 @@ coverage_init "pyvm"
 
 failures=0
 
-# Test: detect_os is used (not get_os_type which was the original bug)  
+# Test: detect_os is used (not get_os_type which was the original bug)
 test_pyvm_uses_detect_os() {
     track_coverage "install_pyenv"
 

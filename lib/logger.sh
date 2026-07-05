@@ -56,7 +56,7 @@ _get_timestamp() {
 _write_to_file() {
     local level="$1"
     local message="$2"
-    
+
     if [[ -n "${LOG_FILE:-}" ]]; then
         mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
         echo "[$(_get_timestamp)] [$level] $message" >> "$LOG_FILE"
@@ -120,7 +120,7 @@ log_success() {
 
 log_debug() {
     local message="$1"
-    
+
     # Only output debug messages when DEBUG is set to true
     if [[ "${DEBUG:-false}" == "true" ]]; then
         _log "DEBUG" "$BLUE" "$message"
@@ -132,7 +132,7 @@ validate_logger() {
     log_info "Logger validation: INFO level working"
     log_warn "Logger validation: WARN level working"
     log_debug "Logger validation: DEBUG level working (only visible when DEBUG=true)"
-    
+
     # Test file logging if LOG_FILE is set
     if [[ -n "${LOG_FILE:-}" ]]; then
         if [[ -w "$(dirname "$LOG_FILE")" ]]; then
@@ -142,7 +142,7 @@ validate_logger() {
             return 1
         fi
     fi
-    
+
     return 0
 }
 
@@ -150,11 +150,11 @@ validate_logger() {
 init_logger() {
     local log_file="${1:-}"
     local debug_mode="${2:-false}"
-    
+
     # Set LOG_FILE if provided
     if [[ -n "$log_file" ]]; then
         export LOG_FILE="$log_file"
-        
+
         # Create log file directory if it doesn't exist
         local log_dir
         log_dir="$(dirname "$log_file")"
@@ -164,19 +164,19 @@ init_logger() {
                 return 1
             }
         fi
-        
+
         # Test write permissions
         if ! touch "$log_file" 2>/dev/null; then
             log_error "Cannot write to log file: $log_file"
             return 1
         fi
     fi
-    
+
     # Set DEBUG mode if provided
     if [[ "$debug_mode" == "true" ]]; then
         export DEBUG="true"
     fi
-    
+
     # Log initialization message
     log_info "Logger initialized successfully"
     if [[ -n "${LOG_FILE:-}" ]]; then
@@ -185,7 +185,7 @@ init_logger() {
     if [[ "${DEBUG:-false}" == "true" ]]; then
         log_debug "Debug logging enabled"
     fi
-    
+
     return 0
 }
 

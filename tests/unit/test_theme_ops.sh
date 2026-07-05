@@ -141,14 +141,14 @@ test_all_public_functions_exist() {
                      "theme_list_available" "theme_get_file_path" "theme_get_description"
                      "theme_requires_nerd_font" "theme_get_current_info" "theme_reset")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             missing=$((missing + 1))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 10 public functions exist"
     else

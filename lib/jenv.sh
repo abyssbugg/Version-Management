@@ -24,7 +24,7 @@ JENV_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if jenv is available, 1 if not
 jenv_detect() {
     log_debug "Detecting jenv installation"
-    
+
     if command -v jenv >/dev/null 2>&1; then
         local jenv_version=$(jenv --version 2>/dev/null)
         log_info "jenv detected: version $jenv_version"
@@ -39,14 +39,14 @@ jenv_detect() {
 # Returns: 0 on success, 1 on failure
 jenv_install() {
     log_info "Installing jenv..."
-    
+
     if jenv_detect; then
         log_info "jenv already installed"
         return 0
     fi
-    
+
     local os_type=$(detect_os)
-    
+
     if ! command -v git >/dev/null 2>&1; then
         log_error "Git is required to install jenv"
         return 1
@@ -94,21 +94,21 @@ jenv_install() {
 # Returns: 0 on success, 1 on failure
 jenv_list_versions() {
     log_debug "Listing available Java versions"
-    
+
     if ! jenv_detect; then
         log_error "jenv not available"
         return 1
     fi
-    
+
     local cache_key="${JENV_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached Java versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching Java versions from jenv"
     local versions
     if versions=$(jenv versions --bare 2>/dev/null); then
@@ -128,33 +128,33 @@ jenv_list_versions() {
 jenv_add_version() {
     local version="$1"
     local java_home="$2"
-    
+
     if [ -z "$version" ]; then
         log_error "Java version not specified"
         return 1
     fi
-    
+
     if [ -z "$java_home" ]; then
         log_error "Java home path not specified"
         return 1
     fi
-    
+
     if ! _jenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! jenv_detect; then
         log_error "jenv not available"
         return 1
     fi
-    
+
     if [ ! -d "$java_home" ]; then
         log_error "Java home path does not exist: $java_home"
         return 1
     fi
-    
+
     log_info "Adding Java $version at $java_home to jenv..."
-    
+
     # Add the version to jenv
     if jenv add "$java_home" 2>/dev/null; then
         log_success "Java $version added to jenv successfully"
@@ -172,27 +172,27 @@ jenv_add_version() {
 # Returns: 0 on success, 1 on failure
 jenv_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Java version not specified"
         return 1
     fi
-    
+
     if ! _jenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! jenv_detect; then
         log_error "jenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! jenv_validate_version "$version"; then
         log_warn "Java $version not found in jenv registry"
         return 1
     fi
-    
+
     log_info "Setting global Java version to $version"
     if jenv global "$version" 2>/dev/null; then
         log_success "Global Java version set to $version"
@@ -208,29 +208,29 @@ jenv_set_global() {
 # Returns: 0 on success, 1 on failure
 jenv_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Java version not specified"
         return 1
     fi
-    
+
     if ! _jenv_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! jenv_detect; then
         log_error "jenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! jenv_validate_version "$version"; then
         log_warn "Java $version not found in jenv registry"
         return 1
     fi
-    
+
     log_info "Setting local Java version to $version"
-    
+
     # Set jenv local version
     if jenv local "$version" 2>/dev/null; then
         log_success "Local Java version set to $version"
@@ -245,12 +245,12 @@ jenv_set_local() {
 # Returns: current Java version string
 jenv_get_current() {
     log_debug "Getting current Java version"
-    
+
     if ! jenv_detect; then
         echo "system"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(jenv version-name 2>/dev/null); then
         echo "$current_version"
@@ -266,19 +266,19 @@ jenv_get_current() {
 # Returns: 0 if version exists, 1 if not
 jenv_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Java version not specified"
         return 1
     fi
-    
+
     if ! jenv_detect; then
         log_error "jenv not available"
         return 1
     fi
-    
+
     log_debug "Validating Java version: $version"
-    
+
     if jenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_debug "Java version $version is installed"
         return 0
@@ -297,13 +297,13 @@ jenv_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _jenv_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ ! $version =~ ^[0-9]+\.[0-9]+$ ]] && [[ ! $version =~ ^[0-9]+$ ]]; then
         log_error "Invalid Java version format: $version"
         log_info "Expected format: major.minor.patch, major.minor, or major (e.g., 17.0.8, 11.0, 8)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -317,10 +317,10 @@ jenv_get_prompt_version() {
     if ! jenv_detect; then
         return 1
     fi
-    
+
     local current_version=$(jenv_get_current)
     local global_version=$(jenv global 2>/dev/null || echo "system")
-    
+
     # Only show if different from global or if project-specific
     if [ -f ".java-version" ] || [ "$current_version" != "$global_version" ]; then
         echo "$current_version"

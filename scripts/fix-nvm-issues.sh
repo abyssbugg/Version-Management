@@ -46,7 +46,7 @@ show_usage() {
 fix_silent_mode() {
     log_info "🔇 Configuring NVM silent mode..."
     local zshrc="$HOME/.zshrc"
-    
+
     if [[ -f "$zshrc" ]]; then
         if ! grep -q "export NVM_SILENT=1" "$zshrc"; then
             echo "export NVM_SILENT=1" >> "$zshrc"
@@ -65,12 +65,12 @@ fix_silent_mode() {
 fix_verbose_issues() {
     log_info " Fixing NVM verbose output issues..."
     local zshrc="$HOME/.zshrc"
-    
+
     if [[ ! -f "$zshrc" ]]; then
         log_warn "$HOME/.zshrc not found"
         return 1
     fi
-    
+
     # Add NVM_SILENT=true to suppress verbose messages
     if ! grep -q "NVM_SILENT=true" "$zshrc"; then
         {
@@ -79,7 +79,7 @@ fix_verbose_issues() {
             echo "export NVM_SILENT=true"
         } >> "$zshrc"
     fi
-    
+
     # Add function to suppress 'Now using node' messages
     if ! grep -q "nvm_auto_use_silent" "$zshrc"; then
         {
@@ -92,7 +92,7 @@ fix_verbose_issues() {
             echo "}"
         } >> "$zshrc"
     fi
-    
+
     log_success "Verbose issues fixed"
     return 0
 }
@@ -100,12 +100,12 @@ fix_verbose_issues() {
 permanent_silence() {
     log_info "🔕 Permanently silencing NVM directory messages..."
     local zshrc="$HOME/.zshrc"
-    
+
     if [[ ! -f "$zshrc" ]]; then
         log_warn "$HOME/.zshrc not found"
         return 1
     fi
-    
+
     # Create wrapper function that silences all NVM output
     if ! grep -q "# NVM Permanent Silence Configuration" "$zshrc"; then
         {
@@ -135,7 +135,7 @@ permanent_silence() {
             echo "load-nvmrc"
         } >> "$zshrc"
     fi
-    
+
     log_success "NVM permanently silenced"
     return 0
 }
@@ -144,11 +144,11 @@ permanent_silence() {
 fix_nvm_issues() {
     log_info " Running all NVM fixes..."
     local success=true
-    
+
     fix_silent_mode || success=false
     fix_verbose_issues || success=false
     permanent_silence || success=false
-    
+
     if [[ "$success" == "true" ]]; then
         log_success "All NVM fixes applied successfully"
         return 0

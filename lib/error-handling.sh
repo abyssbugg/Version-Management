@@ -44,17 +44,17 @@ handle_error() {
     local line_number="${1:-unknown}"
     local command="${2:-unknown command}"
     local script_name="${BASH_SOURCE[1]:-unknown}"
-    
+
     local timestamp
     timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
     local error_msg="[$timestamp] ERROR in $script_name at line $line_number - Command failed (exit $exit_code): $command"
-    
+
     # Log to file
     echo "$error_msg" >> "$ERROR_LOG"
-    
+
     # Output to stderr
     log_error "Command failed at line $line_number: $command (exit code: $exit_code)"
-    
+
     return $exit_code
 }
 
@@ -183,13 +183,13 @@ safe_exec() {
 
         attempt=$((attempt + 1))  # portable: avoids exit-1 from ((attempt++)) when attempt==0 under set -e
         log_warn "Command failed (attempt $attempt/$max_retries): $command"
-        
+
         if (( attempt < max_retries )); then
             log_debug "Retrying in $retry_delay seconds..."
             sleep "$retry_delay"
         fi
     done
-    
+
     log_error "Command failed after $max_retries attempts: $command"
     return 1
 }
@@ -226,14 +226,14 @@ safe_exec_backoff() {
 
         attempt=$((attempt + 1))  # portable: avoids exit-1 from ((attempt++)) when attempt==0 under set -e
         log_warn "Command failed (attempt $attempt/$max_retries): $command"
-        
+
         if (( attempt < max_retries )); then
             log_debug "Retrying in $delay seconds (exponential backoff)..."
             sleep "$delay"
             delay=$((delay * 2))  # Exponential backoff
         fi
     done
-    
+
     log_error "Command failed after $max_retries attempts with backoff: $command"
     return 1
 }
@@ -255,14 +255,14 @@ register_cleanup() {
 run_cleanup() {
     local exit_code=$?
     log_debug "Running cleanup functions (exit code: $exit_code)"
-    
+
     for func in "${_CLEANUP_FUNCTIONS[@]}"; do
         if declare -f "$func" >/dev/null 2>&1; then
             log_debug "Executing cleanup: $func"
             "$func" || log_warn "Cleanup function $func failed"
         fi
     done
-    
+
     return $exit_code
 }
 
@@ -275,7 +275,7 @@ run_cleanup() {
 require_command() {
     local cmd="$1"
     local message="${2:-Command '$cmd' is required but not found}"
-    
+
     if ! command -v "$cmd" >/dev/null 2>&1; then
         log_error "$message"
         return 1
@@ -288,7 +288,7 @@ require_command() {
 require_file() {
     local file="$1"
     local message="${2:-Required file not found: $file}"
-    
+
     if [[ ! -f "$file" ]]; then
         log_error "$message"
         return 1
@@ -301,7 +301,7 @@ require_file() {
 require_dir() {
     local dir="$1"
     local message="${2:-Required directory not found: $dir}"
-    
+
     if [[ ! -d "$dir" ]]; then
         log_error "$message"
         return 1

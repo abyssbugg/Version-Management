@@ -24,21 +24,21 @@ NVM_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if nvm is available, 1 if not
 nvm_detect() {
     log_debug "Detecting nvm installation"
-    
+
     # Check if NVM_DIR is set and nvm.sh exists
     if [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
         # Source nvm if not already loaded
         if ! command -v nvm >/dev/null 2>&1; then
             source "$NVM_DIR/nvm.sh"
         fi
-        
+
         if command -v nvm >/dev/null 2>&1; then
             local nvm_version=$(nvm --version 2>/dev/null || echo "unknown")
             log_info "nvm detected: version $nvm_version"
             return 0
         fi
     fi
-    
+
     log_warn "nvm not found or not properly configured"
     return 1
 }
@@ -57,14 +57,14 @@ source_nvm_if_available() {
             return 1
         fi
     fi
-    
+
     # Check if nvm.sh exists and source it
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
         source "$NVM_DIR/nvm.sh"
         log_debug "Sourced nvm from $NVM_DIR/nvm.sh"
         return 0
     fi
-    
+
     log_debug "nvm.sh not found at $NVM_DIR/nvm.sh"
     return 1
 }
@@ -73,12 +73,12 @@ source_nvm_if_available() {
 # Returns: 0 on success, 1 on failure
 nvm_install() {
     log_info "Installing nvm..."
-    
+
     if nvm_detect; then
         log_info "nvm already installed"
         return 0
     fi
-    
+
     if ! command -v git >/dev/null 2>&1; then
         log_error "Git is required to install nvm"
         return 1
@@ -114,21 +114,21 @@ nvm_install() {
 # Returns: 0 on success, 1 on failure
 nvm_list_versions() {
     log_debug "Listing available Node.js versions"
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     local cache_key="${NVM_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached Node.js versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching Node.js versions from nvm"
     local versions
     if versions=$(nvm list 2>/dev/null | grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+'); then
@@ -146,32 +146,32 @@ nvm_list_versions() {
 # Returns: 0 on success, 1 on failure
 nvm_install_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Node.js version not specified"
         return 1
     fi
-    
+
     # Remove 'v' prefix if present for validation
     local clean_version=${version#v}
     if ! _nvm_validate_version "$clean_version"; then
         return 1
     fi
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     log_info "Installing Node.js $version..."
-    
+
     # Check if already installed (nvm list shows versions with 'v' prefix)
     local version_with_v="v${clean_version}"
     if nvm list 2>/dev/null | grep -q "$version_with_v"; then
         log_info "Node.js $version already installed"
         return 0
     fi
-    
+
     # Sync global packages from current version during install
     local install_args=("$clean_version")
     local sync_from
@@ -198,23 +198,23 @@ nvm_install_version() {
 # Returns: 0 on success, 1 on failure
 nvm_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Node.js version not specified"
         return 1
     fi
-    
+
     # Remove 'v' prefix if present for validation
     local clean_version=${version#v}
     if ! _nvm_validate_version "$clean_version"; then
         return 1
     fi
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! nvm_validate_version "$clean_version"; then
         log_warn "Node.js $version not found, attempting to install..."
@@ -222,7 +222,7 @@ nvm_set_global() {
             return 1
         fi
     fi
-    
+
     # Capture previous default for package sync
     local prev_default
     prev_default=$(nvm alias default 2>/dev/null | grep -o 'v[0-9][0-9.]*' || echo "")
@@ -252,23 +252,23 @@ nvm_set_global() {
 # Returns: 0 on success, 1 on failure
 nvm_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Node.js version not specified"
         return 1
     fi
-    
+
     # Remove 'v' prefix if present for validation
     local clean_version=${version#v}
     if ! _nvm_validate_version "$clean_version"; then
         return 1
     fi
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! nvm_validate_version "$clean_version"; then
         log_warn "Node.js $version not found, attempting to install..."
@@ -276,9 +276,9 @@ nvm_set_local() {
             return 1
         fi
     fi
-    
+
     log_info "Setting local Node.js version to $version"
-    
+
     # Create .nvmrc file
     if echo "$clean_version" > .nvmrc; then
         # Switch to the version
@@ -299,12 +299,12 @@ nvm_set_local() {
 # Returns: current Node.js version string
 nvm_get_current() {
     log_debug "Getting current Node.js version"
-    
+
     if ! nvm_detect; then
         echo "none"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(nvm current 2>/dev/null); then
         echo "$current_version"
@@ -320,19 +320,19 @@ nvm_get_current() {
 # Returns: 0 if version exists, 1 if not
 nvm_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Node.js version not specified"
         return 1
     fi
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     log_debug "Validating Node.js version: $version"
-    
+
     # nvm list shows versions with 'v' prefix
     local version_with_v="v${version}"
     if nvm list 2>/dev/null | grep -q "$version_with_v"; then
@@ -353,13 +353,13 @@ nvm_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _nvm_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         log_error "Invalid Node.js version format: $version"
         log_info "Expected format: major.minor.patch (e.g., 20.19.2)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -373,10 +373,10 @@ nvm_get_prompt_version() {
     if ! nvm_detect; then
         return 1
     fi
-    
+
     local current_version=$(nvm_get_current)
     local default_version=$(nvm alias default 2>/dev/null | cut -d' ' -f3 || echo "none")
-    
+
     # Only show if different from default or if project-specific
     if [ -f ".nvmrc" ] || [ "$current_version" != "$default_version" ]; then
         echo "$current_version"
@@ -396,18 +396,18 @@ nvm_get_lts_versions() {
         log_error "nvm not available"
         return 1
     fi
-    
+
     log_debug "Getting Node.js LTS versions"
-    
+
     local cache_key="${NVM_CACHE_PREFIX}_lts_versions"
     local cached_lts
-    
+
     if cached_lts=$(cache_get "$cache_key"); then
         log_debug "Using cached LTS versions list"
         echo "$cached_lts"
         return 0
     fi
-    
+
     # Get LTS versions (this is a simplified approach)
     local lts_versions="hydrogen iron"  # Common LTS codenames
     cache_set "$cache_key" "$lts_versions" "$NVM_CACHE_TTL"
@@ -421,7 +421,7 @@ nvm_install_lts() {
         log_error "nvm not available"
         return 1
     fi
-    
+
     log_info "Installing latest Node.js LTS version..."
 
     local sync_from
@@ -450,20 +450,20 @@ nvm_use_project_version() {
         log_debug "No .nvmrc file found"
         return 1
     fi
-    
+
     if ! nvm_detect; then
         log_error "nvm not available"
         return 1
     fi
-    
+
     local project_version=$(cat .nvmrc 2>/dev/null | tr -d '[:space:]')
     if [ -z "$project_version" ]; then
         log_error "Empty .nvmrc file"
         return 1
     fi
-    
+
     log_info "Switching to project Node.js version: $project_version"
-    
+
     if nvm use "$project_version" >/dev/null 2>&1; then
         log_success "Switched to Node.js $project_version"
         return 0

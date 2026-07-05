@@ -40,7 +40,7 @@ has_commands() {
             missing+=("$cmd")
         fi
     done
-    
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_debug "Missing commands: ${missing[*]}"
         return 1
@@ -136,17 +136,17 @@ contains() {
 version_compare() {
     local v1="$1"
     local v2="$2"
-    
+
     if [[ "$v1" == "$v2" ]]; then
         echo 0
         return
     fi
-    
+
     local IFS=.
     local i
     read -ra v1_parts <<< "$v1"
     read -ra v2_parts <<< "$v2"
-    
+
     # Fill empty parts with zeros
     for ((i=${#v1_parts[@]}; i<${#v2_parts[@]}; i++)); do
         v1_parts[i]=0
@@ -154,7 +154,7 @@ version_compare() {
     for ((i=${#v2_parts[@]}; i<${#v1_parts[@]}; i++)); do
         v2_parts[i]=0
     done
-    
+
     for ((i=0; i<${#v1_parts[@]}; i++)); do
         if ((10#${v1_parts[i]} > 10#${v2_parts[i]})); then
             echo 1
@@ -165,7 +165,7 @@ version_compare() {
             return
         fi
     done
-    
+
     echo 0
 }
 

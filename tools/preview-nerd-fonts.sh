@@ -40,7 +40,7 @@ detect_installed_fonts() {
     local fonts_found=()
     local os
     os=$(uname -s)
-    
+
     case "$os" in
         Darwin)
             # macOS font locations
@@ -63,24 +63,24 @@ detect_installed_fonts() {
             done
             ;;
     esac
-    
+
     printf '%s\n' "${fonts_found[@]}"
 }
 
 # Count rendering issues
 count_rendering_issues() {
     local issues=0
-    
+
     # These icons should render if Nerd Font is properly installed
     # We check if they produce visible output
     local test_icons=("" "" "" "" "")
-    
+
     for icon in "${test_icons[@]}"; do
         if [[ -z "$icon" ]]; then
             ((issues++))
         fi
     done
-    
+
     echo "$issues"
 }
 
@@ -168,7 +168,7 @@ show_preview() {
 
 show_terminal_info() {
     echo "━━━ Terminal Detection ━━━"
-    
+
     local term_info=""
     case "${TERM_PROGRAM:-}" in
         vscode)
@@ -207,10 +207,10 @@ show_terminal_info() {
 
 show_font_status() {
     echo "━━━ Installed Nerd Fonts ━━━"
-    
+
     local fonts
     fonts=$(detect_installed_fonts)
-    
+
     if [[ -n "$fonts" ]]; then
         echo -e "${GREEN}${NC} Found Nerd Fonts:"
         echo "$fonts" | while read -r font; do
@@ -241,17 +241,17 @@ offer_auto_fix() {
     echo "   - Restart your terminal"
     echo "   - Configure terminal to use 'MesloLGS Nerd Font'"
     echo
-    
+
     # Check if fonts are in project but not installed
     local project_fonts=0
     for font in "$SCRIPT_DIR"/MesloLGS*.ttf; do
         [[ -f "$font" ]] && ((project_fonts++))
     done
-    
+
     if [[ $project_fonts -gt 0 ]]; then
         local installed_fonts
         installed_fonts=$(detect_installed_fonts | wc -l)
-        
+
         if [[ $installed_fonts -eq 0 ]]; then
             echo -e "${YELLOW}⚠${NC} Found $project_fonts font files in project but none installed."
             echo
@@ -266,11 +266,11 @@ offer_auto_fix() {
 install_fonts_auto() {
     echo
     echo "Installing fonts..."
-    
+
     local os
     os=$(uname -s)
     local target_dir
-    
+
     case "$os" in
         Darwin)
             target_dir="$HOME/Library/Fonts"
@@ -284,7 +284,7 @@ install_fonts_auto() {
             return 1
             ;;
     esac
-    
+
     local installed=0
     for font in "$SCRIPT_DIR"/MesloLGS*.ttf; do
         if [[ -f "$font" ]]; then
@@ -293,13 +293,13 @@ install_fonts_auto() {
             ((installed++))
         fi
     done
-    
+
     if [[ $installed -gt 0 ]]; then
         # Refresh font cache on Linux
         if [[ "$os" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
             fc-cache -f "$target_dir"
         fi
-        
+
         echo
         echo -e "${GREEN}${NC} Installed $installed fonts to $target_dir"
         echo
@@ -342,7 +342,7 @@ EOF
 
 main() {
     local mode="${1:---all}"
-    
+
     case "$mode" in
         --preview)
             show_preview

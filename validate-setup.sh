@@ -34,7 +34,7 @@ track_result() {
 validate_powerlevel10k() {
     log_info " Validating PowerLevel10k Installation"
     log_info "======================================"
-    
+
     # Check if PowerLevel10k is installed
     local p10k_paths=(
         "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
@@ -42,7 +42,7 @@ validate_powerlevel10k() {
         "/usr/local/share/powerlevel10k"
         "/opt/homebrew/share/powerlevel10k"
     )
-    
+
     local p10k_found=false
     for path in "${p10k_paths[@]}"; do
         if [[ -d "$path" ]]; then
@@ -51,17 +51,17 @@ validate_powerlevel10k() {
             break
         fi
     done
-    
+
     if [[ "$p10k_found" == "false" ]]; then
         log_error " PowerLevel10k not found in common locations"
         track_result "error"
         return 1
     fi
-    
+
     # Check PowerLevel10k configuration
     if [[ -f "$HOME/.p10k.zsh" ]]; then
         log_success " PowerLevel10k configuration exists: ~/.p10k.zsh"
-        
+
         # Check if it's our professional configuration
         if grep -q "Professional Terminal Setup" "$HOME/.p10k.zsh" 2>/dev/null; then
             log_success " Professional theme configuration detected"
@@ -73,7 +73,7 @@ validate_powerlevel10k() {
         log_error " PowerLevel10k configuration missing: ~/.p10k.zsh"
         track_result "error"
     fi
-    
+
     # Check zsh configuration for PowerLevel10k
     if [[ -f "$HOME/.zshrc" ]]; then
         if grep -q "powerlevel10k" "$HOME/.zshrc" || grep -q "p10k" "$HOME/.zshrc"; then
@@ -86,7 +86,7 @@ validate_powerlevel10k() {
         log_error " ~/.zshrc not found"
         track_result "error"
     fi
-    
+
     echo
 }
 
@@ -94,7 +94,7 @@ validate_powerlevel10k() {
 validate_nerd_font() {
     log_info "🔤 Validating Nerd Font Availability"
     log_info "==================================="
-    
+
     # Check for MesloLGS NF files in project
     local font_files=(
         "MesloLGS NF Regular.ttf"
@@ -102,7 +102,7 @@ validate_nerd_font() {
         "MesloLGS NF Italic.ttf"
         "MesloLGS NF Bold Italic.ttf"
     )
-    
+
     local fonts_found=0
     for font in "${font_files[@]}"; do
         if [[ -f "$font" ]]; then
@@ -113,7 +113,7 @@ validate_nerd_font() {
             track_result "warning"
         fi
     done
-    
+
     if [[ $fonts_found -eq 4 ]]; then
         log_success " All MesloLGS NF font files available"
     elif [[ $fonts_found -gt 0 ]]; then
@@ -123,7 +123,7 @@ validate_nerd_font() {
         log_error " No MesloLGS NF font files found"
         track_result "error"
     fi
-    
+
     # Basic font installation check (macOS)
     if command -v fc-list >/dev/null 2>&1; then
         if fc-list | grep -i "meslo" >/dev/null 2>&1; then
@@ -135,7 +135,7 @@ validate_nerd_font() {
     else
         log_info " Cannot verify system font installation (fc-list not available)"
     fi
-    
+
     echo
 }
 
@@ -143,7 +143,7 @@ validate_nerd_font() {
 validate_zsh_config() {
     log_info "🐚 Validating Zsh Configuration"
     log_info "=============================="
-    
+
     # Check if zsh is available
     if command -v zsh >/dev/null 2>&1; then
         log_success " zsh is available"
@@ -155,7 +155,7 @@ validate_zsh_config() {
         track_result "error"
         return 1
     fi
-    
+
     # Check if zsh is the default shell
     if [[ "$SHELL" == *"zsh"* ]]; then
         log_success " zsh is the default shell"
@@ -163,11 +163,11 @@ validate_zsh_config() {
         log_warn "  zsh is not the default shell: $SHELL"
         track_result "warning"
     fi
-    
+
     # Check .zshrc
     if [[ -f "$HOME/.zshrc" ]]; then
         log_success " ~/.zshrc exists"
-        
+
         # Check for Oh My Zsh
         if grep -q "oh-my-zsh" "$HOME/.zshrc" 2>/dev/null; then
             log_success " Oh My Zsh configuration detected"
@@ -178,7 +178,7 @@ validate_zsh_config() {
         log_error " ~/.zshrc not found"
         track_result "error"
     fi
-    
+
     echo
 }
 
@@ -186,22 +186,22 @@ validate_zsh_config() {
 validate_nvm() {
     log_info " Validating NVM Functionality"
     log_info "==============================="
-    
+
     if check_nvm_installed; then
         log_success " NVM is installed"
-        
+
         # Check .nvmrc
         if [[ -f ".nvmrc" ]]; then
             local nvmrc_version
             nvmrc_version=$(cat .nvmrc)
             log_success " .nvmrc exists with version: v$nvmrc_version"
-            
+
             # Check if Node.js is available
             if command -v node >/dev/null 2>&1; then
                 local current_node
                 current_node=$(node --version 2>/dev/null | sed 's/^v//')
                 log_success " Node.js is available: v$current_node"
-                
+
                 # Check version match
                 if [[ "$current_node" == "$nvmrc_version" ]]; then
                     log_success " Node.js version matches .nvmrc"
@@ -217,7 +217,7 @@ validate_nvm() {
             log_warn "  .nvmrc not found"
             track_result "warning"
         fi
-        
+
         # Check NVM silent configuration
         if check_nvm_silent_configured; then
             log_success " NVM silent mode configured"
@@ -229,7 +229,7 @@ validate_nvm() {
         log_error " NVM not installed"
         track_result "error"
     fi
-    
+
     echo
 }
 
@@ -237,22 +237,22 @@ validate_nvm() {
 validate_pyenv() {
     log_info "🐍 Validating pyenv Functionality"
     log_info "================================="
-    
+
     if check_pyenv_installed; then
         log_success " pyenv is installed"
-        
+
         # Check .python-version
         if [[ -f ".python-version" ]]; then
             local python_version
             python_version=$(cat .python-version)
             log_success " .python-version exists with version: $python_version"
-            
+
             # Check if Python is available
             if command -v python3 >/dev/null 2>&1; then
                 local current_python
                 current_python=$(python3 --version 2>/dev/null)
                 log_success " Python3 is available: $current_python"
-                
+
                 # Check pyenv version
                 if command -v pyenv >/dev/null 2>&1; then
                     local pyenv_version
@@ -276,7 +276,7 @@ validate_pyenv() {
         log_error " pyenv not installed"
         track_result "error"
     fi
-    
+
     echo
 }
 
@@ -284,11 +284,11 @@ validate_pyenv() {
 validate_theme_display() {
     log_info "🎭 Validating Theme Display"
     log_info "==========================="
-    
+
     # Check terminal capabilities
     if [[ -n "${TERM:-}" ]]; then
         log_success " TERM environment variable set: $TERM"
-        
+
         # Check color support
         if [[ "$TERM" == *"256color"* ]] || [[ "$TERM" == *"truecolor"* ]]; then
             log_success " Terminal supports colors"
@@ -300,12 +300,12 @@ validate_theme_display() {
         log_warn "  TERM environment variable not set"
         track_result "warning"
     fi
-    
+
     # Check locale settings
     if [[ -n "${LC_ALL:-}" ]] || [[ -n "${LANG:-}" ]]; then
         local locale="${LC_ALL:-${LANG:-}}"
         log_success " Locale set: $locale"
-        
+
         if [[ "$locale" == *"UTF-8"* ]]; then
             log_success " UTF-8 encoding supported"
         else
@@ -316,11 +316,11 @@ validate_theme_display() {
         log_warn "  Locale not properly configured"
         track_result "warning"
     fi
-    
+
     # Test basic Unicode support
     log_info " Unicode test: ✓ ✗ ⚠   🐍"
     log_info " If you see boxes or question marks, check your font configuration"
-    
+
     echo
 }
 
@@ -328,7 +328,7 @@ validate_theme_display() {
 show_validation_summary() {
     log_info " Validation Summary"
     log_info "===================="
-    
+
     if [[ $VALIDATION_ERRORS -eq 0 ]] && [[ $VALIDATION_WARNINGS -eq 0 ]]; then
         log_success " Perfect! All validations passed successfully!"
         log_info "Your professional terminal setup is fully configured and ready to use."
@@ -339,7 +339,7 @@ show_validation_summary() {
         log_error " Setup has $VALIDATION_ERRORS error(s) and $VALIDATION_WARNINGS warning(s)"
         log_info "Please address the errors above for full functionality."
     fi
-    
+
     echo
     log_info " For help with any issues:"
     log_info "   • Check the README.md for troubleshooting tips"
@@ -353,7 +353,7 @@ main() {
     log_info " Professional Terminal Setup Validation"
     log_info "=========================================="
     echo
-    
+
     # Run all validations
     validate_powerlevel10k
     validate_nerd_font
@@ -361,10 +361,10 @@ main() {
     validate_nvm
     validate_pyenv
     validate_theme_display
-    
+
     # Show summary
     show_validation_summary
-    
+
     # Exit with appropriate code
     if [[ $VALIDATION_ERRORS -eq 0 ]]; then
         exit 0

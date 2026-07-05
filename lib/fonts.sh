@@ -45,7 +45,7 @@ readonly FONT_LICENSE="Apache License 2.0"
 font_get_directories() {
     local os
     os=$(uname -s)
-    
+
     case "$os" in
         Darwin)
             echo "$HOME/Library/Fonts"
@@ -69,7 +69,7 @@ font_get_directories() {
 font_get_target_directory() {
     local os
     os=$(uname -s)
-    
+
     case "$os" in
         Darwin)
             echo "$HOME/Library/Fonts"
@@ -89,7 +89,7 @@ font_get_target_directory() {
 # Detect installed Nerd Fonts
 font_detect_installed() {
     local fonts_found=()
-    
+
     while IFS= read -r dir; do
         if [[ -d "$dir" ]]; then
             while IFS= read -r font; do
@@ -97,7 +97,7 @@ font_detect_installed() {
             done < <(find "$dir" -maxdepth 2 \( -name "*Nerd*" -o -name "*MesloLGS*" \) -type f 2>/dev/null || true)
         fi
     done < <(font_get_directories)
-    
+
     printf '%s\n' "${fonts_found[@]}"
 }
 
@@ -112,7 +112,7 @@ font_is_installed() {
 font_get_location() {
     local first_font
     first_font=$(font_detect_installed | grep "MesloLGS" | head -1)
-    
+
     if [[ -n "$first_font" ]]; then
         dirname "$first_font"
     fi
@@ -126,11 +126,11 @@ font_get_location() {
 font_validate_checksum() {
     local font_file="$1"
     local expected_checksum="$2"
-    
+
     if [[ ! -f "$font_file" ]]; then
         return 1
     fi
-    
+
     local actual_checksum
     if command -v shasum >/dev/null 2>&1; then
         actual_checksum=$(shasum -a 256 "$font_file" | cut -d' ' -f1)
@@ -140,27 +140,27 @@ font_validate_checksum() {
         # Can't verify, assume valid
         return 0
     fi
-    
+
     [[ "$actual_checksum" == "$expected_checksum" ]]
 }
 
 # Validate a font file exists and is readable
 font_validate_file() {
     local font_file="$1"
-    
+
     [[ -f "$font_file" && -r "$font_file" ]]
 }
 
 # Check if all optional local fonts exist in project root
 font_bundled_exist() {
     local missing=0
-    
+
     for font in "${BUNDLED_FONTS[@]}"; do
         if [[ ! -f "$SCRIPT_DIR/$font" ]]; then
             ((missing++))
         fi
     done
-    
+
     [[ $missing -eq 0 ]]
 }
 
@@ -172,21 +172,21 @@ font_bundled_exist() {
 font_install_bundled() {
     local target_dir
     target_dir=$(font_get_target_directory)
-    
+
     if [[ -z "$target_dir" ]]; then
         log_error "Unsupported operating system for font installation"
         return 1
     fi
-    
+
     # Create target directory if needed
     mkdir -p "$target_dir"
-    
+
     local installed=0
     local failed=0
-    
+
     for font in "${BUNDLED_FONTS[@]}"; do
         local src="$SCRIPT_DIR/$font"
-        
+
         if [[ -f "$src" ]]; then
             if cp "$src" "$target_dir/"; then
                 log_success "Installed: $font"
@@ -200,13 +200,13 @@ font_install_bundled() {
             ((failed++))
         fi
     done
-    
+
     # Refresh font cache on Linux
     if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
         log_info "Refreshing font cache..."
         fc-cache -f "$target_dir" 2>/dev/null || true
     fi
-    
+
     if [[ $installed -gt 0 ]]; then
         log_success "Installed $installed font(s) to $target_dir"
         return 0
@@ -222,19 +222,19 @@ font_install_from_url() {
     local font_name="$2"
     local target_dir
     target_dir=$(font_get_target_directory)
-    
+
     if [[ -z "$target_dir" ]]; then
         log_error "Unsupported operating system"
         return 1
     fi
-    
+
     mkdir -p "$target_dir"
-    
+
     local temp_file
     temp_file=$(mktemp)
-    
+
     log_info "Downloading $font_name..."
-    
+
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL "$url" -o "$temp_file"
     elif command -v wget >/dev/null 2>&1; then
@@ -244,16 +244,16 @@ font_install_from_url() {
         rm -f "$temp_file"
         return 1
     fi
-    
+
     if [[ -f "$temp_file" && -s "$temp_file" ]]; then
         mv "$temp_file" "$target_dir/$font_name"
         log_success "Installed: $font_name"
-        
+
         # Refresh cache on Linux
         if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
             fc-cache -f "$target_dir" 2>/dev/null || true
         fi
-        
+
         return 0
     else
         log_error "Download failed"
@@ -266,14 +266,14 @@ font_install_from_url() {
 font_uninstall() {
     local target_dir
     target_dir=$(font_get_target_directory)
-    
+
     if [[ -z "$target_dir" ]]; then
         log_error "Unsupported operating system"
         return 1
     fi
-    
+
     local removed=0
-    
+
     for font in "${BUNDLED_FONTS[@]}"; do
         local font_path="$target_dir/$font"
         if [[ -f "$font_path" ]]; then
@@ -282,13 +282,13 @@ font_uninstall() {
             ((removed++))
         fi
     done
-    
+
     if [[ $removed -gt 0 ]]; then
         # Refresh cache on Linux
         if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
             fc-cache -f "$target_dir" 2>/dev/null || true
         fi
-        
+
         log_success "Removed $removed font(s)"
         return 0
     else
@@ -316,7 +316,7 @@ font_test_rendering() {
 # Check terminal font configuration
 font_check_terminal() {
     local term="${TERM_PROGRAM:-unknown}"
-    
+
     case "$term" in
         vscode)
             echo "VS Code: Set 'Terminal › Integrated: Font Family' to '$FONT_FAMILY'"
@@ -345,7 +345,7 @@ font_status() {
     echo "Font Status"
     echo "==========="
     echo
-    
+
     if font_is_installed; then
         local location
         location=$(font_get_location)
@@ -354,7 +354,7 @@ font_status() {
     else
         echo "Status:    Not installed"
     fi
-    
+
     echo
     echo "Bundled Fonts:"
     for font in "${BUNDLED_FONTS[@]}"; do
@@ -364,7 +364,7 @@ font_status() {
             echo "   $font (missing)"
         fi
     done
-    
+
     echo
     echo "Font Family: $FONT_FAMILY"
     echo "Source:      $FONT_ORIGIN"
@@ -376,7 +376,7 @@ font_generate_checksums() {
     echo "# Font Checksums (SHA-256)"
     echo "# Generated: $(date -Iseconds)"
     echo
-    
+
     for font in "${BUNDLED_FONTS[@]}"; do
         local font_path="$SCRIPT_DIR/$font"
         if [[ -f "$font_path" ]]; then

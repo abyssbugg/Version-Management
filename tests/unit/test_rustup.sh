@@ -32,7 +32,7 @@ test_rustup_validate_version_format_valid() {
     else
         assert_equals "valid" "invalid" "1.75.0 should be valid format"
     fi
-    
+
     if _rustup_validate_version "1.81.0" 2>/dev/null; then
         assert_equals "true" "true" "Valid version format 1.81.0 accepted"
     else
@@ -48,13 +48,13 @@ test_rustup_validate_version_format_invalid() {
     else
         assert_equals "rejected" "accepted" "'invalid' should be rejected"
     fi
-    
+
     if ! _rustup_validate_version "1.75" 2>/dev/null; then
         assert_equals "true" "true" "Invalid version '1.75' (no patch) rejected"
     else
         assert_equals "rejected" "accepted" "'1.75' should be rejected"
     fi
-    
+
     if ! _rustup_validate_version "stable" 2>/dev/null; then
         assert_equals "true" "true" "Version 'stable' rejected (channel name, not version)"
     else
@@ -67,19 +67,19 @@ test_rustup_validate_version_format_invalid() {
 test_rustup_is_rust_project_with_cargo() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     cat > Cargo.toml << 'EOF'
 [package]
 name = "test"
 version = "0.1.0"
 EOF
-    
+
     if rustup_is_rust_project; then
         assert_equals "true" "true" "Detected Rust project with Cargo.toml"
     else
         assert_equals "detected" "not_detected" "Should detect Cargo.toml as Rust project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -88,15 +88,15 @@ EOF
 test_rustup_is_rust_project_with_toolchain() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     echo "1.81.0" > rust-toolchain
-    
+
     if rustup_is_rust_project; then
         assert_equals "true" "true" "Detected Rust project with rust-toolchain"
     else
         assert_equals "detected" "not_detected" "Should detect rust-toolchain as Rust project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -105,18 +105,18 @@ test_rustup_is_rust_project_with_toolchain() {
 test_rustup_is_rust_project_with_toolchain_toml() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     cat > rust-toolchain.toml << 'EOF'
 [toolchain]
 channel = "1.81.0"
 EOF
-    
+
     if rustup_is_rust_project; then
         assert_equals "true" "true" "Detected Rust project with rust-toolchain.toml"
     else
         assert_equals "detected" "not_detected" "Should detect rust-toolchain.toml as Rust project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -125,15 +125,15 @@ EOF
 test_rustup_is_rust_project_not_rust() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     echo "test" > test.txt
-    
+
     if ! rustup_is_rust_project; then
         assert_equals "true" "true" "Correctly identified non-Rust project"
     else
         assert_equals "not_detected" "detected" "Should not detect as Rust project"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -153,14 +153,14 @@ test_all_exported_functions_exist() {
                      "rustup_set_global" "rustup_set_local" "rustup_get_current" "rustup_validate_version"
                      "rustup_get_prompt_version" "rustup_is_rust_project")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 10 exported functions exist"
     else

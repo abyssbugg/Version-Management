@@ -29,14 +29,14 @@ usage() {
 # Validate dependencies
 validate_dependencies() {
     log_info " Validating dependencies..."
-    
+
     # Check if zsh is available
     if ! command -v zsh >/dev/null 2>&1; then
         log_error "zsh is required but not installed"
         log_info "Please install zsh first: brew install zsh"
         return 1
     fi
-    
+
     # Check if PowerLevel10k is installed
     local p10k_paths=(
         "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
@@ -44,7 +44,7 @@ validate_dependencies() {
         "/usr/local/share/powerlevel10k"
         "/opt/homebrew/share/powerlevel10k"
     )
-    
+
     local p10k_found=false
     for path in "${p10k_paths[@]}"; do
         if [[ -d "$path" ]]; then
@@ -53,18 +53,18 @@ validate_dependencies() {
             break
         fi
     done
-    
+
     if [[ "$p10k_found" == "false" ]]; then
         log_error "PowerLevel10k not found in common locations"
         log_info "Please install PowerLevel10k first:"
         log_info "  git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/custom/themes/powerlevel10k"
         return 1
     fi
-    
+
     # Check for Nerd Font (basic check)
     log_info " Ensure you have a Nerd Font installed for proper icon display"
     log_info "   Recommended: MesloLGS NF (included in this project)"
-    
+
     return 0
 }
 
@@ -73,15 +73,15 @@ install_theme_config() {
     local theme="$1"
     local config_file="${SCRIPT_DIR}/config/${theme}-dev-p10k.zsh"
     local target_file="$HOME/.p10k.zsh"
-    
+
     log_info " Installing $theme theme configuration..."
-    
+
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
         log_error "Theme configuration not found: $config_file"
         return 1
     fi
-    
+
     # Backup existing configuration
     if [[ -f "$target_file" ]]; then
         log_info " Backing up existing PowerLevel10k configuration..."
@@ -90,7 +90,7 @@ install_theme_config() {
             return 1
         fi
     fi
-    
+
     # Copy new configuration
     log_info "📋 Installing new PowerLevel10k configuration..."
     if cp "$config_file" "$target_file"; then
@@ -99,22 +99,22 @@ install_theme_config() {
         log_error "Failed to install theme configuration"
         return 1
     fi
-    
+
     return 0
 }
 
 # Verify zsh configuration
 verify_zsh_config() {
     log_info " Verifying zsh configuration..."
-    
+
     local zshrc="$HOME/.zshrc"
-    
+
     if [[ ! -f "$zshrc" ]]; then
         log_error "$HOME/.zshrc not found"
         log_info "Please ensure zsh is properly configured"
         return 1
     fi
-    
+
     # Check if PowerLevel10k is sourced
     if grep -q "powerlevel10k" "$zshrc" || grep -q "p10k" "$zshrc"; then
         log_success "PowerLevel10k appears to be configured in ~/.zshrc"
@@ -122,14 +122,14 @@ verify_zsh_config() {
         log_warn "PowerLevel10k may not be configured in ~/.zshrc"
         log_info "You may need to add PowerLevel10k to your zsh theme configuration"
     fi
-    
+
     return 0
 }
 
 # Display post-installation instructions
 show_post_install_instructions() {
     local theme="$1"
-    
+
     log_info ""
     log_success " $theme theme installation completed!"
     log_info ""
@@ -146,7 +146,7 @@ show_post_install_instructions() {
 # Main function
 main() {
     local theme="${1:-$DEFAULT_THEME}"
-    
+
     # Validate theme parameter
     case "$theme" in
         professional)
@@ -161,16 +161,16 @@ main() {
     esac
 
     lock_with_trap "workstation-mutation" 30 || exit 1
-    
+
     log_info " Installing $theme theme..."
     echo
-    
+
     # Validate dependencies
     if ! validate_dependencies; then
         log_error "Dependency validation failed"
         exit 1
     fi
-    
+
     # Create automatic restore point before making changes
     log_info "📍 Creating automatic restore point..."
     local restore_point_name="auto_before_theme_${theme}_$(date +%Y%m%d_%H%M%S)"
@@ -180,27 +180,27 @@ main() {
     else
         log_warn "Could not create restore point, proceeding anyway..."
     fi
-    
+
     # Install theme configuration (with transaction)
     transaction_start "theme_install_${theme}"
     transaction_add_file "$HOME/.p10k.zsh"
-    
+
     if ! install_theme_config "$theme"; then
         log_error "Theme installation failed"
         transaction_rollback
         exit 1
     fi
-    
+
     transaction_commit
-    
+
     # Verify zsh configuration
     if ! verify_zsh_config; then
         log_warn "zsh configuration verification had warnings"
     fi
-    
+
     # Show post-installation instructions
     show_post_install_instructions "$theme"
-    
+
     exit 0
 }
 

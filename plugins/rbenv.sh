@@ -26,15 +26,15 @@ rbenv_detect() {
 
 rbenv_install() {
     echo "Installing rbenv..."
-    
+
     if rbenv_detect; then
         echo "rbenv is already installed"
         return 0
     fi
-    
+
     local os_type
     os_type=$(uname -s)
-    
+
     case "$os_type" in
         Darwin)
             if command -v brew >/dev/null 2>&1; then
@@ -54,7 +54,7 @@ rbenv_install() {
             return 1
             ;;
     esac
-    
+
     echo "rbenv installed successfully"
     echo "Add to your shell: eval \"\$(rbenv init -)\""
     return 0
@@ -74,7 +74,7 @@ rbenv_list() {
         echo "rbenv not installed"
         return 1
     fi
-    
+
     echo "Installed Ruby versions:"
     rbenv versions 2>/dev/null || echo "  (none)"
     echo
@@ -84,35 +84,35 @@ rbenv_list() {
 
 rbenv_use() {
     local version="$1"
-    
+
     if ! rbenv_detect; then
         echo "rbenv not installed"
         return 1
     fi
-    
+
     if [[ -z "$version" ]]; then
         echo "Usage: rbenv_use <version>"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! rbenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         echo "Version $version not installed. Installing..."
         rbenv install "$version" || return 1
     fi
-    
+
     rbenv global "$version"
     echo "Now using Ruby $version"
 }
 
 rbenv_install_version() {
     local version="$1"
-    
+
     if ! rbenv_detect; then
         echo "rbenv not installed"
         return 1
     fi
-    
+
     rbenv install "$version"
 }
 

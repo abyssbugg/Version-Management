@@ -24,7 +24,7 @@ run_terminal_diagnostics() {
     log_info " Running Terminal Configuration Diagnostics"
     log_info "=============================================="
     echo
-    
+
     # Check current shell
     log_info "📋 Current Shell Information:"
     echo "  Default Shell: ${SHELL:-'Not set'}"
@@ -32,7 +32,7 @@ run_terminal_diagnostics() {
     echo "  Terminal: ${TERM:-'Not set'}"
     echo "  ZSH Version: $(zsh --version 2>/dev/null || echo 'Not available')"
     echo
-    
+
     # Check fonts
     log_info "🔤 Font Configuration:"
     if fc-list | grep -c "MesloLGS" >/dev/null 2>&1; then
@@ -41,7 +41,7 @@ run_terminal_diagnostics() {
         log_warn "MesloLGS Nerd Font not found in system fonts"
     fi
     echo
-    
+
     # Check P10k configuration
     log_info " PowerLevel10k Configuration:"
     if [[ -f "$P10K_CONFIG" ]]; then
@@ -57,7 +57,7 @@ run_terminal_diagnostics() {
         log_warn "P10k configuration file not found"
     fi
     echo
-    
+
     # Check zsh configuration
     log_info "⚙️  ZSH Configuration:"
     if [[ -f "$ZSHRC" ]]; then
@@ -66,7 +66,7 @@ run_terminal_diagnostics() {
         else
             log_warn "PowerLevel10k theme not found in .zshrc"
         fi
-        
+
         if grep -q "MesloLGS" "$ZSHRC"; then
             log_info "Font configuration found in .zshrc"
         else
@@ -141,17 +141,17 @@ fix_shell_configuration() {
     log_info " Fixing Shell Configuration"
     log_info "=============================="
     echo
-    
+
     # Change default shell to zsh if it's not already
     if [[ "$SHELL" != *"zsh"* ]]; then
         log_info "Setting default shell to zsh..."
         if command -v zsh >/dev/null 2>&1; then
             local zsh_path
             zsh_path=$(command -v zsh)
-            
+
             # Add zsh to /etc/shells if not already there
             append_zsh_to_etc_shells "$zsh_path"
-            
+
             # Change shell
             chsh -s "$zsh_path"
             log_success "Default shell changed to zsh"
@@ -171,7 +171,7 @@ fix_p10k_configuration() {
     log_info " Fixing PowerLevel10k Configuration"
     log_info "====================================="
     echo
-    
+
     if [[ -f "$PROJECT_P10K_CONFIG" ]]; then
         # Backup existing config
         if [[ -f "$P10K_CONFIG" ]]; then
@@ -180,11 +180,11 @@ fix_p10k_configuration() {
                 return 1
             fi
         fi
-        
+
         # Copy project configuration
         cp "$PROJECT_P10K_CONFIG" "$P10K_CONFIG"
         log_success "Applied project PowerLevel10k configuration"
-        
+
         # Ensure proper permissions
         chmod 644 "$P10K_CONFIG"
     else
@@ -199,7 +199,7 @@ install_fonts() {
     log_info "🔤 Installing MesloLGS Nerd Fonts"
     log_info "================================="
     echo
-    
+
     local font_dir
     if [[ "$OSTYPE" == "darwin"* ]]; then
         font_dir="$HOME/Library/Fonts"
@@ -207,7 +207,7 @@ install_fonts() {
         font_dir="$HOME/.local/share/fonts"
         mkdir -p "$font_dir"
     fi
-    
+
     local fonts_installed=0
     for font in "${REPO_ROOT}"/MesloLGS*.ttf; do
         if [[ -f "$font" ]]; then
@@ -215,10 +215,10 @@ install_fonts() {
             ((fonts_installed++))
         fi
     done
-    
+
     if [[ $fonts_installed -gt 0 ]]; then
         log_success "Installed $fonts_installed MesloLGS font files"
-        
+
         # Refresh font cache on Linux
         if [[ "$OSTYPE" != "darwin"* ]] && command -v fc-cache >/dev/null 2>&1; then
             fc-cache -f -v
@@ -234,7 +234,7 @@ test_configuration() {
     log_info " Testing Configuration"
     log_info "========================"
     echo
-    
+
     # Test icons
     log_info "Icon Display Test:"
     echo "  Folder:   "
@@ -244,14 +244,14 @@ test_configuration() {
     echo "  Success:  ✔"
     echo "  Error:    ✘"
     echo
-    
+
     # Test P10k
     if command -v p10k >/dev/null 2>&1; then
         log_success "PowerLevel10k command available"
     else
         log_warn "PowerLevel10k command not found"
     fi
-    
+
     # Test font
     if fc-list | grep -c "MesloLGS" >/dev/null 2>&1; then
         log_success "MesloLGS fonts are available"
@@ -312,7 +312,7 @@ main() {
                 ;;
         esac
     done
-    
+
     case "$command" in
         diagnose)
             run_terminal_diagnostics

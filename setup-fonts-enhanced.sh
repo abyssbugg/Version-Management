@@ -70,14 +70,14 @@ install_with_homebrew() {
 # Install from local files (existing method)
 install_local_fonts() {
     log_info " Installing MesloLGS NF from local files..."
-    
+
     local font_files=(
         "MesloLGS NF Regular.ttf"
         "MesloLGS NF Bold.ttf"
         "MesloLGS NF Italic.ttf"
         "MesloLGS NF Bold Italic.ttf"
     )
-    
+
     local installed=0
     for font in "${font_files[@]}"; do
         if [[ -f "$SCRIPT_DIR/$font" ]]; then
@@ -96,7 +96,7 @@ install_local_fonts() {
             log_warn " Font file not found: $font"
         fi
     done
-    
+
     if [[ $installed -gt 0 ]]; then
         if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             fc-cache -f -v >/dev/null 2>&1 || true
@@ -110,7 +110,7 @@ install_local_fonts() {
 check_font_status() {
     log_info " Checking font installation status..."
     echo
-    
+
     # Check for MesloLGS fonts
     if [[ "$OSTYPE" == "darwin"* ]]; then
         local font_dir=~/Library/Fonts
@@ -119,14 +119,14 @@ check_font_status() {
         local font_dir=~/.local/share/fonts
         log_info "Checking Linux font directory: $font_dir"
     fi
-    
+
     if ls "$font_dir"/MesloLGS*.ttf >/dev/null 2>&1; then
         log_success " MesloLGS NF fonts are installed:"
         ls -la "$font_dir"/MesloLGS*.ttf 2>/dev/null | awk '{print "   " $NF}'
     else
         log_warn " MesloLGS NF fonts not found in $font_dir"
     fi
-    
+
     # Check if font is available to system
     if command -v fc-list >/dev/null 2>&1; then
         echo
@@ -138,7 +138,7 @@ check_font_status() {
             log_warn " Meslo fonts not found in system font cache"
         fi
     fi
-    
+
     # Check VS Code settings
     echo
     if [[ -f "$SCRIPT_DIR/vscode-settings.json" ]]; then
@@ -163,7 +163,7 @@ browse_nerd_fonts() {
     log_info " Popular fonts for development:"
     echo "  • MesloLGS NF (your current choice - excellent!)"
     echo "  • Hack Nerd Font"
-    echo "  • Fira Code Nerd Font" 
+    echo "  • Fira Code Nerd Font"
     echo "  • JetBrains Mono Nerd Font"
     echo "  • Cascadia Code Nerd Font"
     echo
@@ -220,12 +220,12 @@ main() {
     log_info " Enhanced Font Setup for Development Environment"
     log_info "================================================="
     echo
-    
+
     while true; do
         show_font_menu
         read -r -p "Enter your choice (1-7): " choice
         echo
-        
+
         case $choice in
             1)
                 install_local_fonts
@@ -253,7 +253,7 @@ main() {
                 log_warn "Invalid choice. Please enter 1-7."
                 ;;
         esac
-        
+
         echo
         log_info "Press Enter to continue..."
         read -r

@@ -66,14 +66,14 @@ fi
 # Initialize plugin system
 plugin_system_init() {
     log_debug "Initializing plugin system..."
-    
+
     # Create plugin directories if needed
     mkdir -p "$PLUGIN_DIR"
     mkdir -p "$PLUGIN_ENABLED_DIR"
-    
+
     # Load enabled plugins
     plugin_load_all
-    
+
     log_debug "Plugin system initialized"
 }
 
@@ -81,48 +81,48 @@ plugin_system_init() {
 # Usage: plugin_load "/path/to/plugin.sh"
 plugin_load() {
     local plugin_path="$1"
-    
+
     if [[ ! -f "$plugin_path" ]]; then
         log_error "Plugin not found: $plugin_path"
         return 1
     fi
-    
+
     local plugin_name
     plugin_name=$(basename "$plugin_path" .sh)
-    
+
     # Check if already loaded
     if [[ -n "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
         log_debug "Plugin already loaded: $plugin_name"
         return 0
     fi
-    
+
     log_debug "Loading plugin: $plugin_name"
-    
+
     # Source the plugin
     # shellcheck source=/dev/null
     if ! source "$plugin_path"; then
         log_error "Failed to load plugin: $plugin_name"
         return 1
     fi
-    
+
     # Verify required functions exist
     if ! declare -f plugin_info >/dev/null 2>&1; then
         log_error "Plugin missing required function: plugin_info"
         return 1
     fi
-    
+
     # Get plugin metadata
     local info
     info=$(plugin_info)
     PLUGIN_METADATA[$plugin_name]="$info"
-    
+
     # Initialize the plugin
     if declare -f plugin_init >/dev/null 2>&1; then
         if ! plugin_init; then
             log_warn "Plugin initialization returned non-zero: $plugin_name"
         fi
     fi
-    
+
     LOADED_PLUGINS[$plugin_name]="$plugin_path"
     log_debug "Plugin loaded successfully: $plugin_name"
     return 0
@@ -131,7 +131,7 @@ plugin_load() {
 # Load all enabled plugins
 plugin_load_all() {
     local count=0
-    
+
     # Load from main plugin directory
     if [[ -d "$PLUGIN_DIR" ]]; then
         for plugin in "$PLUGIN_DIR"/*.sh; do
@@ -140,7 +140,7 @@ plugin_load_all() {
             fi
         done
     fi
-    
+
     # Load from user plugin directory
     if [[ -d "$PLUGIN_ENABLED_DIR" ]]; then
         for plugin in "$PLUGIN_ENABLED_DIR"/*.sh; do
@@ -149,7 +149,7 @@ plugin_load_all() {
             fi
         done
     fi
-    
+
     log_debug "Loaded $count plugins"
 }
 
@@ -157,21 +157,21 @@ plugin_load_all() {
 # Usage: plugin_unload "plugin_name"
 plugin_unload() {
     local plugin_name="$1"
-    
+
     if [[ -z "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
         log_debug "Plugin not loaded: $plugin_name"
         return 0
     fi
-    
+
     # Call cleanup if available
     if declare -f plugin_cleanup >/dev/null 2>&1; then
         plugin_cleanup
     fi
-    
+
     # Remove from registry
     unset "LOADED_PLUGINS[$plugin_name]"
     unset "PLUGIN_METADATA[$plugin_name]"
-    
+
     log_debug "Plugin unloaded: $plugin_name"
 }
 
@@ -184,9 +184,9 @@ plugin_list_available() {
     echo "Available Plugins:"
     echo "=================="
     echo
-    
+
     local found=0
-    
+
     # Check main plugin directory
     if [[ -d "$PLUGIN_DIR" ]]; then
         for plugin in "$PLUGIN_DIR"/*.sh; do
@@ -200,7 +200,7 @@ plugin_list_available() {
             fi
         done
     fi
-    
+
     # Check user plugin directory
     if [[ -d "$PLUGIN_ENABLED_DIR" ]]; then
         for plugin in "$PLUGIN_ENABLED_DIR"/*.sh; do
@@ -214,7 +214,7 @@ plugin_list_available() {
             fi
         done
     fi
-    
+
     if [[ $found -eq 0 ]]; then
         echo "  No plugins found"
         echo
@@ -230,12 +230,12 @@ plugin_list_loaded() {
     echo "Loaded Plugins:"
     echo "==============="
     echo
-    
+
     if ! $_PLUGINS_HAS_ASSOC || [[ ${#LOADED_PLUGINS[@]} -eq 0 ]]; then
         echo "  No plugins loaded"
         return
     fi
-    
+
     for name in "${!LOADED_PLUGINS[@]}"; do
         local info="${PLUGIN_METADATA[$name]:-No info}"
         echo "  - $name: $info"
@@ -253,19 +253,19 @@ plugin_run() {
     local plugin_name="$1"
     local func_name="$2"
     shift 2
-    
+
     if [[ -z "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
         log_error "Plugin not loaded: $plugin_name"
         return 1
     fi
-    
+
     local full_func="${plugin_name}_${func_name}"
-    
+
     if ! declare -f "$full_func" >/dev/null 2>&1; then
         log_error "Plugin function not found: $full_func"
         return 1
     fi
-    
+
     "$full_func" "$@"
 }
 
@@ -274,7 +274,7 @@ plugin_run() {
 plugin_has_capability() {
     local plugin_name="$1"
     local capability="$2"
-    
+
     local full_func="${plugin_name}_${capability}"
     declare -f "$full_func" >/dev/null 2>&1
 }
@@ -300,22 +300,22 @@ list_plugins() {
 plugin_install_from_file() {
     local source_path="$1"
     local target_name="${2:-}"
-    
+
     if [[ ! -f "$source_path" ]]; then
         log_error "Plugin file not found: $source_path"
         return 1
     fi
-    
+
     if [[ -z "$target_name" ]]; then
         target_name=$(basename "$source_path")
     fi
-    
+
     local target_path="$PLUGIN_ENABLED_DIR/$target_name"
-    
+
     mkdir -p "$PLUGIN_ENABLED_DIR"
     cp "$source_path" "$target_path"
     chmod +x "$target_path"
-    
+
     log_success "Plugin installed: $target_name"
     log_info "Reload plugins with: plugin_load_all"
 }
@@ -324,10 +324,10 @@ plugin_install_from_file() {
 # Usage: plugin_remove "plugin_name"
 plugin_remove() {
     local plugin_name="$1"
-    
+
     # Unload first
     plugin_unload "$plugin_name"
-    
+
     # Remove from user directory
     local plugin_path="$PLUGIN_ENABLED_DIR/${plugin_name}.sh"
     if [[ -f "$plugin_path" ]]; then
@@ -347,14 +347,14 @@ plugin_remove() {
 plugin_create_template() {
     local plugin_name="$1"
     local output_path="${2:-$PLUGIN_ENABLED_DIR/${plugin_name}.sh}"
-    
+
     if [[ -z "$plugin_name" ]]; then
         log_error "Plugin name required"
         return 1
     fi
-    
+
     mkdir -p "$(dirname "$output_path")"
-    
+
     cat > "$output_path" << 'TEMPLATE'
 #!/usr/bin/env bash
 # Plugin: PLUGIN_NAME
@@ -442,9 +442,9 @@ TEMPLATE
     # Replace PLUGIN_NAME placeholder
     sed -i '' "s/PLUGIN_NAME/$plugin_name/g" "$output_path" 2>/dev/null || \
         sed -i "s/PLUGIN_NAME/$plugin_name/g" "$output_path"
-    
+
     chmod +x "$output_path"
-    
+
     log_success "Plugin template created: $output_path"
     log_info "Edit the file and replace TOOL_COMMAND with your tool's command"
 }

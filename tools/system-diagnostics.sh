@@ -52,12 +52,12 @@ check_command() {
     local cmd="$1"
     local name="${2:-$cmd}"
     ((TOTAL_CHECKS++))
-    
+
     if command -v "$cmd" >/dev/null 2>&1; then
         local version
         version=$("$cmd" --version 2>/dev/null | head -n1 || echo "installed")
         ((PASSED_CHECKS++))
-        
+
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"pass\",\"value\":\"$version\"},"
         else
@@ -80,12 +80,12 @@ check_optional() {
     local cmd="$1"
     local name="${2:-$cmd}"
     ((TOTAL_CHECKS++))
-    
+
     if command -v "$cmd" >/dev/null 2>&1; then
         local version
         version=$("$cmd" --version 2>/dev/null | head -n1 || echo "installed")
         ((PASSED_CHECKS++))
-        
+
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"pass\",\"value\":\"$version\"},"
         else
@@ -109,15 +109,15 @@ record_check() {
     local status="$2"  # pass, warn, fail
     local value="${3:-}"
     local suggestion="${4:-}"
-    
+
     ((TOTAL_CHECKS++))
-    
+
     case "$status" in
         pass) ((PASSED_CHECKS++)) ;;
         warn) ((WARNINGS++)) ;;
         fail) ((ERRORS++)) ;;
     esac
-    
+
     if [[ "$OUTPUT_FORMAT" == "json" ]]; then
         JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"$status\",\"value\":\"$value\""
         [[ -n "$suggestion" ]] && JSON_RESULTS+=",\"suggestion\":\"$suggestion\""
@@ -158,7 +158,7 @@ save_to_history() {
     timestamp=$(date +%Y%m%d_%H%M%S)
     local score
     score=$(calculate_score)
-    
+
     cat > "$DIAG_HISTORY_DIR/diag_${timestamp}.json" << EOF
 {
     "timestamp": "$(date -Iseconds)",
@@ -176,7 +176,7 @@ show_history() {
     init_history
     echo -e "${BOLD}=== Diagnostic History ===${NC}"
     echo
-    
+
     local count=0
     for file in $(ls -t "$DIAG_HISTORY_DIR"/diag_*.json 2>/dev/null | head -10); do
         if [[ -f "$file" ]]; then
@@ -189,7 +189,7 @@ show_history() {
             ((count++))
         fi
     done
-    
+
     if [[ $count -eq 0 ]]; then
         echo "  No diagnostic history found"
         echo "  Run --full or --quick to create history"
@@ -200,13 +200,13 @@ show_history() {
 quick_check() {
     log_info " Running quick system check..."
     echo
-    
+
     echo "=== Shell Environment ==="
     echo "  Current shell: ${SHELL:-unknown}"
     echo "  Shell version: $(${SHELL:-/bin/bash} --version | head -n1)"
     echo "  Terminal: ${TERM:-unknown}"
     echo
-    
+
     echo "=== Core Tools ==="
     check_command "git" "Git" || true
     check_command "curl" "curl" || true
@@ -214,44 +214,44 @@ quick_check() {
     check_command "npm" "npm" || true
     check_command "python3" "Python3" || true
     echo
-    
+
     echo "=== Shell Configuration ==="
     [[ -f "$HOME/.zshrc" ]] && echo -e "${GREEN}✓${NC} ~/.zshrc exists" || echo -e "${YELLOW}!${NC} ~/.zshrc not found"
     [[ -f "$HOME/.bashrc" ]] && echo -e "${GREEN}✓${NC} ~/.bashrc exists" || echo -e "${YELLOW}!${NC} ~/.bashrc not found"
     [[ -f "$HOME/.p10k.zsh" ]] && echo -e "${GREEN}✓${NC} ~/.p10k.zsh exists" || echo -e "${YELLOW}!${NC} ~/.p10k.zsh not found"
     echo
-    
+
     log_success "Quick check completed"
 }
 
 full_diagnostic() {
     log_info " Running full diagnostic scan..."
     echo
-    
+
     # Run all checks
     quick_check
     check_versions
     python_diagnostics
     validate_setup
-    
+
     echo "=== System Info ==="
     echo "  OS: $(uname -s) $(uname -r)"
     echo "  Arch: $(uname -m)"
     echo "  User: $(whoami)"
     echo "  Home: $HOME"
     echo
-    
+
     echo "=== Disk Space ==="
     df -h "$HOME" 2>/dev/null | tail -1 || echo "  Unable to check disk space"
     echo
-    
+
     log_success "Full diagnostic completed"
 }
 
 check_versions() {
     log_info " Checking version managers..."
     echo
-    
+
     echo "=== Node.js (nvm) ==="
     if [[ -d "${NVM_DIR:-$HOME/.nvm}" ]]; then
         echo -e "${GREEN}✓${NC} NVM directory exists: ${NVM_DIR:-$HOME/.nvm}"
@@ -269,7 +269,7 @@ check_versions() {
         echo -e "${RED}✗${NC} NVM not installed"
     fi
     echo
-    
+
     echo "=== Python (pyenv) ==="
     if command -v pyenv >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} pyenv installed"
@@ -281,7 +281,7 @@ check_versions() {
         echo -e "${RED}✗${NC} pyenv not installed"
     fi
     echo
-    
+
     echo "=== Go (goenv) ==="
     if command -v goenv >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} goenv installed"
@@ -292,7 +292,7 @@ check_versions() {
         echo -e "${YELLOW}!${NC} Go/goenv not installed"
     fi
     echo
-    
+
     echo "=== Rust (rustup) ==="
     if command -v rustup >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} rustup installed"
@@ -303,7 +303,7 @@ check_versions() {
         echo -e "${YELLOW}!${NC} rustup not installed"
     fi
     echo
-    
+
     echo "=== Java (jenv) ==="
     if command -v jenv >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} jenv installed"
@@ -315,28 +315,28 @@ check_versions() {
         echo -e "${YELLOW}!${NC} Java/jenv not installed"
     fi
     echo
-    
+
     log_success "Version check completed"
 }
 
 python_diagnostics() {
     log_info "🐍 Running Python diagnostics..."
     echo
-    
+
     echo "=== Python Installation ==="
     check_command "python3" "Python 3" || true
     check_command "pip3" "pip3" || true
     check_command "pipenv" "pipenv" || true
     check_command "poetry" "poetry" || true
     echo
-    
+
     echo "=== Python Paths ==="
     if command -v python3 >/dev/null 2>&1; then
         echo "  Executable: $(which python3)"
         echo "  Site packages: $(python3 -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || echo 'unknown')"
     fi
     echo
-    
+
     echo "=== pyenv Status ==="
     if command -v pyenv >/dev/null 2>&1; then
         echo "  PYENV_ROOT: ${PYENV_ROOT:-$HOME/.pyenv}"
@@ -344,7 +344,7 @@ python_diagnostics() {
         pyenv versions 2>/dev/null | head -5 || echo "    (none)"
     fi
     echo
-    
+
     echo "=== Virtual Environment ==="
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         echo -e "${GREEN}✓${NC} Active venv: $VIRTUAL_ENV"
@@ -352,22 +352,22 @@ python_diagnostics() {
         echo "  No virtual environment active"
     fi
     echo
-    
+
     log_success "Python diagnostics completed"
 }
 
 validate_setup() {
     log_info " Validating complete setup..."
     echo
-    
+
     local issues=0
-    
+
     echo "=== Project Files Check ==="
     [[ -f ".nvmrc" ]] && echo -e "${GREEN}✓${NC} .nvmrc present" || { echo -e "${YELLOW}!${NC} .nvmrc missing"; ((issues++)) || true; }
     [[ -f ".python-version" ]] && echo -e "${GREEN}✓${NC} .python-version present" || { echo -e "${YELLOW}!${NC} .python-version missing"; ((issues++)) || true; }
     [[ -f "package.json" ]] && echo -e "${GREEN}✓${NC} package.json present" || echo -e "${BLUE}i${NC} package.json not present (optional)"
     echo
-    
+
     echo "=== Theme Configuration ==="
     if [[ -f "$HOME/.p10k.zsh" ]]; then
         echo -e "${GREEN}✓${NC} PowerLevel10k config found"
@@ -376,7 +376,7 @@ validate_setup() {
         ((issues++)) || true
     fi
     echo
-    
+
     echo "=== Font Check ==="
     if command -v fc-list >/dev/null 2>&1; then
         if fc-list | grep -qi "meslo"; then
@@ -389,7 +389,7 @@ validate_setup() {
         echo -e "${BLUE}i${NC} fc-list not available, cannot check fonts"
     fi
     echo
-    
+
     echo "=== Summary ==="
     if [[ $issues -eq 0 ]]; then
         echo -e "${GREEN}All checks passed!${NC}"
@@ -397,7 +397,7 @@ validate_setup() {
         echo -e "${YELLOW}Found $issues potential issue(s)${NC}"
     fi
     echo
-    
+
     log_success "Setup validation completed"
 }
 
@@ -405,57 +405,57 @@ validate_setup() {
 health_dashboard() {
     log_info "🏥 System Health Dashboard"
     echo
-    
+
     # Reset counters
     TOTAL_CHECKS=0
     PASSED_CHECKS=0
     WARNINGS=0
     ERRORS=0
-    
+
     # Collect all checks silently
     local old_format="$OUTPUT_FORMAT"
     OUTPUT_FORMAT="silent"
-    
+
     # Shell environment
     [[ -n "${SHELL:-}" ]] && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
     [[ -f "$HOME/.zshrc" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     [[ -f "$HOME/.p10k.zsh" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    
+
     # Core tools
     command -v git >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
     command -v curl >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
-    
+
     # Version managers
     [[ -d "${NVM_DIR:-$HOME/.nvm}" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     command -v pyenv >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     command -v node >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     command -v python3 >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    
+
     # Optional tools
     command -v go >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     command -v rustc >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
     command -v java >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    
+
     OUTPUT_FORMAT="$old_format"
-    
+
     local score
     score=$(calculate_score)
     local color
     color=$(get_score_color "$score")
-    
+
     # Display dashboard
     echo -e "${BOLD}╔════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}║              SYSTEM HEALTH DASHBOARD                   ║${NC}"
     echo -e "${BOLD}╠════════════════════════════════════════════════════════╣${NC}"
     echo -e "${BOLD}║${NC}                                                        ${BOLD}║${NC}"
-    
+
     # Score bar
     local bar_filled=$((score / 5))
     local bar_empty=$((20 - bar_filled))
     local bar=""
     for ((i=0; i<bar_filled; i++)); do bar+="█"; done
     for ((i=0; i<bar_empty; i++)); do bar+="░"; done
-    
+
     echo -e "${BOLD}║${NC}  Health Score: ${color}${bar}${NC} ${color}${score}%${NC}        ${BOLD}║${NC}"
     echo -e "${BOLD}║${NC}                                                        ${BOLD}║${NC}"
     echo -e "${BOLD}╠════════════════════════════════════════════════════════╣${NC}"
@@ -464,7 +464,7 @@ health_dashboard() {
     echo -e "${BOLD}║${NC}  ${RED}✗ Errors:${NC}   $ERRORS                                        ${BOLD}║${NC}"
     echo -e "${BOLD}║${NC}  Total Checks: $TOTAL_CHECKS                                    ${BOLD}║${NC}"
     echo -e "${BOLD}╠════════════════════════════════════════════════════════╣${NC}"
-    
+
     # Status message
     if (( score >= 80 )); then
         echo -e "${BOLD}║${NC}  ${GREEN}Status: Excellent - System is well configured${NC}         ${BOLD}║${NC}"
@@ -473,15 +473,15 @@ health_dashboard() {
     else
         echo -e "${BOLD}║${NC}  ${RED}Status: Needs Attention - Run --full for details${NC}     ${BOLD}║${NC}"
     fi
-    
+
     echo -e "${BOLD}╚════════════════════════════════════════════════════════╝${NC}"
     echo
-    
+
     # Show fix suggestions if there are issues
     if (( ERRORS > 0 || WARNINGS > 3 )); then
         show_fix_suggestions
     fi
-    
+
     # Save to history
     save_to_history
 }
@@ -490,7 +490,7 @@ health_dashboard() {
 show_fix_suggestions() {
     echo -e "${BOLD}=== Recommended Fixes ===${NC}"
     echo
-    
+
     # Check for common issues and suggest fixes
     if ! command -v git >/dev/null 2>&1; then
         echo -e "${CYAN}→${NC} Install Git:"
@@ -498,26 +498,26 @@ show_fix_suggestions() {
         echo "    sudo apt install git  # Ubuntu/Debian"
         echo
     fi
-    
+
     if [[ ! -d "${NVM_DIR:-$HOME/.nvm}" ]]; then
         echo -e "${CYAN}→${NC} Install NVM:"
         echo "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash"
         echo
     fi
-    
+
     if ! command -v pyenv >/dev/null 2>&1; then
         echo -e "${CYAN}→${NC} Install pyenv:"
         echo "    brew install pyenv  # macOS"
         echo "    curl https://pyenv.run | bash  # Linux"
         echo
     fi
-    
+
     if [[ ! -f "$HOME/.p10k.zsh" ]]; then
         echo -e "${CYAN}→${NC} Configure PowerLevel10k:"
         echo "    ./setup-theme.sh professional"
         echo
     fi
-    
+
     if ! command -v node >/dev/null 2>&1; then
         echo -e "${CYAN}→${NC} Install Node.js:"
         echo "    nvm install --lts"
@@ -534,17 +534,17 @@ output_json() {
     ERRORS=0
     JSON_RESULTS=""
     OUTPUT_FORMAT="json"
-    
+
     # Run all checks
     quick_check >/dev/null 2>&1 || true
     check_versions >/dev/null 2>&1 || true
-    
+
     # Remove trailing comma from results
     JSON_RESULTS="${JSON_RESULTS%,}"
-    
+
     local score
     score=$(calculate_score)
-    
+
     cat << EOF
 {
     "timestamp": "$(date -Iseconds)",
@@ -558,7 +558,7 @@ output_json() {
     "checks": [$JSON_RESULTS]
 }
 EOF
-    
+
     save_to_history
 }
 

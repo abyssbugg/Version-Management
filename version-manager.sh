@@ -166,7 +166,7 @@ get_shell_config() {
     local shell_type="$(get_shell)"
     case "$shell_type" in
         zsh)  echo "$HOME/.zshrc" ;;
-        bash) 
+        bash)
             if [[ -f "$HOME/.bashrc" ]]; then
                 echo "$HOME/.bashrc"
             else
@@ -197,6 +197,7 @@ check_internet() {
 }
 
 # Acquire lock
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 acquire_lock() {
     local timeout="${1:-30}"
     lock_with_trap "version-manager" "$timeout"
@@ -214,7 +215,7 @@ release_lock() {
 # Detect installed version managers
 detect_version_managers() {
     local managers=()
-    
+
     # Node.js managers
     if [[ -d "$HOME/.nvm" ]] || command_exists nvm; then
         managers+=("nvm")
@@ -228,7 +229,7 @@ detect_version_managers() {
     if command_exists volta; then
         managers+=("volta")
     fi
-    
+
     # Python managers
     if command_exists pyenv; then
         managers+=("pyenv")
@@ -239,7 +240,7 @@ detect_version_managers() {
     if command_exists poetry; then
         managers+=("poetry")
     fi
-    
+
     # Ruby managers
     if command_exists rbenv; then
         managers+=("rbenv")
@@ -250,17 +251,17 @@ detect_version_managers() {
     if command_exists chruby; then
         managers+=("chruby")
     fi
-    
+
     # Go manager
     if command_exists g; then
         managers+=("g")
     fi
-    
+
     # Rust manager
     if command_exists rustup; then
         managers+=("rustup")
     fi
-    
+
     # Java managers
     if command_exists jabba; then
         managers+=("jabba")
@@ -271,17 +272,17 @@ detect_version_managers() {
     if command_exists sdk; then
         managers+=("sdkman")
     fi
-    
+
     # PHP manager
     if command_exists phpenv; then
         managers+=("phpenv")
     fi
-    
+
     # Universal manager
     if command_exists asdf; then
         managers+=("asdf")
     fi
-    
+
     echo "${managers[@]}"
 }
 
@@ -291,7 +292,7 @@ detect_version_managers() {
 
 install_nvm() {
     log_info "Installing NVM..."
-    
+
     local nvm_version="${1:-v0.39.7}"
     local install_dir="${NVM_DIR:-$HOME/.nvm}"
     export NVM_DIR="$install_dir"
@@ -334,16 +335,16 @@ install_nvm() {
 
 configure_nvm() {
     log_info "Configuring NVM..."
-    
+
     local shell_config="$(get_shell_config)"
     backup_file "$shell_config"
-    
+
     # Check if already configured
     if grep -q "NVM_DIR" "$shell_config" 2>/dev/null; then
         log_info "NVM already configured in $shell_config"
         return 0
     fi
-    
+
     # Add NVM configuration
     cat >> "$shell_config" << 'EOF'
 
@@ -383,10 +384,10 @@ autoload -U add-zsh-hook 2>/dev/null || true
 
 load_nvmrc() {
     local nvmrc_path="$(nvm_find_nvmrc 2>/dev/null)"
-    
+
     if [ -n "$nvmrc_path" ]; then
         local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")" 2>/dev/null)
-        
+
         if [ "$nvmrc_node_version" = "N/A" ]; then
             nvm install
         elif [ "$nvmrc_node_version" != "$(nvm version 2>/dev/null)" ]; then
@@ -413,7 +414,7 @@ fi
 # Silence NVM output
 export NVM_SILENT=true
 EOF
-    
+
     log_success "NVM configuration added to $shell_config"
 }
 
@@ -483,20 +484,20 @@ EOF
 
 install_pyenv() {
     log_info "Installing pyenv..."
-    
+
     local os="$(get_os)"
-    
+
     if ! check_internet; then
         log_error "No internet connection available"
         return 1
     fi
-    
+
     # Backup existing installation
     if [[ -d "$HOME/.pyenv" ]]; then
         log_warn "Pyenv directory already exists. Creating backup..."
         mv "$HOME/.pyenv" "$BACKUP_DIR/pyenv_$(date +%Y%m%d_%H%M%S)"
     fi
-    
+
     if ! command_exists git; then
         log_error "Git is required to install pyenv"
         return 1
@@ -550,16 +551,16 @@ install_pyenv() {
 
 configure_pyenv() {
     log_info "Configuring pyenv..."
-    
+
     local shell_config="$(get_shell_config)"
     backup_file "$shell_config"
-    
+
     # Check if already configured
     if grep -q "PYENV_ROOT" "$shell_config" 2>/dev/null; then
         log_info "Pyenv already configured in $shell_config"
         return 0
     fi
-    
+
     # Add pyenv configuration (auto-switch handled by unified hook in lib/auto-activate.sh)
     cat >> "$shell_config" << 'EOF'
 
@@ -577,7 +578,7 @@ pyenv() {
     pyenv "$@"
 }
 EOF
-    
+
     log_success "Pyenv configuration added to $shell_config"
     log_info "Python auto-switch (.python-version) is handled by the unified dev auto-activate hook"
 }
@@ -588,20 +589,20 @@ EOF
 
 install_rbenv() {
     log_info "Installing rbenv..."
-    
+
     local os="$(get_os)"
-    
+
     if ! check_internet; then
         log_error "No internet connection available"
         return 1
     fi
-    
+
     # Backup existing installation
     if [[ -d "$HOME/.rbenv" ]]; then
         log_warn "rbenv directory already exists. Creating backup..."
         mv "$HOME/.rbenv" "$BACKUP_DIR/rbenv_$(date +%Y%m%d_%H%M%S)"
     fi
-    
+
     case "$os" in
         macos)
             if command_exists brew; then
@@ -620,7 +621,7 @@ install_rbenv() {
             return 1
             ;;
     esac
-    
+
     if [[ $? -eq 0 ]]; then
         log_success "rbenv installed successfully"
         configure_rbenv
@@ -633,16 +634,16 @@ install_rbenv() {
 
 configure_rbenv() {
     log_info "Configuring rbenv..."
-    
+
     local shell_config="$(get_shell_config)"
     backup_file "$shell_config"
-    
+
     # Check if already configured
     if grep -q "rbenv init" "$shell_config" 2>/dev/null; then
         log_info "rbenv already configured in $shell_config"
         return 0
     fi
-    
+
     # Add rbenv configuration
     cat >> "$shell_config" << 'EOF'
 
@@ -676,7 +677,7 @@ bundle() {
     bundle "$@"
 }
 EOF
-    
+
     log_success "rbenv configuration added to $shell_config"
 }
 
@@ -686,20 +687,20 @@ EOF
 
 install_phpenv() {
     log_info "Installing phpenv..."
-    
+
     local os="$(get_os)"
-    
+
     if ! check_internet; then
         log_error "No internet connection available"
         return 1
     fi
-    
+
     # Backup existing installation
     if [[ -d "$HOME/.phpenv" ]]; then
         log_warn "phpenv directory already exists. Creating backup..."
         mv "$HOME/.phpenv" "$BACKUP_DIR/phpenv_$(date +%Y%m%d_%H%M%S)"
     fi
-    
+
     case "$os" in
         macos)
             if command_exists brew; then
@@ -718,7 +719,7 @@ install_phpenv() {
             return 1
             ;;
     esac
-    
+
     if [[ $? -eq 0 ]]; then
         log_success "phpenv installed successfully"
         configure_phpenv
@@ -731,16 +732,16 @@ install_phpenv() {
 
 configure_phpenv() {
     log_info "Configuring phpenv..."
-    
+
     local shell_config="$(get_shell_config)"
     backup_file "$shell_config"
-    
+
     # Check if already configured
     if grep -q "PHPENV_ROOT" "$shell_config" 2>/dev/null; then
         log_info "phpenv already configured in $shell_config"
         return 0
     fi
-    
+
     # Add phpenv configuration
     cat >> "$shell_config" << 'EOF'
 
@@ -769,7 +770,7 @@ composer() {
     composer "$@"
 }
 EOF
-    
+
     log_success "phpenv configuration added to $shell_config"
 }
 
@@ -779,28 +780,28 @@ EOF
 
 install_node_version() {
     local version="${1:-lts}"
-    
+
     log_info "Installing Node.js version: $version"
-    
+
     # Ensure NVM is installed
     if [[ ! -d "$HOME/.nvm" ]]; then
         log_warn "NVM not installed. Installing NVM first..."
         install_nvm || return 1
     fi
-    
+
     # Source NVM
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-    
+
     # Install Node version
     if nvm install "$version"; then
         nvm use "$version"
         nvm alias default "$version"
-        
+
         # Install global packages
         npm install -g npm@latest
         npm install -g yarn pnpm typescript ts-node nodemon pm2
-        
+
         log_success "Node.js $version installed successfully"
         return 0
     else
@@ -811,23 +812,23 @@ install_node_version() {
 
 install_python_version() {
     local version="${1:-3.12.0}"
-    
+
     log_info "Installing Python version: $version"
-    
+
     # Ensure pyenv is installed
     if ! command_exists pyenv; then
         log_warn "Pyenv not installed. Installing pyenv first..."
         install_pyenv || return 1
     fi
-    
+
     # Install Python version
     if pyenv install "$version"; then
         pyenv global "$version"
-        
+
         # Upgrade pip and install essential packages
         pip install --upgrade pip setuptools wheel
         pip install virtualenv pipenv poetry black flake8 mypy pytest
-        
+
         log_success "Python $version installed successfully"
         return 0
     else
@@ -838,22 +839,22 @@ install_python_version() {
 
 install_ruby_version() {
     local version="${1:-3.0.0}"
-    
+
     log_info "Installing Ruby version: $version"
-    
+
     # Ensure rbenv is installed
     if ! command_exists rbenv; then
         log_warn "rbenv not installed. Installing rbenv first..."
         install_rbenv || return 1
     fi
-    
+
     # Install Ruby version
     if rbenv install "$version"; then
         rbenv global "$version"
-        
+
         # Install essential gems
         gem install bundler rails pry rubocop
-        
+
         log_success "Ruby $version installed successfully"
         return 0
     else
@@ -864,20 +865,20 @@ install_ruby_version() {
 
 install_php_version() {
     local version="${1:-8.3}"
-    
+
     log_info "Installing PHP version: $version"
-    
+
     # Ensure phpenv is installed
     if ! command_exists phpenv; then
         log_warn "phpenv not installed. Installing phpenv first..."
         install_phpenv || return 1
     fi
-    
+
     # Install PHP version
     if phpenv install "$version"; then
         phpenv global "$version"
         phpenv rehash
-        
+
         # Install Composer if not present (secure installer path only)
         if ! command_exists composer; then
             log_info "Installing Composer..."
@@ -895,12 +896,12 @@ install_php_version() {
                 return 1
             fi
         fi
-        
+
         # Install Laravel installer
         if command_exists composer; then
             composer global require laravel/installer
         fi
-        
+
         log_success "PHP $version installed successfully"
         return 0
     else
@@ -915,23 +916,23 @@ install_php_version() {
 
 create_version_files() {
     log_info "Creating version files for current project..."
-    
+
     local node_version="${1:-$(nvm version default 2>/dev/null || echo '20.0.0')}"
     local python_version="${2:-$(pyenv version-name 2>/dev/null || echo '3.12.0')}"
     local ruby_version="${3:-$(rbenv version-name 2>/dev/null || echo '3.0.0')}"
-    
+
     # Create .nvmrc
     echo "${node_version#v}" > .nvmrc
     log_success "Created .nvmrc with Node.js $node_version"
-    
+
     # Create .python-version
     echo "$python_version" > .python-version
     log_success "Created .python-version with Python $python_version"
-    
+
     # Create .ruby-version
     echo "$ruby_version" > .ruby-version
     log_success "Created .ruby-version with Ruby $ruby_version"
-    
+
     # Create .tool-versions (for asdf)
     cat > .tool-versions << EOF
 nodejs ${node_version#v}
@@ -939,7 +940,7 @@ python $python_version
 ruby $ruby_version
 EOF
     log_success "Created .tool-versions for asdf compatibility"
-    
+
     # Update package.json if exists
     if [[ -f "package.json" ]]; then
         local node_major="${node_version%%.*}"
@@ -962,14 +963,14 @@ health_check() {
     echo "Version Manager Health Check"
     echo "================================"
     echo
-    
+
     # System information
     echo "System Information:"
     echo "  OS: $(get_os)"
     echo "  Arch: $(get_arch)"
     echo "  Shell: $(get_shell)"
     echo
-    
+
     # Check version managers
     echo "Version Managers:"
     local managers
@@ -982,40 +983,40 @@ health_check() {
         done
     fi
     echo
-    
+
     # Check installed versions
     echo "Installed Versions:"
-    
+
     # Node.js
     if command_exists node; then
         echo "  Node.js: $(node --version)"
     else
         echo "  Node.js: Not installed"
     fi
-    
+
     # Python
     if command_exists python3; then
         echo "  Python: $(python3 --version 2>&1 | cut -d' ' -f2)"
     else
         echo "  Python: Not installed"
     fi
-    
+
     # Ruby
     if command_exists ruby; then
         echo "  Ruby: $(ruby --version | cut -d' ' -f2)"
     else
         echo "  Ruby: Not installed"
     fi
-    
+
     # PHP
     if command_exists php; then
         echo "  PHP: $(php -r 'echo PHP_VERSION;' 2>/dev/null)"
     else
         echo "  PHP: Not installed"
     fi
-    
+
     echo
-    
+
     # Check version files
     echo "Version Files:"
     local version_files=(".nvmrc" ".python-version" ".ruby-version" ".php-version" ".tool-versions")
@@ -1027,26 +1028,26 @@ health_check() {
         fi
     done
     echo
-    
+
     # Performance metrics
     echo "Performance Metrics:"
     echo "  Shell startup time: $(time_shell_startup)ms"
     echo "  Cache size: $(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1)"
     echo
-    
+
     log_success "Health check completed"
 }
 
 time_shell_startup() {
     local shell="$(get_shell)"
     local start=$(date +%s%N)
-    
+
     case "$shell" in
         zsh)  zsh -i -c exit ;;
         bash) bash -i -c exit ;;
         *)    $SHELL -i -c exit ;;
     esac
-    
+
     local end=$(date +%s%N)
     echo $(((end - start) / 1000000))
 }
@@ -1127,19 +1128,19 @@ ${BOLD}Commands:${RESET}
   ${GREEN}install-pyenv${RESET}            Install pyenv (Python Version Manager)
   ${GREEN}install-rbenv${RESET}            Install rbenv (Ruby Version Manager)
   ${GREEN}install-phpenv${RESET}           Install phpenv (PHP Version Manager)
-  
+
   ${GREEN}install-node${RESET} [version]   Install Node.js version (default: lts)
   ${GREEN}install-python${RESET} [version] Install Python version (default: 3.12.0)
   ${GREEN}install-ruby${RESET} [version]   Install Ruby version (default: 3.0.0)
   ${GREEN}install-php${RESET} [version]    Install PHP version (default: 8.3)
-  
+
   ${GREEN}create-versions${RESET}          Create version files for current project
   ${GREEN}auto-switch${RESET}              Install unified auto-activation hook
   ${GREEN}lazy-load${RESET}                Add lazy-load bootstrap block to shell config
   ${GREEN}health-check${RESET}             Run comprehensive health check
   ${GREEN}update-all${RESET}               Update all version managers
   ${GREEN}clean-cache${RESET}              Clean cache files
-  
+
   ${GREEN}help${RESET}                     Show this help message
 
 ${BOLD}Options:${RESET}
@@ -1151,10 +1152,10 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   # Install all version managers
   $SCRIPT_NAME install-all
-  
+
   # Install specific Node.js version
   $SCRIPT_NAME install-node 20.0.0
-  
+
   # Create version files for project
   $SCRIPT_NAME create-versions
 
@@ -1163,7 +1164,7 @@ ${BOLD}Examples:${RESET}
 
   # Configure lazy-load wrappers
   $SCRIPT_NAME lazy-load
-  
+
   # Run health check
   $SCRIPT_NAME health-check
 
@@ -1200,7 +1201,7 @@ parse_args() {
                 ;;
         esac
     done
-    
+
     echo "$@"
 }
 
@@ -1208,19 +1209,19 @@ parse_args() {
 main() {
     # Initialize
     init_directories
-    
+
     # Parse arguments
     local args
     mapfile -t args < <(parse_args "$@")
     local command="${args[0]:-help}"
-    
+
     # Acquire lock for write operations
     case "$command" in
         install-*|create-*|update-*|clean-*|auto-switch|lazy-load)
             acquire_lock || exit 1
             ;;
     esac
-    
+
     # Execute command
     case "$command" in
         install-all)
@@ -1287,7 +1288,7 @@ main() {
             exit 1
             ;;
     esac
-    
+
     # Release lock
     release_lock
 }

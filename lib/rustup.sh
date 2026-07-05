@@ -24,7 +24,7 @@ RUSTUP_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if rustup is available, 1 if not
 rustup_detect() {
     log_debug "Detecting rustup installation"
-    
+
     if command -v rustup >/dev/null 2>&1; then
         local rustup_version=$(rustup --version 2>/dev/null | head -n1 | cut -d' ' -f2)
         log_info "rustup detected: version $rustup_version"
@@ -39,14 +39,14 @@ rustup_detect() {
 # Returns: 0 on success, 1 on failure
 rustup_install() {
     log_info "Installing rustup..."
-    
+
     if rustup_detect; then
         log_info "rustup already installed"
         return 0
     fi
-    
+
     local os_type=$(detect_os)
-    
+
     # Check if curl is available
     if ! command -v curl >/dev/null 2>&1; then
         log_error "curl is required to install rustup"
@@ -70,10 +70,10 @@ rustup_install() {
     # Install via rustup-init.sh
     local rustup_init_script="$HOME/.cargo/rustup-init.sh"
     local rustup_dir="${RUSTUP_HOME:-$HOME/.rustup}"
-    
+
     # Create directory if it doesn't exist
     mkdir -p "$(dirname "$rustup_init_script")"
-    
+
     # Download rustup-init.sh
     log_info "Downloading rustup installer..."
     if ! curl -fsSL -o "$rustup_init_script" "https://sh.rustup.rs"; then
@@ -101,7 +101,7 @@ rustup_install() {
     fi
     log_info "Downloaded rustup installer validated (${script_size} bytes, shebang present)"
     chmod +x "$rustup_init_script"
-    
+
     # Install rustup with minimal profile and no modifications to shell files
     log_info "Running rustup installer..."
     if "$rustup_init_script" -y --no-modify-path --profile minimal 2>/dev/null; then
@@ -110,7 +110,7 @@ rustup_install() {
         if [[ ":$PATH:" != *":$cargo_bin:"* ]]; then
             export PATH="$cargo_bin:$PATH"
         fi
-        
+
         log_success "rustup installed successfully"
         return 0
     else
@@ -127,21 +127,21 @@ rustup_install() {
 # Returns: 0 on success, 1 on failure
 rustup_list_versions() {
     log_debug "Listing available Rust versions"
-    
+
     if ! rustup_detect; then
         log_error "rustup not available"
         return 1
     fi
-    
+
     local cache_key="${RUSTUP_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached Rust versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching Rust versions from rustup"
     local versions
     if versions=$(rustup toolchain list 2>/dev/null); then
@@ -159,29 +159,29 @@ rustup_list_versions() {
 # Returns: 0 on success, 1 on failure
 rustup_install_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Rust version not specified"
         return 1
     fi
-    
+
     if ! _rustup_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! rustup_detect; then
         log_error "rustup not available"
         return 1
     fi
-    
+
     log_info "Installing Rust $version..."
-    
+
     # Check if already installed
     if rustup toolchain list 2>/dev/null | grep -q "$version"; then
         log_info "Rust $version already installed"
         return 0
     fi
-    
+
     # Install the version
     if rustup toolchain install "$version" 2>/dev/null; then
         log_success "Rust $version installed successfully"
@@ -199,21 +199,21 @@ rustup_install_version() {
 # Returns: 0 on success, 1 on failure
 rustup_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Rust version not specified"
         return 1
     fi
-    
+
     if ! _rustup_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! rustup_detect; then
         log_error "rustup not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! rustup_validate_version "$version"; then
         log_warn "Rust $version not found, attempting to install..."
@@ -221,7 +221,7 @@ rustup_set_global() {
             return 1
         fi
     fi
-    
+
     log_info "Setting global Rust version to $version"
     if rustup default "$version" 2>/dev/null; then
         log_success "Global Rust version set to $version"
@@ -237,21 +237,21 @@ rustup_set_global() {
 # Returns: 0 on success, 1 on failure
 rustup_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Rust version not specified"
         return 1
     fi
-    
+
     if ! _rustup_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! rustup_detect; then
         log_error "rustup not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! rustup_validate_version "$version"; then
         log_warn "Rust $version not found, attempting to install..."
@@ -259,9 +259,9 @@ rustup_set_local() {
             return 1
         fi
     fi
-    
+
     log_info "Setting local Rust version to $version"
-    
+
     # Create rust-toolchain file
     if echo "$version" > rust-toolchain; then
         log_success "Local Rust version set to $version"
@@ -276,12 +276,12 @@ rustup_set_local() {
 # Returns: current Rust version string
 rustup_get_current() {
     log_debug "Getting current Rust version"
-    
+
     if ! rustup_detect; then
         echo "none"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(rustc --version 2>/dev/null | cut -d' ' -f2); then
         echo "$current_version"
@@ -297,19 +297,19 @@ rustup_get_current() {
 # Returns: 0 if version exists, 1 if not
 rustup_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Rust version not specified"
         return 1
     fi
-    
+
     if ! rustup_detect; then
         log_error "rustup not available"
         return 1
     fi
-    
+
     log_debug "Validating Rust version: $version"
-    
+
     if rustup toolchain list 2>/dev/null | grep -q "$version"; then
         log_debug "Rust version $version is installed"
         return 0
@@ -328,13 +328,13 @@ rustup_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _rustup_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         log_error "Invalid Rust version format: $version"
         log_info "Expected format: major.minor.patch (e.g., 1.75.0)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -348,10 +348,10 @@ rustup_get_prompt_version() {
     if ! rustup_detect; then
         return 1
     fi
-    
+
     local current_version=$(rustup_get_current)
     local default_version=$(rustup show active-toolchain 2>/dev/null | head -n1 | cut -d' ' -f1)
-    
+
     # Only show if different from default or if project-specific
     if [ -f "rust-toolchain" ] || [ "$current_version" != "$default_version" ]; then
         echo "$current_version"

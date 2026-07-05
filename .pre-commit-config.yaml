@@ -45,6 +45,7 @@ repos:
       - id: end-of-file-fixer
         exclude: |
           (?x)^(
+            FontPatcher/.*|
             .*\.ttf$|
             .*\.md$
           )$
@@ -53,6 +54,7 @@ repos:
       - id: trailing-whitespace
         exclude: |
           (?x)^(
+            FontPatcher/.*|
             .*\.ttf$|
             .*\.md$
           )$
@@ -120,7 +122,7 @@ default_language_version:
   python: python3
 
 # Run hooks on commit
-default_stages: [commit]
+default_stages: [pre-commit]
 
 # Fail fast on first error
 fail_fast: false

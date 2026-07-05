@@ -73,14 +73,14 @@ show_configuration() {
     log_info "📋 Current Configuration"
     log_info "========================"
     echo
-    
+
     # Check PowerLevel10k
     if [[ -f "$HOME/.p10k.zsh" ]]; then
         log_info " PowerLevel10k configuration: ~/.p10k.zsh"
     else
         log_warn " PowerLevel10k configuration not found"
     fi
-    
+
     # Check Node.js version
     if command -v node >/dev/null 2>&1; then
         local node_version
@@ -89,7 +89,7 @@ show_configuration() {
     else
         log_warn " Node.js not found"
     fi
-    
+
     # Check Python version
     if command -v python3 >/dev/null 2>&1; then
         local python_version
@@ -98,21 +98,21 @@ show_configuration() {
     else
         log_warn " Python3 not found"
     fi
-    
+
     # Check nvm
     if [[ -d "$HOME/.nvm" ]]; then
         log_info " NVM installed: ~/.nvm"
     else
         log_warn " NVM not found"
     fi
-    
+
     # Check pyenv
     if command -v pyenv >/dev/null 2>&1; then
         log_info " pyenv available"
     else
         log_warn " pyenv not found"
     fi
-    
+
     echo
 }
 
@@ -161,10 +161,10 @@ manage_rollback() {
     echo "4) Delete a restore point"
     echo "5) Back to main menu"
     echo
-    
+
     local choice
     read -r -p "Enter your choice (1-5): " choice
-    
+
     case $choice in
         1)
             list_restore_points
@@ -176,7 +176,7 @@ manage_rollback() {
                 log_error "Name cannot be empty"
                 return 1
             fi
-            
+
             # Create restore point with common config files
             local config_files=(
                 "$HOME/.zshrc"
@@ -193,7 +193,7 @@ manage_rollback() {
                 log_error "Name cannot be empty"
                 return 1
             fi
-            
+
             echo
             read -r -p "Are you sure you want to restore from '$point_name'? (y/n): " confirm
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
@@ -210,7 +210,7 @@ manage_rollback() {
                 log_error "Name cannot be empty"
                 return 1
             fi
-            
+
             read -r -p "Are you sure you want to delete '$point_name'? (y/n): " confirm
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                 delete_restore_point "$point_name"
@@ -247,13 +247,13 @@ get_user_choice() {
 # Main menu loop
 main() {
     show_banner
-    
+
     while true; do
         show_menu
         local choice
         choice=$(get_user_choice)
         echo
-        
+
         case $choice in
             1)
                 install_theme
@@ -284,7 +284,7 @@ main() {
                 exit 0
                 ;;
         esac
-        
+
         echo
         log_info "Press Enter to continue..."
         read -r

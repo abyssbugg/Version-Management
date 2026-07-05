@@ -62,13 +62,13 @@ test_generate_docker_compose_function_exists() {
 test_generate_github_actions_creates_file() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create a mock project
     echo "test project" > README.md
-    
+
     # Run the generator
     generate_github_actions >/dev/null 2>&1 && local result=0 || local result=$?
-    
+
     if [[ -f ".github/workflows/version-manager.yml" ]]; then
         assert_equals "true" "true" "generate_github_actions creates workflow file"
     elif [[ $result -ne 0 ]]; then
@@ -77,7 +77,7 @@ test_generate_github_actions_creates_file() {
     else
         assert_equals "file_exists" "file_missing" ".github/workflows/version-manager.yml should be created"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -86,21 +86,21 @@ test_generate_github_actions_creates_file() {
 test_generate_dockerfile_node_creates_file() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create a mock Node.js project
     echo '{"name":"test"}' > package.json
     echo "20.0.0" > .nvmrc
-    
+
     # Run the generator
     generate_dockerfile_node >/dev/null 2>&1 || true
-    
+
     if [[ -f "Dockerfile" ]] || [[ -f "Dockerfile.node" ]]; then
         assert_equals "true" "true" "generate_dockerfile_node creates Dockerfile"
     else
         # Function might have validation requirements
         assert_equals "true" "true" "generate_dockerfile_node ran (validation may have blocked)"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -109,20 +109,20 @@ test_generate_dockerfile_node_creates_file() {
 test_generate_docker_compose_creates_file() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
-    
+
     # Create a mock project
     echo '{"name":"test"}' > package.json
-    
+
     # Run the generator
     generate_docker_compose >/dev/null 2>&1 || true
-    
+
     if [[ -f "docker-compose.yml" ]]; then
         assert_equals "true" "true" "generate_docker_compose creates docker-compose.yml"
     else
         # Function might have validation requirements
         assert_equals "true" "true" "generate_docker_compose ran (validation may have blocked)"
     fi
-    
+
     cd - > /dev/null || exit 1
     rm -rf "$temp_dir"
 }
@@ -187,14 +187,14 @@ test_all_cicd_generator_functions_exist() {
     local functions=("generate_github_actions" "generate_gitlab_ci" "generate_circleci"
                      "generate_docker_ci" "generate_all_ci")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 5 CI/CD generator functions exist"
     else
@@ -209,14 +209,14 @@ test_all_dockerfile_generator_functions_exist() {
                      "generate_dockerfile_java" "generate_docker_compose"
                      "generate_docker_configs")
     local missing=0
-    
+
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
             ((missing++))
         fi
     done
-    
+
     if [[ $missing -eq 0 ]]; then
         assert_equals "true" "true" "All 7 Dockerfile generator functions exist"
     else

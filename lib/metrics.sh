@@ -38,14 +38,14 @@ SESSION_START=""
 # Initialize metrics system
 metrics_init() {
     [[ "$METRICS_ENABLED" != "true" ]] && return 0
-    
+
     # Create metrics directory
     mkdir -p "$METRICS_DIR"
-    
+
     # Generate session ID
     SESSION_ID="$(date +%s)-$$-$RANDOM"
     SESSION_START="$(date -Iseconds)"
-    
+
     # Initialize stats file if missing
     if [[ ! -f "$METRICS_STATS" ]]; then
         cat > "$METRICS_STATS" << 'EOF'
@@ -62,11 +62,11 @@ metrics_init() {
 }
 EOF
     fi
-    
+
     # Record session start
     _record_event "session_start" "Session $SESSION_ID started"
     _increment_stat "total_sessions"
-    
+
     # Cleanup old data
     _cleanup_old_metrics
 }
@@ -79,12 +79,12 @@ EOF
 # Usage: metrics_record <category> <action> [label] [value]
 metrics_record() {
     [[ "$METRICS_ENABLED" != "true" ]] && return 0
-    
+
     local category="$1"
     local action="$2"
     local label="${3:-}"
     local value="${4:-1}"
-    
+
     _record_event "$category" "$action" "$label" "$value"
     _increment_stat "total_commands"
 }
@@ -94,7 +94,7 @@ metrics_command() {
     local command="$1"
     local duration="${2:-0}"
     local success="${3:-true}"
-    
+
     metrics_record "command" "$command" "$success" "$duration"
     _increment_feature_usage "commands" "$command"
 }
@@ -104,7 +104,7 @@ metrics_version_switch() {
     local manager="$1"
     local from_version="${2:-unknown}"
     local to_version="$3"
-    
+
     metrics_record "version_switch" "$manager" "$from_version->$to_version"
     _increment_stat "version_switches"
     _increment_feature_usage "version_managers" "$manager"
@@ -114,7 +114,7 @@ metrics_version_switch() {
 metrics_theme_change() {
     local from_theme="${1:-unknown}"
     local to_theme="$2"
-    
+
     metrics_record "theme_change" "$to_theme" "$from_theme"
     _increment_stat "theme_changes"
 }
@@ -123,7 +123,7 @@ metrics_theme_change() {
 metrics_error() {
     local error_type="$1"
     local error_message="${2:-}"
-    
+
     metrics_record "error" "$error_type" "$error_message"
     _increment_stat "errors_encountered"
 }
@@ -132,7 +132,7 @@ metrics_error() {
 metrics_feature() {
     local feature="$1"
     local action="${2:-use}"
-    
+
     metrics_record "feature" "$feature" "$action"
     _increment_feature_usage "features_used" "$feature"
 }
@@ -144,7 +144,7 @@ metrics_feature() {
 # Get a statistic value
 metrics_get_stat() {
     local stat_name="$1"
-    
+
     if [[ -f "$METRICS_STATS" ]]; then
         # Simple JSON parsing for shell
         grep -o "\"$stat_name\": *[0-9]*" "$METRICS_STATS" 2>/dev/null | \
@@ -164,12 +164,12 @@ metrics_get_all_stats() {
 # Get usage summary
 metrics_summary() {
     local total_sessions total_commands version_switches errors
-    
+
     total_sessions=$(metrics_get_stat "total_sessions")
     total_commands=$(metrics_get_stat "total_commands")
     version_switches=$(metrics_get_stat "version_switches")
     errors=$(metrics_get_stat "errors_encountered")
-    
+
     cat << EOF
 Usage Statistics Summary
 ========================
@@ -189,19 +189,19 @@ EOF
 # Display analytics dashboard
 metrics_dashboard() {
     local total_sessions total_commands version_switches theme_changes errors
-    
+
     total_sessions=$(metrics_get_stat "total_sessions" || echo "0")
     total_commands=$(metrics_get_stat "total_commands" || echo "0")
     version_switches=$(metrics_get_stat "version_switches" || echo "0")
     theme_changes=$(metrics_get_stat "theme_changes" || echo "0")
     errors=$(metrics_get_stat "errors_encountered" || echo "0")
-    
+
     # Calculate averages
     local avg_commands=0
     if [[ ${total_sessions:-0} -gt 0 ]]; then
         avg_commands=$((${total_commands:-0} / ${total_sessions:-1}))
     fi
-    
+
     echo
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║            Usage Analytics Dashboard                       ║"
@@ -219,17 +219,17 @@ metrics_dashboard() {
     printf "║  %-20s %10s                           ║\n" "Errors:" "${errors:-0}"
     echo "║                                                              ║"
     echo "╠══════════════════════════════════════════════════════════════╣"
-    
+
     # Show most used version managers
     echo "║  Most Used Version Managers                                  ║"
     echo "╠══════════════════════════════════════════════════════════════╣"
     _show_top_features "version_managers" 3
-    
+
     echo "╠══════════════════════════════════════════════════════════════╣"
     echo "║  Most Used Features                                          ║"
     echo "╠══════════════════════════════════════════════════════════════╣"
     _show_top_features "features_used" 3
-    
+
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo
     echo "  Data retention: ${METRICS_RETENTION_DAYS} days"
@@ -241,7 +241,7 @@ metrics_dashboard() {
 _show_top_features() {
     local category="$1"
     local limit="${2:-5}"
-    
+
     if [[ -f "$METRICS_STATS" ]]; then
         # Extract and display top items (simplified parsing)
         local found=0
@@ -256,7 +256,7 @@ _show_top_features() {
                 [[ $found -ge $limit ]] && break
             fi
         done < <(grep -A20 "\"$category\"" "$METRICS_STATS" 2>/dev/null | grep -E '^\s+"[^"]+": [0-9]+' | sort -t: -k2 -rn)
-        
+
         if [[ $found -eq 0 ]]; then
             echo "║    No data yet                                               ║"
         fi
@@ -272,13 +272,13 @@ _show_top_features() {
 # Export metrics to JSON
 metrics_export_json() {
     local output="${1:-$METRICS_DIR/export-$(date +%Y%m%d).json}"
-    
+
     {
         echo "{"
         echo "  \"export_date\": \"$(date -Iseconds)\","
         echo "  \"stats\": $(cat "$METRICS_STATS" 2>/dev/null || echo '{}'),"
         echo "  \"recent_events\": ["
-        
+
         # Last 100 events
         local first=true
         tail -100 "$METRICS_EVENTS" 2>/dev/null | while read -r line; do
@@ -289,25 +289,25 @@ metrics_export_json() {
             fi
             printf '    "%s"' "$line"
         done
-        
+
         echo
         echo "  ]"
         echo "}"
     } > "$output"
-    
+
     echo "Exported metrics to: $output"
 }
 
 # Export metrics to CSV
 metrics_export_csv() {
     local output="${1:-$METRICS_DIR/export-$(date +%Y%m%d).csv}"
-    
+
     echo "timestamp,session,category,action,label,value" > "$output"
-    
+
     if [[ -f "$METRICS_EVENTS" ]]; then
         tail -1000 "$METRICS_EVENTS" >> "$output"
     fi
-    
+
     echo "Exported metrics to: $output"
 }
 
@@ -386,7 +386,7 @@ _record_event() {
     local value="${4:-1}"
     local timestamp
     timestamp="$(date -Iseconds)"
-    
+
     echo "$timestamp,$SESSION_ID,$category,$action,$label,$value" >> "$METRICS_EVENTS"
     _update_last_modified
 }
@@ -395,12 +395,12 @@ _record_event() {
 _increment_stat() {
     local stat_name="$1"
     local increment="${2:-1}"
-    
+
     if [[ -f "$METRICS_STATS" ]]; then
         local current
         current=$(metrics_get_stat "$stat_name" || echo "0")
         local new_value=$((current + increment))
-        
+
         # Update using sed (portable)
         if [[ "$(uname -s)" == "Darwin" ]]; then
             sed -i '' "s/\"$stat_name\": *[0-9]*/\"$stat_name\": $new_value/" "$METRICS_STATS"
@@ -414,7 +414,7 @@ _increment_stat() {
 _increment_feature_usage() {
     local category="$1"
     local feature="$2"
-    
+
     # This is simplified - a full implementation would use jq or similar
     # For now, we just log to events
     _record_event "feature_count" "$category" "$feature"
@@ -424,7 +424,7 @@ _increment_feature_usage() {
 _update_last_modified() {
     local timestamp
     timestamp="$(date -Iseconds)"
-    
+
     if [[ -f "$METRICS_STATS" ]]; then
         if [[ "$(uname -s)" == "Darwin" ]]; then
             sed -i '' "s/\"last_updated\": *\"[^\"]*\"/\"last_updated\": \"$timestamp\"/" "$METRICS_STATS"

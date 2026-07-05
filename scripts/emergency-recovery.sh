@@ -71,7 +71,7 @@ show_menu() {
 
 find_latest_backup() {
     local file_pattern="$1"
-    
+
     if [[ -d "$BACKUP_DIR" ]]; then
         find "$BACKUP_DIR" -name "*${file_pattern}*" -type f 2>/dev/null | \
             sort -r | head -1
@@ -82,7 +82,7 @@ list_all_backups() {
     echo "Available Backups:"
     echo "=================="
     echo
-    
+
     if [[ -d "$BACKUP_DIR" ]]; then
         local count=0
         while IFS= read -r backup; do
@@ -97,7 +97,7 @@ list_all_backups() {
             echo "     Path: $backup"
             echo
         done < <(find "$BACKUP_DIR" -type f -name "*.backup" -o -name "*.bak" 2>/dev/null | sort -r | head -20)
-        
+
         if [[ $count -eq 0 ]]; then
             echo "  No backups found in $BACKUP_DIR"
         fi
@@ -110,7 +110,7 @@ list_restore_points() {
     echo "Available Restore Points:"
     echo "========================="
     echo
-    
+
     if [[ -d "$RESTORE_POINTS_DIR" ]]; then
         local count=0
         for point_dir in "$RESTORE_POINTS_DIR"/*/; do
@@ -119,7 +119,7 @@ list_restore_points() {
             local point_name
             point_name=$(basename "$point_dir")
             local metadata="$point_dir/metadata.txt"
-            
+
             echo "  $count) $point_name"
             if [[ -f "$metadata" ]]; then
                 echo "     $(head -2 "$metadata" | tail -1)"
@@ -127,7 +127,7 @@ list_restore_points() {
             echo "     Files: $(find "$point_dir" -type f ! -name "metadata.txt" | wc -l | tr -d ' ')"
             echo
         done
-        
+
         if [[ $count -eq 0 ]]; then
             echo "  No restore points found"
         fi
@@ -143,19 +143,19 @@ list_restore_points() {
 restore_file() {
     local backup_path="$1"
     local target_path="$2"
-    
+
     if [[ ! -f "$backup_path" ]]; then
         log_error "Backup file not found: $backup_path"
         return 1
     fi
-    
+
     # Create backup of current file
     if [[ -f "$target_path" ]]; then
         local emergency_backup="${target_path}.emergency-$(date +%Y%m%d%H%M%S)"
         cp "$target_path" "$emergency_backup"
         log_info "Created emergency backup: $emergency_backup"
     fi
-    
+
     # Restore from backup
     cp "$backup_path" "$target_path"
     log_success "Restored: $target_path"
@@ -164,7 +164,7 @@ restore_file() {
 restore_zshrc() {
     local backup
     backup=$(find_latest_backup "zshrc")
-    
+
     if [[ -n "$backup" ]]; then
         restore_file "$backup" "$HOME/.zshrc"
     else
@@ -176,7 +176,7 @@ restore_zshrc() {
 restore_p10k() {
     local backup
     backup=$(find_latest_backup "p10k")
-    
+
     if [[ -n "$backup" ]]; then
         restore_file "$backup" "$HOME/.p10k.zsh"
     else
@@ -188,11 +188,11 @@ restore_p10k() {
 restore_vscode() {
     local backup
     backup=$(find_latest_backup "settings.json")
-    
+
     if [[ -z "$backup" ]]; then
         backup=$(find_latest_backup "vscode")
     fi
-    
+
     if [[ -n "$backup" ]]; then
         local vscode_dir="$HOME/.config/Code/User"
         mkdir -p "$vscode_dir"
@@ -205,28 +205,28 @@ restore_vscode() {
 
 restore_all() {
     log_info "Restoring all configuration files..."
-    
+
     local restored=0
     local failed=0
-    
+
     if restore_zshrc 2>/dev/null; then
         ((restored++))
     else
         ((failed++))
     fi
-    
+
     if restore_p10k 2>/dev/null; then
         ((restored++))
     else
         ((failed++))
     fi
-    
+
     if restore_vscode 2>/dev/null; then
         ((restored++))
     else
         ((failed++))
     fi
-    
+
     echo
     log_success "Restored $restored file(s), $failed failed"
 }
@@ -235,12 +235,12 @@ restore_from_specific_backup() {
     list_all_backups
     echo
     read -r -p "Enter full backup path: " backup_path
-    
+
     if [[ ! -f "$backup_path" ]]; then
         log_error "File not found: $backup_path"
         return 1
     fi
-    
+
     echo
     echo "Where should this file be restored?"
     echo "  1) ~/.zshrc"
@@ -249,21 +249,21 @@ restore_from_specific_backup() {
     echo "  4) Custom path"
     echo
     read -r -p "Enter choice [1-4]: " target_choice
-    
+
     local target_path
     case "$target_choice" in
         1) target_path="$HOME/.zshrc" ;;
         2) target_path="$HOME/.p10k.zsh" ;;
         3) target_path="$HOME/.config/Code/User/settings.json" ;;
-        4) 
+        4)
             read -r -p "Enter target path: " target_path
             ;;
-        *) 
+        *)
             log_error "Invalid choice"
             return 1
             ;;
     esac
-    
+
     restore_file "$backup_path" "$target_path"
 }
 
@@ -271,24 +271,24 @@ restore_from_point() {
     list_restore_points
     echo
     read -r -p "Enter restore point name: " point_name
-    
+
     local point_dir="$RESTORE_POINTS_DIR/$point_name"
-    
+
     if [[ ! -d "$point_dir" ]]; then
         log_error "Restore point not found: $point_name"
         return 1
     fi
-    
+
     log_info "Restoring from point: $point_name"
-    
+
     # Restore each file in the point
     while IFS= read -r backup_file; do
         [[ "$backup_file" == *"metadata.txt" ]] && continue
-        
+
         # Determine original path from backup filename
         local basename
         basename=$(basename "$backup_file")
-        
+
         # Try to restore based on filename patterns
         if [[ "$basename" == *"zshrc"* ]]; then
             restore_file "$backup_file" "$HOME/.zshrc"
@@ -298,7 +298,7 @@ restore_from_point() {
             log_info "Unknown file type: $basename (skipped)"
         fi
     done < <(find "$point_dir" -type f)
-    
+
     log_success "Restore from point complete"
 }
 
@@ -316,27 +316,27 @@ reset_to_defaults() {
     echo "  - NOT delete your backup files"
     echo
     read -r -p "Type 'RESET' to confirm: " confirm
-    
+
     if [[ "$confirm" != "RESET" ]]; then
         log_info "Reset cancelled"
         return 0
     fi
-    
+
     # Create emergency backup first
     mkdir -p "$BACKUP_DIR/emergency"
     local timestamp
     timestamp=$(date +%Y%m%d%H%M%S)
-    
+
     if [[ -f "$HOME/.p10k.zsh" ]]; then
         cp "$HOME/.p10k.zsh" "$BACKUP_DIR/emergency/p10k-${timestamp}.zsh"
     fi
-    
+
     if [[ -f "$HOME/.zshrc" ]]; then
         cp "$HOME/.zshrc" "$BACKUP_DIR/emergency/zshrc-${timestamp}"
     fi
-    
+
     log_info "Emergency backups saved to $BACKUP_DIR/emergency/"
-    
+
     # Reset p10k to default
     if [[ -f "$SCRIPT_DIR/config/professional-dev-p10k.zsh" ]]; then
         cp "$SCRIPT_DIR/config/professional-dev-p10k.zsh" "$HOME/.p10k.zsh"
@@ -344,7 +344,7 @@ reset_to_defaults() {
     else
         log_error "Default config not found"
     fi
-    
+
     echo
     log_success "Reset complete. Restart your terminal to apply changes."
 }
@@ -357,7 +357,7 @@ diagnose_state() {
     echo "System Diagnostic"
     echo "================="
     echo
-    
+
     echo "Configuration Files:"
     for file in "${RECOVERABLE_FILES[@]}"; do
         if [[ -f "$file" ]]; then
@@ -369,13 +369,13 @@ diagnose_state() {
         fi
     done
     echo
-    
+
     echo "Shell Configuration:"
     echo "  Current shell: $SHELL"
     echo "  TERM_PROGRAM: ${TERM_PROGRAM:-not set}"
     echo "  P10K loaded: $([[ -n "${POWERLEVEL9K_MODE:-}" ]] && echo "yes" || echo "no")"
     echo
-    
+
     echo "Backup Status:"
     if [[ -d "$BACKUP_DIR" ]]; then
         local backup_count
@@ -386,7 +386,7 @@ diagnose_state() {
         echo "   Backup directory not found"
     fi
     echo
-    
+
     echo "Restore Points:"
     if [[ -d "$RESTORE_POINTS_DIR" ]]; then
         local point_count
@@ -396,7 +396,7 @@ diagnose_state() {
         echo "   No restore points"
     fi
     echo
-    
+
     echo "Quick Actions:"
     echo "  - Run './setup.sh' to access main menu"
     echo "  - Run './tools/system-diagnostics.sh --full' for detailed scan"
@@ -409,12 +409,12 @@ diagnose_state() {
 
 main() {
     show_header
-    
+
     while true; do
         show_menu
         read -r -p "Select option [0-10]: " choice
         echo
-        
+
         case "$choice" in
             1) restore_zshrc ;;
             2) restore_p10k ;;
@@ -426,7 +426,7 @@ main() {
             8) restore_from_point "" ;;
             9) reset_to_defaults ;;
             10) diagnose_state ;;
-            0) 
+            0)
                 log_info "Exiting recovery system"
                 exit 0
                 ;;
@@ -434,7 +434,7 @@ main() {
                 log_error "Invalid option: $choice"
                 ;;
         esac
-        
+
         echo
         read -r -p "Press Enter to continue..."
         echo

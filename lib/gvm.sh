@@ -24,7 +24,7 @@ GVM_CACHE_TTL=300  # 5 minutes cache for version lists
 # Returns: 0 if goenv is available, 1 if not
 gvm_detect() {
     log_debug "Detecting goenv installation"
-    
+
     if command -v goenv >/dev/null 2>&1; then
         local goenv_version=$(goenv --version 2>/dev/null | cut -d' ' -f2)
         log_info "goenv detected: version $goenv_version"
@@ -39,14 +39,14 @@ gvm_detect() {
 # Returns: 0 on success, 1 on failure
 gvm_install() {
     log_info "Installing goenv..."
-    
+
     if gvm_detect; then
         log_info "goenv already installed"
         return 0
     fi
-    
+
     local os_type=$(detect_os)
-    
+
     if ! command -v git >/dev/null 2>&1; then
         log_error "Git is required to install goenv"
         return 1
@@ -94,21 +94,21 @@ gvm_install() {
 # Returns: 0 on success, 1 on failure
 gvm_list_versions() {
     log_debug "Listing available Go versions"
-    
+
     if ! gvm_detect; then
         log_error "goenv not available"
         return 1
     fi
-    
+
     local cache_key="${GVM_CACHE_PREFIX}_versions"
     local cached_versions
-    
+
     if cached_versions=$(cache_get "$cache_key"); then
         log_debug "Using cached Go versions list"
         echo "$cached_versions"
         return 0
     fi
-    
+
     log_debug "Fetching Go versions from goenv"
     local versions
     if versions=$(goenv install --list 2>/dev/null); then
@@ -126,29 +126,29 @@ gvm_list_versions() {
 # Returns: 0 on success, 1 on failure
 gvm_install_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Go version not specified"
         return 1
     fi
-    
+
     if ! _gvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! gvm_detect; then
         log_error "goenv not available"
         return 1
     fi
-    
+
     log_info "Installing Go $version..."
-    
+
     # Check if already installed
     if goenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_info "Go $version already installed"
         return 0
     fi
-    
+
     # Install the version
     if goenv install "$version" 2>/dev/null; then
         log_success "Go $version installed successfully"
@@ -166,21 +166,21 @@ gvm_install_version() {
 # Returns: 0 on success, 1 on failure
 gvm_set_global() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Go version not specified"
         return 1
     fi
-    
+
     if ! _gvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! gvm_detect; then
         log_error "goenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! gvm_validate_version "$version"; then
         log_warn "Go $version not found, attempting to install..."
@@ -188,7 +188,7 @@ gvm_set_global() {
             return 1
         fi
     fi
-    
+
     log_info "Setting global Go version to $version"
     if goenv global "$version" 2>/dev/null; then
         log_success "Global Go version set to $version"
@@ -204,21 +204,21 @@ gvm_set_global() {
 # Returns: 0 on success, 1 on failure
 gvm_set_local() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Go version not specified"
         return 1
     fi
-    
+
     if ! _gvm_validate_version "$version"; then
         return 1
     fi
-    
+
     if ! gvm_detect; then
         log_error "goenv not available"
         return 1
     fi
-    
+
     # Check if version is installed
     if ! gvm_validate_version "$version"; then
         log_warn "Go $version not found, attempting to install..."
@@ -226,9 +226,9 @@ gvm_set_local() {
             return 1
         fi
     fi
-    
+
     log_info "Setting local Go version to $version"
-    
+
     # Create .go-version file
     if echo "$version" > .go-version; then
         # Set goenv local version
@@ -249,12 +249,12 @@ gvm_set_local() {
 # Returns: current Go version string
 gvm_get_current() {
     log_debug "Getting current Go version"
-    
+
     if ! gvm_detect; then
         echo "system"
         return 1
     fi
-    
+
     local current_version
     if current_version=$(goenv version-name 2>/dev/null); then
         echo "$current_version"
@@ -270,19 +270,19 @@ gvm_get_current() {
 # Returns: 0 if version exists, 1 if not
 gvm_validate_version() {
     local version="$1"
-    
+
     if [ -z "$version" ]; then
         log_error "Go version not specified"
         return 1
     fi
-    
+
     if ! gvm_detect; then
         log_error "goenv not available"
         return 1
     fi
-    
+
     log_debug "Validating Go version: $version"
-    
+
     if goenv versions --bare 2>/dev/null | grep -q "^${version}$"; then
         log_debug "Go version $version is installed"
         return 0
@@ -301,13 +301,13 @@ gvm_validate_version() {
 # Returns: 0 if valid format, 1 if invalid
 _gvm_validate_version() {
     local version="$1"
-    
+
     if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         log_error "Invalid Go version format: $version"
         log_info "Expected format: major.minor.patch (e.g., 1.21.5)"
         return 1
     fi
-    
+
     return 0
 }
 
@@ -321,10 +321,10 @@ gvm_get_prompt_version() {
     if ! gvm_detect; then
         return 1
     fi
-    
+
     local current_version=$(gvm_get_current)
     local global_version=$(goenv global 2>/dev/null || echo "system")
-    
+
     # Only show if different from global or if project-specific
     if [ -f ".go-version" ] || [ "$current_version" != "$global_version" ]; then
         echo "$current_version"

@@ -131,15 +131,15 @@ validate_project_dir() {
 # Generate GitHub Actions workflow
 generate_github_actions() {
     validate_project_dir || return 1
-    
+
     local workflow_dir=".github/workflows"
     if [[ ! -d "$workflow_dir" ]]; then
         mkdir -p "$workflow_dir"
         log_info "Created GitHub Actions workflow directory"
     fi
-    
+
     local workflow_file="$workflow_dir/version-manager.yml"
-    
+
     cat > "$workflow_file" << 'EOF'
 name: Version Manager CI
 
@@ -152,7 +152,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         node-version: [20.x, 22.x]
@@ -160,61 +160,61 @@ jobs:
         go-version: [1.22.x, 1.23.x]
         rust-version: [1.80.0, 1.81.0]
         java-version: [17, 21]
-        
+
     # Template note: pin third-party actions by commit SHA in production workflows.
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-    
+
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        
+
     - name: Setup Go
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-        
+
     - name: Setup Rust
       run: |
         rustup toolchain install "${{ matrix.rust-version }}" --profile minimal
         rustup default "${{ matrix.rust-version }}"
-        
+
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: ${{ matrix.java-version }}
-        
+
     - name: Install dependencies
       run: |
         npm ci
         pip install -r requirements.txt
-        
+
     - name: Run version manager health check
       run: |
         ./version-manager.sh health-check
-        
+
     - name: Run tests
       run: |
         npm test
 EOF
-    
+
     log_success "GitHub Actions workflow generated at $workflow_file"
 }
 
 # Generate GitLab CI configuration
 generate_gitlab_ci() {
     validate_project_dir || return 1
-    
+
     local ci_file=".gitlab-ci.yml"
-    
+
     cat > "$ci_file" << 'EOF'
 stages:
   - test
@@ -261,22 +261,22 @@ java-test:
   script:
     - java -version
 EOF
-    
+
     log_success "GitLab CI configuration generated at $ci_file"
 }
 
 # Generate CircleCI configuration
 generate_circleci() {
     validate_project_dir || return 1
-    
+
     local circleci_dir=".circleci"
     if [[ ! -d "$circleci_dir" ]]; then
         mkdir -p "$circleci_dir"
         log_info "Created CircleCI directory"
     fi
-    
+
     local config_file="$circleci_dir/config.yml"
-    
+
     cat > "$config_file" << 'EOF'
 version: 2.1
 
@@ -298,7 +298,7 @@ jobs:
           name: Run version manager health check
           command: |
             ./version-manager.sh health-check
-            
+
       - run:
           name: Run tests
           command: |
@@ -370,22 +370,22 @@ workflows:
       - rust-test
       - java-test
 EOF
-    
+
     log_success "CircleCI configuration generated at $config_file"
 }
 
 # Generate Docker CI job for GitHub Actions
 generate_docker_ci() {
     validate_project_dir || return 1
-    
+
     local workflow_dir=".github/workflows"
     if [[ ! -d "$workflow_dir" ]]; then
         mkdir -p "$workflow_dir"
         log_info "Created GitHub Actions workflow directory"
     fi
-    
+
     local workflow_file="$workflow_dir/docker-build.yml"
-    
+
     cat > "$workflow_file" << 'EOF'
 name: Docker Build
 
@@ -398,7 +398,7 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         include:
@@ -412,13 +412,13 @@ jobs:
             dockerfile: Dockerfile.rust
           - name: java
             dockerfile: Dockerfile.java
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    
+
     - name: Build and push Docker images
       uses: docker/build-push-action@v5
       with:
@@ -428,7 +428,7 @@ jobs:
         load: true
         tags: version-manager-${{ matrix.name }}:latest
 EOF
-    
+
     log_success "Docker CI workflow generated at $workflow_file"
 }
 
@@ -447,10 +447,11 @@ generate_all_ci() {
 # ============================================================================
 
 # Generate Dockerfile for Node.js projects
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_node() {
     local dockerfile="Dockerfile.node"
     local node_version="${1:-$(cat .nvmrc 2>/dev/null || echo '20.19.2')}"
-    
+
     cat > "$dockerfile" << EOF
 # Use Node.js version from .nvmrc or default
 FROM node:$node_version
@@ -473,15 +474,16 @@ EXPOSE 3000
 # Start command
 CMD ["npm", "start"]
 EOF
-    
+
     log_success "Node.js Dockerfile generated at $dockerfile"
 }
 
 # Generate Dockerfile for Python projects
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_python() {
     local dockerfile="Dockerfile.python"
     local python_version="${1:-$(cat .python-version 2>/dev/null || echo '3.12.11')}"
-    
+
     cat > "$dockerfile" << EOF
 # Use Python version from .python-version or default
 FROM python:$python_version
@@ -509,11 +511,12 @@ EXPOSE 8000
 # Start command
 CMD ["python", "app.py"]
 EOF
-    
+
     log_success "Python Dockerfile generated at $dockerfile"
 }
 
 # Generate docker-compose.yml
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_docker_compose() {
     local compose_file="docker-compose.yml"
     local node_version="${1:-$(cat .nvmrc 2>/dev/null || echo '20.19.2')}"
@@ -521,7 +524,7 @@ generate_docker_compose() {
     local go_version="${3:-$(cat .go-version 2>/dev/null || echo '1.23.4')}"
     local rust_version="${4:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
     local java_version="${5:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
-    
+
     cat > "$compose_file" << EOF
 version: '3.8'
 
@@ -578,15 +581,16 @@ services:
     volumes:
       - .:/app
 EOF
-    
+
     log_success "docker-compose.yml generated at $compose_file"
 }
 
 # Generate Dockerfile for Go projects
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_go() {
     local dockerfile="Dockerfile.go"
     local go_version="${1:-$(cat .go-version 2>/dev/null || echo '1.23.4')}"
-    
+
     cat > "$dockerfile" << EOF
 # Use Go version from .go-version or default
 FROM golang:$go_version
@@ -612,15 +616,16 @@ EXPOSE 8080
 # Run the application
 CMD ["./main"]
 EOF
-    
+
     log_success "Go Dockerfile generated at $dockerfile"
 }
 
 # Generate Dockerfile for Rust projects
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_rust() {
     local dockerfile="Dockerfile.rust"
     local rust_version="${1:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
-    
+
     cat > "$dockerfile" << EOF
 # Use Rust version from rust-toolchain or default
 FROM rust:$rust_version
@@ -648,15 +653,16 @@ EXPOSE 8000
 # Run the application
 CMD ["cargo", "run", "--release"]
 EOF
-    
+
     log_success "Rust Dockerfile generated at $dockerfile"
 }
 
 # Generate Dockerfile for Java projects
+# shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_java() {
     local dockerfile="Dockerfile.java"
     local java_version="${1:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
-    
+
     cat > "$dockerfile" << EOF
 # Use Java version from .java-version or default
 FROM openjdk:$java_version
@@ -673,7 +679,7 @@ EXPOSE 8080
 # Run the application
 CMD ["java", "-jar", "app.jar"]
 EOF
-    
+
     log_success "Java Dockerfile generated at $dockerfile"
 }
 
@@ -696,7 +702,7 @@ generate_docker_configs() {
 # Configure auto-switching for version managers
 configure_auto_switch() {
     log_info "Configuring auto-switching for version managers..."
-    
+
     # This uses the existing version-manager.sh script for configuration
     if [[ -f "./version-manager.sh" ]]; then
         ./version-manager.sh auto-switch
@@ -714,7 +720,7 @@ configure_auto_switch() {
 # Configure lazy-loading for version managers
 configure_lazy_load() {
     log_info "Configuring lazy-loading for version managers..."
-    
+
     # This uses the existing version-manager.sh script for configuration
     if [[ -f "./version-manager.sh" ]]; then
         ./version-manager.sh lazy-load
@@ -761,16 +767,16 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   # Configure automatic version switching
   $SCRIPT_NAME auto-switch
-  
+
   # Configure lazy loading for faster shell startup
   $SCRIPT_NAME lazy-load
-  
+
   # Generate all CI/CD templates
   $SCRIPT_NAME ci-all
-  
+
   # Generate Docker configurations
   $SCRIPT_NAME docker
-  
+
   # Generate specific language Dockerfiles
   $SCRIPT_NAME docker-go
   $SCRIPT_NAME docker-rust
@@ -800,7 +806,7 @@ parse_args() {
                 ;;
         esac
     done
-    
+
     echo "$@"
 }
 
@@ -808,12 +814,12 @@ parse_args() {
 main() {
     # Initialize
     init_directories
-    
+
     # Parse arguments
     local args
     mapfile -t args < <(parse_args "$@")
     local command="${args[0]:-help}"
-    
+
     # Execute command
     case "$command" in
         init)

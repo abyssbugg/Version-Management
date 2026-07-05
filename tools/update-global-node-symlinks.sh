@@ -51,9 +51,9 @@ show_symlink_plan() {
 backup_existing_symlinks() {
     local backup_dir="/tmp/node-symlinks-backup-$(date +%Y%m%d%H%M%S)"
     local backed_up=0
-    
+
     mkdir -p "$backup_dir"
-    
+
     for cmd in node npm npx; do
         if [[ -L "/usr/local/bin/$cmd" ]]; then
             # Backup symlink
@@ -67,7 +67,7 @@ backup_existing_symlinks() {
             ((backed_up++))
         fi
     done
-    
+
     if [[ $backed_up -gt 0 ]]; then
         log_success "Backups saved to: $backup_dir"
         echo "$backup_dir"
@@ -81,7 +81,7 @@ verify_nvm_installation() {
         # shellcheck source=/dev/null
         source "$NVM_DIR/nvm.sh"
     fi
-    
+
     if ! command -v nvm >/dev/null 2>&1; then
         log_error "NVM not found. Please install NVM first."
         exit 1
@@ -94,36 +94,36 @@ verify_nvm_installation() {
 
 update_global_node_symlinks() {
     verify_nvm_installation
-    
+
     local current_version
     current_version=$(nvm current 2>/dev/null || echo "N/A")
-    
+
     if [[ "$current_version" == "system" || "$current_version" == "N/A" || "$current_version" == "none" ]]; then
         log_error "No NVM-managed Node.js version is active"
         log_info "Run: nvm use <version> or nvm use --lts"
         exit 1
     fi
-    
+
     # Remove 'v' prefix if present
     current_version="${current_version#v}"
-    
+
     local node_path="$NVM_DIR/versions/node/v$current_version/bin/node"
     local npm_path="$NVM_DIR/versions/node/v$current_version/bin/npm"
     local npx_path="$NVM_DIR/versions/node/v$current_version/bin/npx"
-    
+
     # Verify paths exist
     if [[ ! -f "$node_path" ]]; then
         log_error "Node.js binary not found at: $node_path"
         exit 1
     fi
-    
+
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║            Global Node.js Symlink Updater                  ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo
     log_info "Current NVM version: v$current_version"
     echo
-    
+
     show_symlink_plan "$node_path" "$npm_path" "$npx_path"
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -131,30 +131,30 @@ update_global_node_symlinks() {
         log_info "Dry run only. Re-run with --confirm to apply this plan."
         exit 0
     fi
-    
+
     # Backup existing
     local backup_path
     backup_path=$(backup_existing_symlinks)
-    
+
     # Create symlinks
     echo
     log_info "Creating symlinks..."
-    
+
     if [[ -f "$node_path" ]]; then
         sudo ln -sf "$node_path" /usr/local/bin/node
         log_success "Created: /usr/local/bin/node -> $node_path"
     fi
-    
+
     if [[ -f "$npm_path" ]]; then
         sudo ln -sf "$npm_path" /usr/local/bin/npm
         log_success "Created: /usr/local/bin/npm -> $npm_path"
     fi
-    
+
     if [[ -f "$npx_path" ]]; then
         sudo ln -sf "$npx_path" /usr/local/bin/npx
         log_success "Created: /usr/local/bin/npx -> $npx_path"
     fi
-    
+
     echo
     log_success "Global symlinks updated to Node.js v$current_version"
     echo
@@ -162,7 +162,7 @@ update_global_node_symlinks() {
     echo "  node: $(which node 2>/dev/null || echo 'not found')"
     echo "  npm:  $(which npm 2>/dev/null || echo 'not found')"
     echo "  npx:  $(which npx 2>/dev/null || echo 'not found')"
-    
+
     if [[ -n "${backup_path:-}" ]]; then
         echo
         echo "To restore previous symlinks:"
@@ -176,21 +176,21 @@ update_global_node_symlinks() {
 
 restore_symlinks() {
     local backup_dir="$1"
-    
+
     if [[ ! -d "$backup_dir" ]]; then
         log_error "Backup directory not found: $backup_dir"
         exit 1
     fi
-    
+
     log_info "Restoring symlinks from: $backup_dir"
-    
+
     for cmd in node npm npx; do
         if [[ -e "$backup_dir/$cmd" ]]; then
             sudo cp -P "$backup_dir/$cmd" /usr/local/bin/
             log_success "Restored: /usr/local/bin/$cmd"
         fi
     done
-    
+
     log_success "Symlinks restored"
 }
 
@@ -237,7 +237,7 @@ EOF
 show_status() {
     echo "Current symlink status:"
     echo
-    
+
     for cmd in node npm npx; do
         local path="/usr/local/bin/$cmd"
         if [[ -L "$path" ]]; then
@@ -338,7 +338,7 @@ main() {
                 ;;
         esac
     done
-    
+
     case "$command" in
         update|"")
             update_global_node_symlinks

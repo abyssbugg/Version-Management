@@ -157,7 +157,7 @@ reset_icons() {
 
 preview_icons() {
     log_info "👀 Available icon preview..."
-    
+
     # Professional Development Theme Preview
     echo "Professional Development Theme Preview:"
     echo "======================================"
@@ -168,14 +168,14 @@ preview_icons() {
     log_info "  • Enhanced version management indicators (Go 1.23.4, Rust 1.82.0, Java 21.0.2)"
     log_info "  • Customizable OS, directory, and status icons"
     echo
-    
+
     # Apple Style Theme Preview
     echo "Apple Style Theme Preview:"
     echo "=========================="
     echo
     echo "   ~/projects/my-app  main 20.19.2 3.12.8 ⌚ 10:30:25 ✘"
     echo
-    
+
     # Minimal Theme Preview
     echo "Minimal Theme Preview:"
     echo "======================"

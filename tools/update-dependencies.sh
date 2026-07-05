@@ -24,27 +24,27 @@ source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
 
 update_nvm() {
     log_info "Checking NVM..."
-    
+
     # Source nvm if available
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
         # shellcheck source=/dev/null
         source "$NVM_DIR/nvm.sh"
     fi
-    
+
     if command -v nvm >/dev/null 2>&1; then
         local current
         current=$(nvm current 2>/dev/null || echo "none")
         log_info "Current Node.js: $current"
-        
+
         # Check for newer LTS version
         log_info "Checking for newer LTS version..."
         local latest_lts
         latest_lts=$(nvm version-remote --lts 2>/dev/null || echo "")
-        
+
         if [[ -n "$latest_lts" ]]; then
             log_info "Latest LTS: $latest_lts"
-            
+
             if [[ "$current" != "$latest_lts" ]]; then
                 read -r -p "   Upgrade to $latest_lts? [y/N]: " response
                 if [[ "$response" =~ ^[Yy] ]]; then
@@ -63,22 +63,22 @@ update_nvm() {
 
 update_pyenv() {
     log_info "Checking pyenv..."
-    
+
     if command -v pyenv >/dev/null 2>&1; then
         local current
         current=$(pyenv version-name 2>/dev/null || echo "system")
         log_info "Current Python: $current"
-        
+
         # Update pyenv itself
         if [[ -d "$HOME/.pyenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating pyenv..."
             (cd "$HOME/.pyenv" && git pull --quiet 2>/dev/null) || true
         fi
-        
+
         # Check for newer Python versions
         log_info "Latest Python versions available:"
         pyenv install --list 2>/dev/null | grep -E '^\s+3\.(11|12|13)\.[0-9]+$' | tail -5 || true
-        
+
         log_success "pyenv check complete"
     else
         log_warn "pyenv not installed"
@@ -88,22 +88,22 @@ update_pyenv() {
 
 update_goenv() {
     log_info "Checking goenv..."
-    
+
     if command -v goenv >/dev/null 2>&1; then
         local current
         current=$(goenv version-name 2>/dev/null || echo "system")
         log_info "Current Go: $current"
-        
+
         # Update goenv itself
         if [[ -d "$HOME/.goenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating goenv..."
             (cd "$HOME/.goenv" && git pull --quiet 2>/dev/null) || true
         fi
-        
+
         # Check for newer Go versions
         log_info "Latest Go versions available:"
         goenv install --list 2>/dev/null | grep -E '^\s+1\.(21|22|23)\.[0-9]+$' | tail -5 || true
-        
+
         log_success "goenv check complete"
     else
         log_warn "goenv not installed"
@@ -113,20 +113,20 @@ update_goenv() {
 
 update_rustup() {
     log_info "Checking Rust/rustup..."
-    
+
     if command -v rustup >/dev/null 2>&1; then
         local current
         current=$(rustc --version 2>/dev/null || echo "unknown")
         log_info "Current Rust: $current"
-        
+
         # Update rustup and toolchains
         log_info "Updating Rust toolchain..."
         rustup update 2>/dev/null || log_warn "rustup update failed"
-        
+
         # Show installed toolchains
         log_info "Installed toolchains:"
         rustup toolchain list 2>/dev/null || true
-        
+
         log_success "Rust update complete"
     else
         log_warn "rustup not installed"
@@ -136,22 +136,22 @@ update_rustup() {
 
 update_jenv() {
     log_info "Checking jenv..."
-    
+
     if command -v jenv >/dev/null 2>&1; then
         local current
         current=$(jenv version-name 2>/dev/null || echo "system")
         log_info "Current Java: $current"
-        
+
         # Update jenv itself
         if [[ -d "$HOME/.jenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating jenv..."
             (cd "$HOME/.jenv" && git pull --quiet 2>/dev/null) || true
         fi
-        
+
         # Show installed Java versions
         log_info "Installed Java versions:"
         jenv versions 2>/dev/null || true
-        
+
         log_success "jenv check complete"
     else
         log_warn "jenv not installed"
@@ -161,14 +161,14 @@ update_jenv() {
 
 update_npm_packages() {
     log_info "Checking npm packages..."
-    
+
     if [[ -f "$SCRIPT_DIR/package.json" ]] && command -v npm >/dev/null 2>&1; then
         log_info "Updating npm packages in project..."
         (cd "$SCRIPT_DIR" && npm update 2>/dev/null) || log_warn "npm update failed"
-        
+
         log_info "Running security audit..."
         (cd "$SCRIPT_DIR" && npm audit --audit-level moderate 2>/dev/null) || log_info "Audit complete"
-        
+
         log_success "npm packages updated"
     else
         log_info "No package.json or npm not available"
@@ -206,12 +206,12 @@ EOF
 
 main() {
     local target="${1:---all}"
-    
+
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║            Dependency Update Utility                       ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo
-    
+
     case "$target" in
         --all)
             update_nvm
@@ -249,7 +249,7 @@ main() {
             exit 1
             ;;
     esac
-    
+
     log_success "Dependency update complete"
 }
 

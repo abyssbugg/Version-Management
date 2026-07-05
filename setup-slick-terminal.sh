@@ -26,11 +26,11 @@ show_banner() {
 # Install fonts to system
 install_fonts_to_system() {
     log_info "📥 Installing MesloLGS Nerd Font to system..."
-    
+
     # Create fonts directory if it doesn't exist
     local fonts_dir="$HOME/Library/Fonts"
     mkdir -p "$fonts_dir"
-    
+
     # Copy font files
     for font_file in "$SCRIPT_DIR"/*.ttf; do
         if [[ -f "$font_file" ]]; then
@@ -38,7 +38,7 @@ install_fonts_to_system() {
             log_success "Installed: $(basename "$font_file")"
         fi
     done
-    
+
     # Refresh font cache
     if command -v fc-cache >/dev/null 2>&1; then
         fc-cache -f -v >/dev/null 2>&1
@@ -49,7 +49,7 @@ install_fonts_to_system() {
 # Configure VS Code settings for optimal font display
 configure_vscode_fonts() {
     log_info " Configuring VS Code for optimal Nerd Font display..."
-    
+
     # Generate optimized VS Code settings
     cat > "$SCRIPT_DIR/vscode-terminal-fonts.json" << 'EOF'
 {
@@ -72,7 +72,7 @@ configure_vscode_fonts() {
   "debug.console.fontFamily": "MesloLGS NF"
 }
 EOF
-    
+
     log_success "VS Code font configuration created: vscode-terminal-fonts.json"
     log_info " Copy these settings to your VS Code settings.json"
 }
@@ -80,7 +80,7 @@ EOF
 # Create font test script
 create_font_test() {
     log_info " Creating font test script..."
-    
+
     cat > "$SCRIPT_DIR/test-nerd-font-icons.sh" << 'EOF'
 #!/usr/bin/env bash
 # Test Nerd Font Icons Display
@@ -145,14 +145,14 @@ EOF
 # Main execution
 main() {
     show_banner
-    
+
     log_info "🎯 Setting up slick terminal with official Nerd Font icons..."
     echo
-    
+
     install_fonts_to_system
     configure_vscode_fonts
     create_font_test
-    
+
     echo
     log_success " Slick terminal setup completed!"
     echo
