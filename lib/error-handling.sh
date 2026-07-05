@@ -132,6 +132,8 @@ safe_exec_backoff_argv() {
 # SECURITY CONTRACT: the argument MUST be a hard-coded literal written by a
 # maintainer — never assembled from variables or user input. This is the only
 # sanctioned string-execution escape hatch (ENGINEERING_RULES §2).
+# The literal is logged at debug level (may persist to LOG_FILE), so it must
+# NOT embed secrets.
 # Usage: safe_exec_shell_trusted "cmd | grep foo"
 safe_exec_shell_trusted() {
     local command="$1"
@@ -166,7 +168,10 @@ safe_exec() {
         log_error "safe_exec: command argument must not be empty"
         return 1
     fi
-    log_warn "safe_exec is deprecated: pass argv to safe_exec_argv, or use safe_exec_shell_trusted for literal pipelines"
+    if [[ -z "${_SAFE_EXEC_DEPRECATION_WARNED:-}" ]]; then
+        log_warn "safe_exec is deprecated: pass argv to safe_exec_argv, or use safe_exec_shell_trusted for literal pipelines"
+        _SAFE_EXEC_DEPRECATION_WARNED=1
+    fi
     # NOTE: eval is used here intentionally to support composite shell commands
     # (e.g., pipes, redirections). Callers MUST pass only trusted, controlled
     # command strings — never pass user-supplied input directly.
@@ -207,7 +212,10 @@ safe_exec_backoff() {
         log_error "safe_exec_backoff: command argument must not be empty"
         return 1
     fi
-    log_warn "safe_exec_backoff is deprecated: pass argv to safe_exec_backoff_argv"
+    if [[ -z "${_SAFE_EXEC_BACKOFF_DEPRECATION_WARNED:-}" ]]; then
+        log_warn "safe_exec_backoff is deprecated: pass argv to safe_exec_backoff_argv"
+        _SAFE_EXEC_BACKOFF_DEPRECATION_WARNED=1
+    fi
     # NOTE: eval is used here intentionally — see safe_exec() note above.
     # Only pass trusted, controlled command strings.
 

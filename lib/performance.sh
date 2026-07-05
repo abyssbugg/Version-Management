@@ -143,7 +143,11 @@ cache_version() {
     else
         _cache_version_set_fallback "$cache_name" "$version"
     fi
-    mkdir -p "$PERF_CACHE_DIR" 2>/dev/null && printf '%s\n' "$version" > "$cache_file" 2>/dev/null
+    local cache_tmp="$cache_file.$$"
+    mkdir -p "$PERF_CACHE_DIR" 2>/dev/null && {
+        printf '%s\n' "$version" > "$cache_tmp" 2>/dev/null &&
+            mv -f "$cache_tmp" "$cache_file" 2>/dev/null
+    }
     echo "$version"
 }
 

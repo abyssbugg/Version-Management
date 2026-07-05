@@ -299,10 +299,33 @@ main() {
             restore)
                 command="restore"
                 shift
-                restore_path="${1:-}"
-                if [[ -n "$restore_path" ]]; then
-                    shift
-                fi
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        -n|--dry-run)
+                            DRY_RUN=true
+                            shift
+                            ;;
+                        --confirm)
+                            DRY_RUN=false
+                            shift
+                            ;;
+                        --*)
+                            log_error "Unknown option or command: $1"
+                            show_usage
+                            exit 1
+                            ;;
+                        *)
+                            if [[ -z "$restore_path" ]]; then
+                                restore_path="$1"
+                                shift
+                            else
+                                log_error "Unknown option or command: $1"
+                                show_usage
+                                exit 1
+                            fi
+                            ;;
+                    esac
+                done
                 ;;
             -h|--help)
                 show_usage

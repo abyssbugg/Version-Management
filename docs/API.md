@@ -12,16 +12,17 @@ This document provides a reference for all exported functions in the library mod
 2. [env.sh](#envsh---environment-detection)
 3. [backup.sh](#backupsh---backup-and-restore)
 4. [cache.sh](#cachesh---caching-system)
-5. [error-handling.sh](#error-handlingsh---error-handling)
-6. [validation.sh](#validationsh---input-validation)
-7. [utils.sh](#utilssh---common-utilities)
-8. [performance.sh](#performancesh---performance-optimization)
-9. [nvm.sh](#nvmsh---nodejs-version-management)
-10. [pyvm.sh](#pyvmsh---python-version-management)
-11. [gvm.sh](#gvmsh---go-version-management)
-12. [jenv.sh](#jenvsh---java-version-management)
-13. [rustup.sh](#rustupsh---rust-version-management)
-14. [theme-ops.sh](#theme-opssh---theme-operations)
+5. [lock.sh](#locksh---atomic-locking)
+6. [error-handling.sh](#error-handlingsh---error-handling)
+7. [validation.sh](#validationsh---input-validation)
+8. [utils.sh](#utilssh---common-utilities)
+9. [performance.sh](#performancesh---performance-optimization)
+10. [nvm.sh](#nvmsh---nodejs-version-management)
+11. [pyvm.sh](#pyvmsh---python-version-management)
+12. [gvm.sh](#gvmsh---go-version-management)
+13. [jenv.sh](#jenvsh---java-version-management)
+14. [rustup.sh](#rustupsh---rust-version-management)
+15. [theme-ops.sh](#theme-opssh---theme-operations)
 
 ---
 
@@ -90,12 +91,45 @@ File-based caching with TTL and automatic cleanup.
 | `cache_delete` | Delete cache entry | `cache_delete "key"` |
 | `cache_clear` | Clear all cache | `cache_clear` |
 | `cache_cleanup` | Remove expired entries | `cache_cleanup` |
+| `cache_namespace_get` | Retrieve namespaced cached value | `value=$(cache_namespace_get "commands" "node")` |
+| `cache_namespace_set` | Store namespaced value | `cache_namespace_set "commands" "node" "1"` |
+| `cache_namespace_clear` | Clear one namespaced entry or namespace | `cache_namespace_clear "commands" "node"` |
+| `cache_namespace_clear_all` | Clear all namespaced cache data | `cache_namespace_clear_all` |
+| `cache_exec_argv` | Execute argv and cache successful output | `cache_exec_argv "key" 300 git status --short` |
+| `cache_safe_execute` | Compatibility wrapper for `cache_exec_argv` | `cache_safe_execute "key" 300 git status --short` |
+
+### Namespace Safety
+
+- Cache namespaces must match `^[A-Za-z0-9_-]+$`; invalid namespaces are rejected before any deletion.
+- `cache_exec_argv` and `cache_safe_execute` accept `key ttl cmd [args...]`. Command arguments are argv values and are inert, not shell strings.
 
 ### TTL Defaults (seconds)
 
 - `TTL_VERSION_CHECK` - 600 (10 min)
 - `TTL_COMMAND_CHECK` - 3600 (1 hour)
 - `TTL_FILE_CHECK` - 60 (1 min)
+
+---
+
+## lock.sh - Atomic Locking
+
+Atomic mkdir-based locks for workstation-mutating entry points.
+
+### Functions
+
+| Function | Description | Usage |
+|----------|-------------|-------|
+| `lock_acquire` | Acquire an atomic mkdir lock; name must match `^[A-Za-z0-9_-]+$`; stale locks from dead processes are auto-reclaimed | `lock_acquire "setup" 30` |
+| `lock_release` | Release a lock only when owned by the current process pid | `lock_release "setup"` |
+| `lock_with_trap` | Acquire a lock and chain release onto the EXIT trap; **must be the last EXIT-trap registration in the script** | `lock_with_trap "setup" 30` |
+
+### Environment Variables
+
+- `VMS_STATE_DIR` - State directory override (default: `~/.local/state/version-manager`); locks live under `$VMS_STATE_DIR/locks/`
+
+### Trap Contract
+
+A later `trap ... EXIT` replaces the chain installed by `lock_with_trap` and leaks the lock until stale reclaim.
 
 ---
 
@@ -112,10 +146,19 @@ Standardized error handling with retry logic.
 | `safe_exec_backoff_argv` | Argv retry with exponential backoff | `safe_exec_backoff_argv git clone "$repo"` |
 | `safe_exec_shell_trusted` | Trusted-literal shell string (pipes ok; literals ONLY) | `safe_exec_shell_trusted "ls \| wc -l"` |
 | `safe_exec` | DEPRECATED — use `safe_exec_argv` | `safe_exec "curl url" 3 2` |
-| `safe_exec_backoff` | Execute with exponential backoff | `safe_exec_backoff "cmd" 5` |
+| `safe_exec_backoff` | DEPRECATED — use `safe_exec_backoff_argv` | `safe_exec_backoff "cmd" 5` |
 | `require_command` | Validate command exists | `require_command "git"` |
 | `require_file` | Validate file exists | `require_file "/path"` |
 | `setup_error_trap` | Enable error trapping | `setup_error_trap` |
+
+### Environment Variables
+
+- `SAFE_EXEC_RETRIES` - Max attempts for `safe_exec_argv` and `safe_exec_backoff_argv`
+- `SAFE_EXEC_DELAY` - Linear delay for `safe_exec_argv`; initial delay for `safe_exec_backoff_argv`
+
+### Deprecation Notes
+
+- `safe_exec` and `safe_exec_backoff` are string-command compatibility APIs. They emit a one-time deprecation warning on stderr per shell session; new code should use argv APIs.
 
 ---
 
