@@ -30,9 +30,18 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 - [x] **2.5** Regenerate CI templates in `version-advanced.sh`: `actions/setup-node`/`setup-python` etc. where available; download→checksum-verify→execute otherwise. Kill all 9 pipe-to-shell lines. *(P0-5 — done in `68eb4a0`; grep-proven zero pipe-to-shell, PyYAML-validated output)*
 - [x] **2.6** Deduplicate `cache_stats` (`lib/cache.sh:279` vs `:748`) and rationalize the flat-vs-namespaced cache API. *(P1-8 — done in `50216cf`)*
 
-## Phase 3 — Transactional Mutation Framework (P3-1, P1-3)
+## Milestone Program M0–M3 (inserted 2026-10-01, per merged-audit-directive.md v3)
 
-*The strategic centerpiece. `setup-theme.sh:182-191` is the reference implementation pattern.*
+*Binding spec: [merged-audit-directive.md](../../merged-audit-directive.md) (frozen v3, 2026-08-12). These milestones sit ahead of Phase 3; the transactional mutation rollout is BLOCKED-ON-M2 (directive Rule 4). A/B finding IDs refer to the directive's sections.*
+
+- [ ] **M0 — Test truth.** Canonical test manifest from every runner entry point (Make/CI/direct); route all test targets through `tests/test_runner.sh`; fail-closed syntax gate incl. `zsh -n`; zero-tolerance ShellCheck in `validate-quality.sh`; remove unconditional `exit 0`s; self-contained failing tests; seeded-failure meta-tests for every gate; Linux+macOS manifest parity. *(A1, B1.4, B1.7; C-1 resolution mechanism)*
+- [ ] **M1 — Library and runtime contracts.** Strip strict mode from `lib/logger.sh`/`lib/env.sh`/`lib/backup.sh`/`lib/plugins.sh` (inverts P2-1's framing — the register records the *absence* of strict mode; the live defect is its presence); `$-`-preservation contract test per module; repo-wide `((x++))` sweep; logs→stderr for value-returning functions; `fonts.sh` `0\n0` fix; Bash version contract. *(A2, B1.5, B1.9, B2.4)*
+- [ ] **M2 — Transaction primitive hardening + mutation registry.** Basename-collision rollback fix, transaction-name validation, collision-resistant dirs, hash-verified rollback (A3); publish the complete mutation-target registry (Phase 3.3's five + B1.6's nine + any further sinks). Phase 3 unblocks here.
+- [ ] **M3 — Trust-boundary repair.** Plugin identifier grammar + containment + symlink rejection (B1.1); auto-activation split behind a persistent trust registry (B1.2); fail-closed validator redesign wired into destructive entry points (B1.3, A4); privileged-path tests via a recording sudo shim only.
+
+## Phase 3 — Transactional Mutation Framework (P3-1, P1-3) — **BLOCKED-ON-M2**
+
+*The strategic centerpiece. `setup-theme.sh:182-191` is the reference implementation pattern. Blocked by the M0–M3 milestone program above (directive Rule 4); adoption expands only after M2 exits GO.*
 
 - [ ] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)*
 - [ ] **3.2** Managed-block editing for shell rc files: `# BEGIN version-management-setup:<name>` … `# END`, replaced atomically. Fix the `NVM_SILENT=1` vs `=true` idempotency drift in `scripts/fix-nvm-issues.sh`. *(P1-3)*
