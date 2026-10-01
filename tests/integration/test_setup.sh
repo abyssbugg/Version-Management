@@ -22,7 +22,11 @@ test_setup_defines_setup_versions() {
   fi
 }
 
-test_setup_defines_main
-test_setup_defines_setup_versions
+failures=0
+test_setup_defines_main || failures=$((failures + 1))
+test_setup_defines_setup_versions || failures=$((failures + 1))
 
-exit 0
+if [[ "$failures" -gt 0 ]]; then
+  echo "test_setup.sh: $failures assertion(s) failed"
+  exit 1
+fi

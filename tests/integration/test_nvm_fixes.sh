@@ -33,9 +33,14 @@ test_nvm_fix_functions_defined() {
   fi
 }
 
-test_fix_nvm_issues_runs
-test_nvm_fix_functions_defined
+failures=0
+test_fix_nvm_issues_runs || failures=$((failures + 1))
+test_nvm_fix_functions_defined || failures=$((failures + 1))
 
 teardown_test
 trap - EXIT
-exit 0
+
+if [[ "$failures" -gt 0 ]]; then
+  echo "test_nvm_fixes.sh: $failures assertion(s) failed"
+  exit 1
+fi

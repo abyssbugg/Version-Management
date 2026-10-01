@@ -154,7 +154,7 @@ test_version_managers_installable() {
     # Check NVM
     if [[ -d "${NVM_DIR:-$HOME/.nvm}" ]] || command -v nvm >/dev/null 2>&1; then
         pass "NVM: available"
-        ((managers_found++))
+        managers_found=$(( managers_found + 1 ))
     else
         info "NVM: not installed"
     fi
@@ -162,7 +162,7 @@ test_version_managers_installable() {
     # Check pyenv
     if [[ -d "${PYENV_ROOT:-$HOME/.pyenv}" ]] || command -v pyenv >/dev/null 2>&1; then
         pass "pyenv: available"
-        ((managers_found++))
+        managers_found=$(( managers_found + 1 ))
     else
         info "pyenv: not installed"
     fi
@@ -170,7 +170,7 @@ test_version_managers_installable() {
     # Check goenv
     if [[ -d "$HOME/.goenv" ]] || command -v goenv >/dev/null 2>&1; then
         pass "goenv: available"
-        ((managers_found++))
+        managers_found=$(( managers_found + 1 ))
     else
         info "goenv: not installed"
     fi
@@ -178,7 +178,7 @@ test_version_managers_installable() {
     # Check rustup
     if command -v rustup >/dev/null 2>&1; then
         pass "rustup: available"
-        ((managers_found++))
+        managers_found=$(( managers_found + 1 ))
     else
         info "rustup: not installed"
     fi
@@ -186,7 +186,7 @@ test_version_managers_installable() {
     # Check jenv
     if [[ -d "$HOME/.jenv" ]] || command -v jenv >/dev/null 2>&1; then
         pass "jenv: available"
-        ((managers_found++))
+        managers_found=$(( managers_found + 1 ))
     else
         info "jenv: not installed"
     fi
@@ -257,7 +257,7 @@ test_font_directories_exist() {
     local found=0
     for dir in "${font_dirs[@]}"; do
         if [[ -d "$dir" ]] || mkdir -p "$dir" 2>/dev/null; then
-            ((found++))
+            found=$(( found + 1 ))
         fi
     done
 
@@ -289,7 +289,7 @@ test_project_structure() {
     for dir in "${required_dirs[@]}"; do
         if [[ ! -d "$SCRIPT_DIR/$dir" ]]; then
             fail "Missing directory: $dir"
-            ((missing++))
+            missing=$(( missing + 1 ))
         fi
     done
 
@@ -315,7 +315,7 @@ test_core_scripts_executable() {
         if [[ -f "$SCRIPT_DIR/$script" ]]; then
             if [[ ! -x "$SCRIPT_DIR/$script" ]]; then
                 warn "$script is not executable"
-                ((not_executable++))
+                not_executable=$(( not_executable + 1 ))
             fi
         else
             fail "$script not found"
@@ -346,7 +346,7 @@ test_library_modules_sourceable() {
                 pass "$lib: valid syntax"
             else
                 fail "$lib: syntax error"
-                ((failed++))
+                failed=$(( failed + 1 ))
             fi
         else
             warn "$lib: not found"

@@ -4,6 +4,12 @@
 source ../helpers.sh
 source ../../lib/theme-ops.sh
 
+# Own strict-mode posture (M0 step 3): sourced libraries may enable global
+# strict mode (A2 — lib/logger.sh via theme-ops), which would abort this file
+# on the first returned assertion instead of accumulating failures. M1 removes
+# the leak; after that this line is a no-op.
+set +e
+
 # Test theme_validate function exists
 test_theme_validate_function_exists() {
     if declare -f theme_validate >/dev/null 2>&1; then
@@ -45,7 +51,12 @@ test_theme_detect_current_function_exists() {
 
 # Test theme_detect_current returns a value
 test_theme_detect_current_returns_value() {
-    local result=$(theme_detect_current 2>/dev/null || true)
+    local result
+    result=$(theme_detect_current 2>/dev/null || true)
+    # The logger currently writes timestamped WARN diagnostics to stdout
+    # (B2.4, contract fix lands in M1), which contaminates command
+    # substitution. Filter those lines here; after M1 the filter is a no-op.
+    result="$(printf '%s\n' "$result" | grep -v '^\[[0-9][0-9][0-9][0-9]-' || true)"
     # Should return one of: professional, apple, clean, vscode, unknown, none
     case "$result" in
         professional|apple|clean|vscode|unknown|none)
@@ -156,21 +167,25 @@ test_all_public_functions_exist() {
     fi
 }
 
-# Run tests
-echo "=== Theme Operations Tests ==="
-test_theme_validate_function_exists
-test_theme_validate_empty_name
-test_theme_validate_professional_theme
-test_theme_detect_current_function_exists
-test_theme_detect_current_returns_value
-test_theme_switch_function_exists
-test_theme_switch_empty_name
-test_theme_list_available_function_exists
-test_theme_list_available_produces_output
-test_theme_get_description_function_exists
-test_theme_requires_nerd_font_function_exists
-test_theme_get_current_info_function_exists
-test_theme_reset_function_exists
-test_all_public_functions_exist
+# Run tests — explicit failure accumulation (A5: no last-command-status exits,
+# no reliance on inherited strict-mode aborts to propagate failures)
+failures=0
+test_theme_validate_function_exists || failures=$((failures + 1))
+test_theme_validate_empty_name || failures=$((failures + 1))
+test_theme_validate_professional_theme || failures=$((failures + 1))
+test_theme_detect_current_function_exists || failures=$((failures + 1))
+test_theme_detect_current_returns_value || failures=$((failures + 1))
+test_theme_switch_function_exists || failures=$((failures + 1))
+test_theme_switch_empty_name || failures=$((failures + 1))
+test_theme_list_available_function_exists || failures=$((failures + 1))
+test_theme_list_available_produces_output || failures=$((failures + 1))
+test_theme_get_description_function_exists || failures=$((failures + 1))
+test_theme_requires_nerd_font_function_exists || failures=$((failures + 1))
+test_theme_get_current_info_function_exists || failures=$((failures + 1))
+test_theme_reset_function_exists || failures=$((failures + 1))
+test_all_public_functions_exist || failures=$((failures + 1))
 
-exit $?
+if [[ "$failures" -gt 0 ]]; then
+    echo "test_theme_ops.sh: $failures test(s) failed"
+    exit 1
+fi
