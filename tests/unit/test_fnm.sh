@@ -16,9 +16,13 @@ test_fnm_not_installed() {
     track_coverage "fnm_detect"
 
     # Provide logger stubs
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_info()  { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_debug() { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_error() { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_warn()  { :; }
 
     # Save original PATH and remove any fnm
@@ -46,9 +50,13 @@ test_fnm_not_installed() {
 test_fnm_exports_functions() {
     track_coverage "fnm_functions"
 
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_info()  { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_debug() { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_error() { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/fnm.sh
     log_warn()  { :; }
 
     unset _FNM_SH_LOADED 2>/dev/null || true

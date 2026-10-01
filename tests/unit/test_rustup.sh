@@ -1,26 +1,41 @@
 #!/usr/bin/env bash
 # Unit tests for lib/rustup.sh - Rust Toolchain Manager
 
-source ../helpers.sh
-source ../../lib/rustup.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+source "$SCRIPT_DIR/../helpers.sh"
+source "$ROOT_DIR/lib/rustup.sh"
+
+# Own strict-mode posture (remediation directive M0 step 3): lib/env.sh and
+# lib/logger.sh set `set -euo pipefail` at source time and that posture leaks
+# into this test shell. These tests branch on return codes themselves and must
+# not abort on the first non-zero (e.g. rustup_detect returning 1 when rustup
+# is absent), so the own posture is deliberately non-aborting:
+set +e +u +o pipefail
+
+failures=0
 
 # Test rustup_detect function exists and is callable
 test_rustup_detect_function_exists() {
     if declare -f rustup_detect >/dev/null 2>&1; then
-        assert_equals "true" "true" "rustup_detect function exists"
+        assert_equals "true" "true" "rustup_detect function exists" || failures=$((failures + 1))
     else
-        assert_equals "function_exists" "function_missing" "rustup_detect function should exist"
+        assert_equals "function_exists" "function_missing" "rustup_detect function should exist" || failures=$((failures + 1))
     fi
 }
 
-# Test rustup_detect returns appropriate value
+# Test rustup_detect returns the correct value for the actual environment
 test_rustup_detect_returns_value() {
-    rustup_detect >/dev/null 2>&1
-    local exit_code=$?
-    if [[ $exit_code -eq 0 ]] || [[ $exit_code -eq 1 ]]; then
-        assert_equals "true" "true" "rustup_detect returns valid exit code ($exit_code)"
+    # M0 step 3 (environment-independent semantics): rustup presence is a
+    # property of the host, so branch on it and assert the correct outcome for
+    # each world instead of relying on the macOS host having rustup installed.
+    if command -v rustup >/dev/null 2>&1; then
+        rustup_detect >/dev/null 2>&1
+        assert_exit_code 0 "$?" "rustup present: rustup_detect returns 0" || failures=$((failures + 1))
     else
-        assert_equals "0_or_1" "$exit_code" "rustup_detect should return 0 or 1"
+        rustup_detect >/dev/null 2>&1
+        assert_exit_code 1 "$?" "rustup absent: rustup_detect returns 1 (graceful not-installed)" || failures=$((failures + 1))
     fi
 }
 
@@ -28,15 +43,15 @@ test_rustup_detect_returns_value() {
 test_rustup_validate_version_format_valid() {
     # Test valid version formats
     if _rustup_validate_version "1.75.0" 2>/dev/null; then
-        assert_equals "true" "true" "Valid version format 1.75.0 accepted"
+        assert_equals "true" "true" "Valid version format 1.75.0 accepted" || failures=$((failures + 1))
     else
-        assert_equals "valid" "invalid" "1.75.0 should be valid format"
+        assert_equals "valid" "invalid" "1.75.0 should be valid format" || failures=$((failures + 1))
     fi
 
     if _rustup_validate_version "1.81.0" 2>/dev/null; then
-        assert_equals "true" "true" "Valid version format 1.81.0 accepted"
+        assert_equals "true" "true" "Valid version format 1.81.0 accepted" || failures=$((failures + 1))
     else
-        assert_equals "valid" "invalid" "1.81.0 should be valid format"
+        assert_equals "valid" "invalid" "1.81.0 should be valid format" || failures=$((failures + 1))
     fi
 }
 
@@ -44,28 +59,29 @@ test_rustup_validate_version_format_valid() {
 test_rustup_validate_version_format_invalid() {
     # Test invalid version formats
     if ! _rustup_validate_version "invalid" 2>/dev/null; then
-        assert_equals "true" "true" "Invalid version 'invalid' rejected"
+        assert_equals "true" "true" "Invalid version 'invalid' rejected" || failures=$((failures + 1))
     else
-        assert_equals "rejected" "accepted" "'invalid' should be rejected"
+        assert_equals "rejected" "accepted" "'invalid' should be rejected" || failures=$((failures + 1))
     fi
 
     if ! _rustup_validate_version "1.75" 2>/dev/null; then
-        assert_equals "true" "true" "Invalid version '1.75' (no patch) rejected"
+        assert_equals "true" "true" "Invalid version '1.75' (no patch) rejected" || failures=$((failures + 1))
     else
-        assert_equals "rejected" "accepted" "'1.75' should be rejected"
+        assert_equals "rejected" "accepted" "'1.75' should be rejected" || failures=$((failures + 1))
     fi
 
     if ! _rustup_validate_version "stable" 2>/dev/null; then
-        assert_equals "true" "true" "Version 'stable' rejected (channel name, not version)"
+        assert_equals "true" "true" "Version 'stable' rejected (channel name, not version)" || failures=$((failures + 1))
     else
         # Note: stable might be considered valid as a channel, but _rustup_validate_version checks semver
-        assert_equals "true" "true" "'stable' handled appropriately"
+        assert_equals "true" "true" "'stable' handled appropriately" || failures=$((failures + 1))
     fi
 }
 
 # Test rustup_is_rust_project detection with Cargo.toml
 test_rustup_is_rust_project_with_cargo() {
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
 
     cat > Cargo.toml << 'EOF'
@@ -75,9 +91,9 @@ version = "0.1.0"
 EOF
 
     if rustup_is_rust_project; then
-        assert_equals "true" "true" "Detected Rust project with Cargo.toml"
+        assert_equals "true" "true" "Detected Rust project with Cargo.toml" || failures=$((failures + 1))
     else
-        assert_equals "detected" "not_detected" "Should detect Cargo.toml as Rust project"
+        assert_equals "detected" "not_detected" "Should detect Cargo.toml as Rust project" || failures=$((failures + 1))
     fi
 
     cd - > /dev/null || exit 1
@@ -86,15 +102,16 @@ EOF
 
 # Test rustup_is_rust_project with rust-toolchain file
 test_rustup_is_rust_project_with_toolchain() {
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
 
     echo "1.81.0" > rust-toolchain
 
     if rustup_is_rust_project; then
-        assert_equals "true" "true" "Detected Rust project with rust-toolchain"
+        assert_equals "true" "true" "Detected Rust project with rust-toolchain" || failures=$((failures + 1))
     else
-        assert_equals "detected" "not_detected" "Should detect rust-toolchain as Rust project"
+        assert_equals "detected" "not_detected" "Should detect rust-toolchain as Rust project" || failures=$((failures + 1))
     fi
 
     cd - > /dev/null || exit 1
@@ -103,7 +120,8 @@ test_rustup_is_rust_project_with_toolchain() {
 
 # Test rustup_is_rust_project with rust-toolchain.toml
 test_rustup_is_rust_project_with_toolchain_toml() {
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
 
     cat > rust-toolchain.toml << 'EOF'
@@ -112,9 +130,9 @@ channel = "1.81.0"
 EOF
 
     if rustup_is_rust_project; then
-        assert_equals "true" "true" "Detected Rust project with rust-toolchain.toml"
+        assert_equals "true" "true" "Detected Rust project with rust-toolchain.toml" || failures=$((failures + 1))
     else
-        assert_equals "detected" "not_detected" "Should detect rust-toolchain.toml as Rust project"
+        assert_equals "detected" "not_detected" "Should detect rust-toolchain.toml as Rust project" || failures=$((failures + 1))
     fi
 
     cd - > /dev/null || exit 1
@@ -123,15 +141,16 @@ EOF
 
 # Test rustup_is_rust_project with no Rust files
 test_rustup_is_rust_project_not_rust() {
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     cd "$temp_dir" || exit 1
 
     echo "test" > test.txt
 
     if ! rustup_is_rust_project; then
-        assert_equals "true" "true" "Correctly identified non-Rust project"
+        assert_equals "true" "true" "Correctly identified non-Rust project" || failures=$((failures + 1))
     else
-        assert_equals "not_detected" "detected" "Should not detect as Rust project"
+        assert_equals "not_detected" "detected" "Should not detect as Rust project" || failures=$((failures + 1))
     fi
 
     cd - > /dev/null || exit 1
@@ -141,9 +160,9 @@ test_rustup_is_rust_project_not_rust() {
 # Test rustup_get_current function exists
 test_rustup_get_current_function_exists() {
     if declare -f rustup_get_current >/dev/null 2>&1; then
-        assert_equals "true" "true" "rustup_get_current function exists"
+        assert_equals "true" "true" "rustup_get_current function exists" || failures=$((failures + 1))
     else
-        assert_equals "function_exists" "function_missing" "rustup_get_current function should exist"
+        assert_equals "function_exists" "function_missing" "rustup_get_current function should exist" || failures=$((failures + 1))
     fi
 }
 
@@ -157,14 +176,14 @@ test_all_exported_functions_exist() {
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
-            ((missing++))
+            missing=$((missing + 1))
         fi
     done
 
     if [[ $missing -eq 0 ]]; then
-        assert_equals "true" "true" "All 10 exported functions exist"
+        assert_equals "true" "true" "All 10 exported functions exist" || failures=$((failures + 1))
     else
-        assert_equals "0" "$missing" "$missing functions are missing"
+        assert_equals "0" "$missing" "$missing functions are missing" || failures=$((failures + 1))
     fi
 }
 
@@ -181,4 +200,6 @@ test_rustup_is_rust_project_not_rust
 test_rustup_get_current_function_exists
 test_all_exported_functions_exist
 
-exit $?
+# M0 step 3: explicit failure accumulation — exit with the failure count, not
+# merely the status of the last test case.
+exit "$failures"

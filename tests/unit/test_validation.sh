@@ -11,10 +11,17 @@ coverage_init "validation"
 
 failures=0
 
+# Logger stubs: lib/validation.sh invokes these via dynamic dispatch (shellcheck
+# cannot follow the sourced module), so SC2317 findings are expected here. [M0 SC2317]
+# shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/validation.sh
 log_info()  { :; }
+# shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/validation.sh
 log_debug() { :; }
+# shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/validation.sh
 log_error() { :; }
+# shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/validation.sh
 log_warn()  { :; }
+# shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/validation.sh
 log_success() { :; }
 
 # shellcheck source=lib/validation.sh

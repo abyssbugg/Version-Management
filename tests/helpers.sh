@@ -273,6 +273,7 @@ tap_fail() {
 _TEST_PASS_COUNT=0
 _TEST_FAIL_COUNT=0
 _TEST_SKIP_COUNT=0
+_TEST_WARN_COUNT=0
 _CURRENT_TEST=""
 
 start_test() {
@@ -302,12 +303,29 @@ skip() {
   echo -e "${YELLOW}⊘ ${message}${NC}"
 }
 
+# warn/info (M0 step 3): environment-inventory branches legitimately differ
+# between hosts (macOS workstation vs Linux CI container). They report without
+# failing the file; pass/fail/skip semantics are unchanged.
+warn() {
+  # shellcheck disable=SC2317  # invoked by test files that source this helper
+  local message="${1:-warning}"
+  _TEST_WARN_COUNT=$((_TEST_WARN_COUNT + 1))
+  echo -e "${YELLOW}⚠ ${message}${NC}"
+}
+
+info() {
+  # shellcheck disable=SC2317  # invoked by test files that source this helper
+  local message="${1:-info}"
+  echo -e "ℹ ${message}"
+}
+
 print_summary() {
   echo ""
   echo "====== Test Summary ======"
   echo -e "${GREEN}Passed: $_TEST_PASS_COUNT${NC}"
   echo -e "${RED}Failed: $_TEST_FAIL_COUNT${NC}"
   echo -e "${YELLOW}Skipped: $_TEST_SKIP_COUNT${NC}"
+  echo -e "${YELLOW}Warnings: $_TEST_WARN_COUNT${NC}"
   echo "=========================="
   return "$_TEST_FAIL_COUNT"
 }

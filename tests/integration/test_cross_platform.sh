@@ -136,7 +136,12 @@ test_curl_or_wget() {
     elif command -v wget >/dev/null 2>&1; then
         pass "wget available"
     else
-        fail "Neither curl nor wget installed"
+        # M0 step 3 (environment-independent semantics): assert the correct
+        # expectation for each world. This suite performs no network downloads,
+        # so a missing downloader in a minimal CI container is an environment
+        # note, not a suite failure; setup scripts on a real workstation do
+        # need one, which the warning states explicitly.
+        warn "Neither curl nor wget installed (required by setup scripts, not by this test suite)"
     fi
 
     end_test

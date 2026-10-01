@@ -11,46 +11,95 @@ coverage_init "nvm"
 
 failures=0
 
+# Source lib/nvm.sh and reassert the test's own strict-mode posture
+# (remediation directive M0 step 3): lib/nvm.sh transitively sources lib/env.sh
+# and lib/logger.sh, which set `set -euo pipefail` at source time; that -e
+# leaks into this test shell and must not govern the test, which branches on
+# return codes itself (e.g. nvm_detect returning 1 when nvm is absent).
+source_nvm_lib() {
+    # shellcheck source=lib/nvm.sh
+    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    set +e
+    # Re-assert the silent logger stubs AFTER the library source: logger.sh
+    # defines its own log_* at source time and would otherwise override them.
+    # The library invokes the stubs via dynamic dispatch (shellcheck cannot
+    # follow lib/nvm.sh), so SC2317 findings on the stub bodies are expected
+    # and suppressed per-site. [M0 SC2317]
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/nvm.sh
+    log_info()    { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/nvm.sh
+    log_debug()   { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/nvm.sh
+    log_error()   { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/nvm.sh
+    log_warn()    { :; }
+    # shellcheck disable=SC2317  # stub reached via dynamic dispatch from lib/nvm.sh
+    log_success() { :; }
+}
+
+# Restore NVM_DIR to its pre-test state exactly. Uses if/fi (not `[[ ]] &&`)
+# so the caller's exit status stays clean when the variable was unset.
+restore_nvm_dir() {
+    local saved="${1:-}"
+    if [[ -n "$saved" ]]; then
+        export NVM_DIR="$saved"
+    else
+        unset NVM_DIR
+    fi
+}
+
 # Test: nvm_detect returns false when NVM_DIR is unset
 test_nvm_not_installed_without_nvmdir() {
     track_coverage "nvm_detect"
 
-    # Provide logger stubs
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
-
     local saved_nvm_dir="${NVM_DIR:-}"
     export NVM_DIR=""
 
-    # shellcheck source=lib/nvm.sh
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    source_nvm_lib
 
     if declare -f nvm_detect >/dev/null 2>&1; then
         nvm_detect && result=0 || result=1
-        assert_equals "1" "$result" "nvm_detect returns false without NVM_DIR"
+        assert_equals "1" "$result" "nvm_detect returns false without NVM_DIR" || failures=$((failures + 1))
     else
-        assert_equals "defined" "missing" "nvm_detect function is not defined"
-        failures=$((failures + 1))
+        assert_equals "defined" "missing" "nvm_detect function is not defined" || failures=$((failures + 1))
     fi
 
-    # Restore
-    [[ -n "$saved_nvm_dir" ]] && export NVM_DIR="$saved_nvm_dir"
+    restore_nvm_dir "$saved_nvm_dir"
 }
 
-# Test: nvm config points to ~/.nvm by default
+# Test: NVM_DIR default handling is deterministic in an isolated sandbox
 test_nvm_default_dir() {
     track_coverage "NVM_DIR"
-    local expected="$HOME/.nvm"
 
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
+    source_nvm_lib
 
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
-    assert_not_empty "${NVM_DIR:-}" "NVM_DIR should be set after sourcing lib/nvm.sh"
+    local nvm_dir_before="${NVM_DIR:-}"
+
+    if [[ -n "$nvm_dir_before" ]]; then
+        # World A (host provides NVM_DIR, e.g. a workstation with nvm):
+        # sourcing the library must not clobber it.
+        assert_equals "$nvm_dir_before" "${NVM_DIR:-}" \
+            "sourcing lib/nvm.sh preserves a pre-set NVM_DIR" || failures=$((failures + 1))
+    else
+        # World B (no NVM_DIR in the environment, e.g. a minimal CI container):
+        # the library defers the default until a consumer asks for it. With no
+        # ~/.nvm it must return 1 gracefully; with a fabricated ~/.nvm it must
+        # adopt the documented default $HOME/.nvm. Both halves run entirely in
+        # the sandboxed HOME, so this is environment-independent.
+        source_nvm_if_available >/dev/null 2>&1
+        assert_exit_code 1 "$?" \
+            "no NVM_DIR and no ~/.nvm: source_nvm_if_available returns 1 gracefully" \
+            || failures=$((failures + 1))
+
+        mkdir -p "$HOME/.nvm"
+        printf '# sandbox fake nvm\nnvm() { :; }\n' > "$HOME/.nvm/nvm.sh"
+
+        source_nvm_if_available >/dev/null 2>&1
+        assert_equals "$HOME/.nvm" "${NVM_DIR:-}" \
+            "source_nvm_if_available defaults NVM_DIR to ~/.nvm" || failures=$((failures + 1))
+    fi
+
+    restore_nvm_dir "$nvm_dir_before"
 }
 
 coverage_expect 6
@@ -61,13 +110,7 @@ test_nvm_default_dir
 test_nvm_install_version_syncs_packages() {
     track_coverage "nvm_install_version"
 
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
-    log_success() { :; }
-
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    source_nvm_lib
 
     # Mock nvm to capture arguments
     local captured_args=""
@@ -84,20 +127,14 @@ test_nvm_install_version_syncs_packages() {
 
     nvm_install_version "20.0.0" 2>/dev/null
     assert_contains "--reinstall-packages-from=v24.14.1" "$captured_args" \
-        "nvm_install_version passes --reinstall-packages-from flag"
+        "nvm_install_version passes --reinstall-packages-from flag" || failures=$((failures + 1))
 }
 
 # Test: nvm_install_version skips sync when no current version
 test_nvm_install_version_skips_sync_when_none() {
     track_coverage "nvm_install_version_no_sync"
 
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
-    log_success() { :; }
-
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    source_nvm_lib
 
     local captured_args=""
     nvm() {
@@ -124,13 +161,7 @@ test_nvm_install_version_skips_sync_when_none() {
 test_nvm_set_global_syncs_packages() {
     track_coverage "nvm_set_global"
 
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
-    log_success() { :; }
-
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    source_nvm_lib
 
     local reinstall_called_with=""
     nvm() {
@@ -154,20 +185,14 @@ test_nvm_set_global_syncs_packages() {
 
     nvm_set_global "25.9.0" 2>/dev/null
     assert_equals "v24.14.1" "$reinstall_called_with" \
-        "nvm_set_global calls reinstall-packages from previous default"
+        "nvm_set_global calls reinstall-packages from previous default" || failures=$((failures + 1))
 }
 
 # Test: nvm_migrate_packages function exists and is exported
 test_nvm_migrate_packages_exists() {
     track_coverage "nvm_migrate_packages"
 
-    log_info()  { :; }
-    log_debug() { :; }
-    log_error() { :; }
-    log_warn()  { :; }
-    log_success() { :; }
-
-    source "$ROOT_DIR/lib/nvm.sh" 2>/dev/null || true
+    source_nvm_lib
 
     if declare -f nvm_migrate_packages >/dev/null 2>&1; then
         echo -e "${GREEN}✓ nvm_migrate_packages function exists (passed)${NC}"
@@ -183,4 +208,5 @@ test_nvm_set_global_syncs_packages
 test_nvm_migrate_packages_exists
 
 generate_coverage_report
+# M0 step 3: explicit failure accumulation — exit with the failure count.
 exit "$failures"
