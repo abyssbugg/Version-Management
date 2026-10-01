@@ -94,3 +94,14 @@ jobs:
 
       - name: Generate coverage report
         run: make coverage
+
+      # M0 GO condition: Make, CI, and the direct runner must emit and agree
+      # on the canonical test manifest. Uploading it per-OS makes CI an
+      # evidence producer; if-no-files-found: error keeps the gate fail-closed.
+      - name: Upload canonical test manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-manifest-${{ matrix.os }}
+          path: test-results/
+          if-no-files-found: error
