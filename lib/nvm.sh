@@ -456,7 +456,7 @@ nvm_use_project_version() {
         return 1
     fi
 
-    local project_version=$(cat .nvmrc 2>/dev/null | tr -d '[:space:]')
+    local project_version=$(tr -d '[:space:]' 2>/dev/null < .nvmrc)
     if [ -z "$project_version" ]; then
         log_error "Empty .nvmrc file"
         return 1

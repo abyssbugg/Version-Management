@@ -322,6 +322,8 @@ EOF
 
 # NVM lazy loading initialization
 # Call this in .zshrc instead of sourcing nvm.sh directly
+# Inner lazy wrappers self-replace on first invocation by the user shell (indirect dispatch invisible to static analysis).
+# shellcheck disable=SC2317
 setup_nvm_lazy() {
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
@@ -356,6 +358,8 @@ setup_nvm_lazy() {
 }
 
 # Pyenv lazy loading initialization
+# Inner pyenv wrapper self-replaces on first invocation by the user shell (indirect dispatch invisible to static analysis).
+# shellcheck disable=SC2317
 setup_pyenv_lazy() {
     export PYENV_ROOT="${PYENV_ROOT:-$HOME/.pyenv}"
 

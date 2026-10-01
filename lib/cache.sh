@@ -592,7 +592,7 @@ cache_file_content() {
 
     # Read file and cache result
     local result
-    if result=$(cat "$file_path" 2>/dev/null | tr -d '[:space:]'); then
+    if result=$(tr -d '[:space:]' 2>/dev/null < "$file_path"); then
         cache_namespace_set "files" "$cache_key" "$result"
         echo "$result"
         return 0

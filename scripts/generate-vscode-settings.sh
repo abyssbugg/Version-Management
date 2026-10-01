@@ -28,7 +28,7 @@ detect_node_version() {
 
     # Try to get version from .nvmrc first
     if [ -f "$NVMRC_FILE" ]; then
-        node_version=$(cat "$NVMRC_FILE" | tr -d '[:space:]')
+        node_version=$(tr -d '[:space:]' < "$NVMRC_FILE")
         log_debug "Found Node.js version in .nvmrc: $node_version"
     fi
 
