@@ -78,6 +78,7 @@ docs/archive/
 # Test artifacts
 .coverage
 /tmp/test_*
+test-results/
 
 # Ignore vscode AI rules
 .github/instructions/codacy.instructions.md

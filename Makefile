@@ -5,22 +5,25 @@
 .PHONY: test-env test-logger test-cache test-backup
 .PHONY: test-gvm test-jenv test-rustup test-theme test-advanced
 
-# Default target
-test: test-unit test-integration
+# Default target — routed through tests/test_runner.sh via the manifest
+# emitter (A1: the previous for-loop's exit status was the last iteration
+# only, masking every earlier failure). One invocation -> one manifest.
+test:
+	@echo "=== Running All Tests (via tests/test_runner.sh, emitting manifest) ==="
+	@bash tests/emit-manifest.sh
 
 # Run all unit tests
 test-unit:
-	@echo "=== Running Unit Tests ==="
-	@for f in tests/unit/*.sh; do (cd "$$(dirname "$$f")" && bash "$$(basename "$$f")"); done
+	@echo "=== Running Unit Tests (via tests/test_runner.sh) ==="
+	@bash tests/emit-manifest.sh unit
 
 # Run all integration tests
 test-integration:
-	@echo "=== Running Integration Tests ==="
-	@for f in tests/integration/*.sh; do (cd "$$(dirname "$$f")" && bash "$$(basename "$$f")"); done
+	@echo "=== Running Integration Tests (via tests/test_runner.sh) ==="
+	@bash tests/emit-manifest.sh integration
 
 # Run absolutely all tests
-test-all: test-unit test-integration
-	@echo "=== All Tests Complete ==="
+test-all: test
 
 # ============================================================================
 # Individual Unit Test Targets
@@ -102,8 +105,8 @@ validate:
 	@./tools/validate-quality.sh
 
 syntax-check:
-	@echo "=== Checking Syntax ==="
-	@find . -name '*.sh' -not -path './backups/*' -exec bash -n {} \; -print
+	@echo "=== Checking Syntax (fail-closed bash -n + zsh -n) ==="
+	@bash scripts/syntax-check.sh
 
 # ============================================================================
 # Utility Targets
@@ -128,10 +131,10 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Main targets:"
-	@echo "  test              - Run all unit and integration tests"
-	@echo "  test-unit         - Run all unit tests"
-	@echo "  test-integration  - Run all integration tests"
-	@echo "  test-all          - Run absolutely all tests"
+	@echo "  test              - Run all tests via test_runner.sh (emits test-results/manifest.json)"
+	@echo "  test-unit         - Run unit tests via test_runner.sh"
+	@echo "  test-integration  - Run integration tests via test_runner.sh"
+	@echo "  test-all          - Alias for test"
 	@echo ""
 	@echo "Individual unit tests:"
 	@echo "  test-env          - Test lib/env.sh"

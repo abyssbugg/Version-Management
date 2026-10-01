@@ -20,25 +20,27 @@ EOF
 
 validate_shellcheck() {
     echo "Running ShellCheck validation..."
-    local issues=0
+    local findings=0
     local output=""
 
-    if ! output=$(find . -name "*.sh" -type f -not -path "./backups/*" -exec shellcheck --format=gcc {} + 2>&1); then
+    if ! output=$(find . -name "*.sh" -type f -not -path "./backups/*" -not -path "./node_modules/*" -exec shellcheck --format=gcc {} + 2>&1); then
         :
     fi
 
+    # gcc format emits one `file:line:col: level: message` line per finding
+    # plus context lines; count finding lines only. Zero tolerance (B1.7):
+    # any finding fails the gate; tolerated suppressions belong in
+    # .shellcheckrc / inline directives, not in this threshold.
     if [[ -n "$output" ]]; then
-        issues=$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')
+        findings=$(printf '%s\n' "$output" | grep -cE ':[0-9]+:[0-9]+: (error|warning|note):' || true)
     fi
 
-    if [[ $issues -lt 50 ]]; then
-        echo -e "${GREEN} ShellCheck: $issues issues (EXCELLENT)${NC}"
-        return 0
-    elif [[ $issues -lt 100 ]]; then
-        echo -e "${YELLOW}  ShellCheck: $issues issues (GOOD)${NC}"
+    if [[ $findings -eq 0 ]]; then
+        echo -e "${GREEN} ShellCheck: 0 findings (GATED PASS)${NC}"
         return 0
     else
-        echo -e "${RED} ShellCheck: $issues issues (NEEDS WORK)${NC}"
+        echo -e "${RED} ShellCheck: $findings findings (ZERO-TOLERANCE GATE FAILED)${NC}"
+        printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: (error|warning|note):' | head -20
         return 1
     fi
 }
