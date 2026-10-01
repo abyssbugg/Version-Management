@@ -8,6 +8,21 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 source "$SCRIPT_DIR/../helpers.sh"
 
+# warn/info — environment-inventory branches legitimately differ between
+# hosts (macOS workstation vs Linux container); they report without failing
+# the file. Defined here rather than in tests/helpers.sh, which carries
+# user-owned staged changes (remediation directive Rule 2) — do not move
+# back into helpers.sh while that holds.
+warn() {
+    local message="${1:-warning}"
+    echo -e "${YELLOW}⚠ ${message}${NC}"
+}
+
+info() {
+    local message="${1:-info}"
+    echo -e "ℹ ${message}"
+}
+
 # Provide logger stubs needed by phpenv.sh
 log_info()  { :; }
 log_debug() { :; }

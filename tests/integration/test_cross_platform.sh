@@ -8,6 +8,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$SCRIPT_DIR/tests/helpers.sh"
 
+# warn/info — environment-inventory branches legitimately differ between
+# hosts (macOS workstation vs Linux container); they report without failing
+# the file. Defined here rather than in tests/helpers.sh, which carries
+# user-owned staged changes (remediation directive Rule 2) — do not move
+# back into helpers.sh while that holds.
+warn() {
+    local message="${1:-warning}"
+    echo -e "${YELLOW}⚠ ${message}${NC}"
+}
+
+info() {
+    local message="${1:-info}"
+    echo -e "ℹ ${message}"
+}
+
 # ============================================================================
 # Platform Detection Tests
 # ============================================================================
