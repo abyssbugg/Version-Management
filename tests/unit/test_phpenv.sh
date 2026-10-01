@@ -14,19 +14,27 @@ source "$SCRIPT_DIR/../helpers.sh"
 # user-owned staged changes (remediation directive Rule 2) — do not move
 # back into helpers.sh while that holds.
 warn() {
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     local message="${1:-warning}"
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     echo -e "${YELLOW}⚠ ${message}${NC}"
 }
 
 info() {
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     local message="${1:-info}"
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     echo -e "ℹ ${message}"
 }
 
 # Provide logger stubs needed by phpenv.sh
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_info()  { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_debug() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_error() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_warn()  { :; }
 export -f log_info log_debug log_error log_warn
 

@@ -115,14 +115,21 @@ test_nvm_install_version_syncs_packages() {
     # Mock nvm to capture arguments
     local captured_args=""
     nvm() {
+        # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
         case "$1" in
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             current) echo "v24.14.1" ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             list) echo "->     v25.9.0" ;;  # pretend 20.0.0 is NOT installed
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             install) captured_args="$*" ; return 0 ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             *) return 0 ;;
         esac
     }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     nvm_detect() { return 0; }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     cache_delete() { :; }
 
     nvm_install_version "20.0.0" 2>/dev/null
@@ -138,14 +145,21 @@ test_nvm_install_version_skips_sync_when_none() {
 
     local captured_args=""
     nvm() {
+        # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
         case "$1" in
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             current) echo "none" ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             list) echo "->     v25.9.0" ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             install) captured_args="$*" ; return 0 ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             *) return 0 ;;
         esac
     }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     nvm_detect() { return 0; }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     cache_delete() { :; }
 
     nvm_install_version "20.0.0" 2>/dev/null
@@ -165,22 +179,33 @@ test_nvm_set_global_syncs_packages() {
 
     local reinstall_called_with=""
     nvm() {
+        # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
         case "$1" in
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             current) echo "v24.14.1" ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             list) printf "  v24.14.1\n->     v25.9.0\n" ;;
             alias)
+                # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
                 if [[ "$2" == "default" && -z "${3:-}" ]]; then
+                    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
                     echo "default -> v24.14.1"  # previous default
                 else
+                    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
                     return 0  # alias set
                 fi
                 ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             use) return 0 ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             reinstall-packages) reinstall_called_with="$2" ; return 0 ;;
+            # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
             *) return 0 ;;
         esac
     }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     nvm_detect() { return 0; }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     nvm_validate_version() { return 0; }
 
     nvm_set_global "25.9.0" 2>/dev/null

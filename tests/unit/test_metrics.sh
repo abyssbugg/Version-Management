@@ -12,10 +12,15 @@ coverage_init "metrics"
 failures=0
 
 # Provide stubs for logger
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_info()  { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_debug() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_error() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_warn()  { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_success() { :; }
 
 # Source metrics module

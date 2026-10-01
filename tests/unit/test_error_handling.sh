@@ -21,8 +21,11 @@ record_assert() {
 load_error_handling() {
     # shellcheck source=lib/error-handling.sh
     source "$ROOT_DIR/lib/error-handling.sh" 2>/dev/null || true
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     log_error() { :; }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     log_warn()  { :; }
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     log_debug() { :; }
 }
 
@@ -174,6 +177,7 @@ test_safe_exec_legacy_warns_and_runs() {
     stderr_file="$tmp_dir/stderr.txt"
 
     load_error_handling
+    # shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
     log_warn() { echo "[WARN] $*" >&2; }
     output="$(safe_exec "printf legacy" 1 0 2>"$stderr_file")"
     warning="$(cat "$stderr_file")"

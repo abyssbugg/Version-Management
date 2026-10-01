@@ -15,10 +15,15 @@ coverage_init "performance"
 failures=0
 
 # Stubs
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_info()  { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_debug() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_error() { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_warn()  { :; }
+# shellcheck disable=SC2317  # reached via dynamic dispatch from sourced libs
 log_success() { :; }
 
 # Source performance module
