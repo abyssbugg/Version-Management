@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Recording sudo shim (remediation directive B1.2)
+# =============================================================================
+# Tests that exercise privilege-adjacent code paths place this shim FIRST on
+# PATH (the same pattern tests/helpers.sh mock_command uses). Guarantees:
+#   - the full argv of every invocation is APPENDED to $SUDO_SHIM_LOG, one
+#     line per invocation, tab-delimited args;
+#   - NO elevation, NO side effects: the command is never executed;
+#   - always exits 0 (so fallback paths that treat sudo success as success
+#     behave as they would with a passwordless sudo — without privileges).
+# If SUDO_SHIM_LOG is unset, the invocation is recorded to stderr only.
+# =============================================================================
+
+line=""
+for arg in "$@"; do
+    if [[ -n "$line" ]]; then
+        line+=$'\t'
+    fi
+    line+="$arg"
+done
+
+if [[ -n "${SUDO_SHIM_LOG:-}" ]]; then
+    printf '%s\n' "$line" >> "$SUDO_SHIM_LOG" 2>/dev/null
+else
+    printf 'sudo-shim (no SUDO_SHIM_LOG): %s\n' "$line" >&2
+fi
+
+exit 0
