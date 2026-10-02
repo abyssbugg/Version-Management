@@ -24,6 +24,14 @@ This project's core risk is that it **modifies people's machines**. Therefore:
 - **Sourced libraries (`lib/`, `plugins/`):** do NOT set global strict mode (it leaks into the caller's shell). Instead: validate inputs, use explicit return codes, guard unset expansions (`${var:-}`). This is deliberate policy, not an omission.
 - **Tests:** strict mode + sandboxed environment.
 
+### 3.1 Bash version contract (M1, finding B1.9)
+
+The test harness and several executables rely on bash 4.0+ constructs
+(`mapfile`, associative arrays). **Bash >= 4.0 is required** to run the test
+suite; `tests/test_runner.sh` enforces this with a clear failure instead of a
+bash-3.x syntax error. macOS's default `/bin/bash` (3.2) is not sufficient —
+install a current bash (Homebrew) and invoke it via `bash` from PATH.
+
 ## 4. Testing
 
 1. Tests NEVER touch the real `$HOME`. The harness provides a `mktemp -d` HOME/XDG sandbox; any test sourcing a mutating script must run inside it.
