@@ -77,6 +77,7 @@ repos:
 
       # Check shell script syntax
       - id: check-shebang-scripts-are-executable
+        exclude: "^FontPatcher/"  # vendored third-party content
 
   # Markdown linting
   - repo: https://github.com/igorshubovych/markdownlint-cli
@@ -88,6 +89,10 @@ repos:
           (?x)^(
             alldocs/.*|
             docs/archive/.*|
+            docs/analysis/.*|
+            docs/plans/.*|
+            FontPatcher/.*|
+            tempdocs/.*|
             CHANGELOG\.md$
           )$
 

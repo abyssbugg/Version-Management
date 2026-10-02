@@ -19,8 +19,8 @@ These files are optional and can be placed at the repository root for local inst
 
 ## Source
 
-- **Origin**: https://github.com/romkatv/powerlevel10k-media
-- **Upstream**: https://github.com/ryanoasis/nerd-fonts
+- **Origin**: <https://github.com/romkatv/powerlevel10k-media>
+- **Upstream**: <https://github.com/ryanoasis/nerd-fonts>
 - **Base Font**: Meslo LG (derivative of Apple's Menlo)
 
 ## License
@@ -123,6 +123,7 @@ font_generate_checksums
 ### Partial icon display
 
 Some terminals have limited Unicode support. Try:
+
 - Using iTerm2 or Alacritty on macOS
 - Using a modern terminal emulator on Linux
 - Enabling "Use built-in Powerline glyphs" if available
@@ -130,6 +131,7 @@ Some terminals have limited Unicode support. Try:
 ### Font looks different
 
 MesloLGS is optimized for PowerLevel10k. If you prefer:
+
 - **JetBrains Mono Nerd Font** - Modern, ligature-enabled
 - **Fira Code Nerd Font** - Popular with ligatures
 - **Hack Nerd Font** - Clean, readable

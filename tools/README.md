@@ -28,6 +28,7 @@ Quick validation of your development environment.
 ```
 
 **Checks:**
+
 - Shell configuration (zsh)
 - PowerLevel10k theme
 - Version managers (nvm, pyenv, etc.)
@@ -44,6 +45,7 @@ Verifies all required dependencies are installed.
 ```
 
 **Checks:**
+
 - Core utilities (git, curl, wget)
 - Shell requirements (zsh)
 - Optional tools (shellcheck, jq)
@@ -72,6 +74,7 @@ Comprehensive diagnostic tool with multiple output formats.
 ```
 
 **Features:**
+
 - Health scoring (0-100%)
 - Version manager status
 - Configuration validation
@@ -99,6 +102,7 @@ Tests Nerd Font icon rendering in your terminal.
 ```
 
 **Features:**
+
 - Icon category preview (dev, files, folders, status)
 - Terminal detection (VS Code, iTerm2, Terminal.app)
 - Auto-detection of installed Nerd Fonts
@@ -124,6 +128,7 @@ Updates all version managers and their packages.
 ```
 
 **Supported Managers:**
+
 - **nvm** - Node.js version manager
 - **pyenv** - Python version manager
 - **goenv** - Go version manager
@@ -153,6 +158,7 @@ Creates global symlinks for NVM-managed Node.js.
 Desktop apps (Electron, VS Code extensions, etc.) often look for Node.js in `/usr/local/bin/` instead of using NVM. This creates symlinks so those apps use your NVM-managed Node.js.
 
 **Safety features:**
+
 - Automatic backup before changes
 - Sudo access verification
 - Restore capability
@@ -169,6 +175,7 @@ Runs code quality checks on shell scripts.
 ```
 
 **Checks:**
+
 - ShellCheck static analysis
 - Syntax validation
 - Best practice compliance
@@ -197,6 +204,7 @@ Generates usage analytics reports.
 ```
 
 **Features:**
+
 - Session and command tracking
 - Health scoring
 - Usage patterns analysis

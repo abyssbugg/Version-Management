@@ -1,6 +1,6 @@
 # Powerline Extra
 
-For more information have a look at the upstream website: https://github.com/ryanoasis/powerline-extra-symbols
+For more information have a look at the upstream website: <https://github.com/ryanoasis/powerline-extra-symbols>
 
 Version: 1.000 (from about 2016)
 

@@ -1,6 +1,6 @@
 # Powerline Symbols
 
-For more information have a look at the upstream website: https://github.com/powerline/powerline
+For more information have a look at the upstream website: <https://github.com/powerline/powerline>
 
 ## Source modified
 

@@ -68,6 +68,7 @@ brew install git curl wget zsh
 ```
 
 **Font Installation**
+
 - Double-click `.ttf` files or use Font Book
 - Fonts install to `~/Library/Fonts/` or `/Library/Fonts/`
 
@@ -89,6 +90,7 @@ sudo apt install -y fontconfig
 ```
 
 **Font Installation**
+
 - Copy fonts to `~/.local/share/fonts/`
 - Run `fc-cache -f -v`
 
@@ -173,11 +175,13 @@ sudo apt install -y git curl wget zsh build-essential
 ## Minimum Requirements
 
 ### Hardware
+
 - 1 GB RAM (2+ GB recommended)
 - 500 MB disk space for tools
 - Internet connection for installation
 
 ### Software
+
 - Git 2.x+
 - curl or wget
 - zsh 5.0+ (5.8+ recommended)

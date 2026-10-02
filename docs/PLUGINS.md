@@ -252,12 +252,14 @@ plugin_run my_tool version
 ## Best Practices
 
 1. **Namespace your functions**: Prefix all functions with your plugin name
+
    ```bash
    my_plugin_detect()  # Good
    detect()            # Bad - may conflict
    ```
 
 2. **Handle missing dependencies**: Always check if tools exist before using them
+
    ```bash
    my_plugin_version() {
        if ! my_plugin_detect; then
@@ -269,6 +271,7 @@ plugin_run my_tool version
    ```
 
 3. **Support multiple platforms**: Check OS type for installation
+
    ```bash
    case "$(uname -s)" in
        Darwin) brew install my-tool ;;
@@ -277,6 +280,7 @@ plugin_run my_tool version
    ```
 
 4. **Provide helpful error messages**: Guide users when things fail
+
    ```bash
    if ! my_plugin_detect; then
        echo "my-tool not found. Install with:"

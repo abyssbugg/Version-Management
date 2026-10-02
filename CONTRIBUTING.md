@@ -243,6 +243,7 @@ git push origin feature/your-feature-name
 ```
 
 Then create a Pull Request on GitHub with:
+
 - Clear description of changes
 - Link to any related issues
 - Screenshots if UI changes

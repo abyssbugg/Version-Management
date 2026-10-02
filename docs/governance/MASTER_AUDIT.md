@@ -93,18 +93,23 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 These are binding decisions. Reversing one requires a new ADR.
 
 ### 5.1 `actions/checkout` pinning — GLM recommendation REJECTED
+
 GLM-5.2 advised moving from SHA pin to `v4` tag "for maintainability". GPT-5.5 called SHA-pinning a strength. **Verified state:** SHA-pinned with `# v4.2.2` comment (`test.yml:15`, `release.yml:40`). **Decision: keep SHA pinning.** Immutable-ref pinning is supply-chain best practice for third-party actions; a tag can be moved by an attacker. The version comment preserves maintainability.
 
 ### 5.2 `eval` remediation — GLM's `bash -c` suggestion REJECTED
+
 GLM-5.2 suggested replacing `eval "$command"` with `bash -c "$command"`. **This is not safer** — the injection surface is the dynamic command *string*, not the evaluator. **Decision:** adopt GPT-5.5's approach — argv-array APIs (`safe_exec_argv`) plus a clearly named trusted-literal escape hatch (`safe_exec_shell_trusted`), then deprecate the string API.
 
 ### 5.3 `jq` → pure-bash JSON parser — GLM recommendation REJECTED
+
 Hand-rolled JSON parsing in bash trades a well-audited optional dependency for a fragile one-off parser. `jq` remains optional with graceful degradation.
 
 ### 5.4 Overall posture — GPT-5.5 verdict ADOPTED
+
 "Pre-enterprise-hardening" over "production ready with moderate risk". Rationale: unsandboxed mutating tests (P0-3), non-gating release lint (P0-1), and inconsistent transaction adoption are disqualifying for the "enterprise-ready" label regardless of feature completeness.
 
 ### 5.5 Language/rewrite question — Option B ADOPTED
+
 Keep shell, add guardrails (GPT-5.5 trade-off analysis §13). Full rewrite rejected (loses shell-native sourcing ergonomics, duplicates version-manager behavior anyway). Compiled-helper hybrid (Option C) deferred to P3-5.
 
 ## 6. Sources

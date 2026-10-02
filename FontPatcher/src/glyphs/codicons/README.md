@@ -1,6 +1,6 @@
 # Codicons
 
-For more information have a look at the upstream website: https://github.com/microsoft/vscode-codicons
+For more information have a look at the upstream website: <https://github.com/microsoft/vscode-codicons>
 
 ## Source bugs fixed
 

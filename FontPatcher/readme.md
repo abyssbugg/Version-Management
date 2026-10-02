@@ -11,10 +11,12 @@ This is font-patcher python script (and required source files) from a Nerd Fonts
 ## Further info
 
 For more information see:
-* https://github.com/ryanoasis/nerd-fonts/
-* https://github.com/ryanoasis/nerd-fonts/releases/latest/
+
+* <https://github.com/ryanoasis/nerd-fonts/>
+* <https://github.com/ryanoasis/nerd-fonts/releases/latest/>
 
 ## Version
+
 This archive is created from
 
         commit dc4e3309d6c1483532ccaefafd1e940d7c80dec1

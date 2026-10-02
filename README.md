@@ -5,6 +5,7 @@ A comprehensive automation suite for setting up and managing professional develo
 ## 🆕 Enhanced Version Management System
 
 We've significantly upgraded our version management capabilities! The new system provides:
+
 - 🔄 **Automatic version switching** when entering project directories
 - 🚀 **Performance optimized** with lazy loading for faster shell startup
 - 🏥 **Comprehensive diagnostics** for troubleshooting
@@ -20,6 +21,7 @@ We've significantly upgraded our version management capabilities! The new system
 ```
 
 This launches an interactive automation suite with options to:
+
 - Install & Apply Professional Theme with automatic backup
 - Setup Version Managers (Node.js via nvm, Python via pyenv)
 - Generate Personalized VS Code Settings
@@ -92,6 +94,7 @@ The suite provides several automation scripts that work together as a cohesive s
 The automation suite includes a powerful template system for generating personalized VS Code settings:
 
 ### Template Features
+
 - **Cross-platform compatibility**: Automatically detects macOS, Linux, and Windows
 - **Dynamic path resolution**: Generates correct paths for your system
 - **Font integration**: Configures MesloLGS Nerd Font automatically
@@ -100,6 +103,7 @@ The automation suite includes a powerful template system for generating personal
 ### Usage
 
 1. **Generate personalized settings**:
+
    ```bash
    ./scripts/generate-vscode-settings.sh
    ```
@@ -113,6 +117,7 @@ The automation suite includes a powerful template system for generating personal
 ### Template System Details
 
 The system uses `config/vscode-settings.template.json` as a base template with placeholders:
+
 - `{{SHELL_PATH}}` - Automatically detected shell path
 - `{{HOME_PATH}}` - User home directory path
 - Platform-specific configurations for optimal performance
@@ -122,11 +127,13 @@ The system uses `config/vscode-settings.template.json` as a base template with p
 The automation suite includes enhanced terminal themes with visual indicators for all supported version managers:
 
 ### Professional Development Theme
+
 ```text
     ~/projects/my-app   main  20.19.2  3.12.8  ⌚ 10:30:25  ✓
 ```
 
 This theme features:
+
 - Enhanced version management indicators for Go (1.23.4), Rust (1.82.0), and Java (21.0.2)
 - Customizable OS, directory, and status icons
 - Nerd Font integration with proper Unicode support
@@ -209,29 +216,34 @@ This theme features:
 The automation suite is built on a foundation of reusable library utilities:
 
 ### `lib/logger.sh` - Centralized Logging
+
 - Color-coded output (info, success, warning, error)
 - Consistent formatting across all scripts
 - Debug mode support for troubleshooting
 
 ### `lib/env.sh` - Environment Detection
+
 - Cross-platform OS detection (macOS, Linux, Windows/WSL)
 - Shell detection and configuration
 - Path resolution utilities
 - System capability checks
 
 ### `lib/theme-ops.sh` - Theme Management
+
 - PowerLevel10k installation and configuration
 - Theme backup and restore operations
 - Configuration validation and error handling
 - Professional theme application
 
 ### `lib/backup.sh` - Backup System
+
 - Automatic backup creation before changes
 - Timestamped backup files
 - Restore functionality for rollback
 - Backup validation and integrity checks
 
 ### `lib/cache.sh` - State Management
+
 - Setup state caching for performance
 - Configuration change detection
 - Cache invalidation and refresh
@@ -247,24 +259,24 @@ The automation suite is built on a foundation of reusable library utilities:
 
 ## 🎯 What This Automation Suite Does
 
-1. **Professional Theme Setup**: 
+1. **Professional Theme Setup**:
    - Installs and configures PowerLevel10k with professional styling
    - Automatic backup of existing configurations
    - Validates theme installation and provides troubleshooting
 
-2. **Version Manager Integration**: 
+2. **Version Manager Integration**:
    - Sets up Node.js (via nvm) using the version defined in `.nvmrc`
    - Configures Python (via pyenv) with version **3.12.11** (from `.python-version`)
    - Displays version information in terminal prompt
    - Handles version manager installation if missing
 
-3. **VS Code Optimization**: 
+3. **VS Code Optimization**:
    - Generates personalized settings for your system
    - Configures integrated terminal with proper shell
    - Sets up Nerd Font integration automatically
    - Cross-platform path resolution
 
-4. **System Validation**: 
+4. **System Validation**:
    - Comprehensive setup verification
    - Dependency checking and installation guidance
    - Configuration validation with detailed reporting
@@ -292,16 +304,19 @@ The automation scripts manage Python version installation via pyenv, so running 
 The automation suite provides full cross-platform support:
 
 ### macOS
+
 - Native shell detection and configuration
 - Homebrew integration for package management
 - Optimized for macOS terminal applications
 
 ### Linux
+
 - Distribution-agnostic setup procedures
 - Package manager detection (apt, yum, pacman)
 - WSL compatibility for Windows users
 
 ### Windows (WSL)
+
 - Windows Subsystem for Linux support
 - Path translation for Windows/Linux interoperability
 - PowerShell integration where applicable
@@ -311,11 +326,13 @@ The automation suite provides full cross-platform support:
 The automation suite includes comprehensive troubleshooting capabilities:
 
 ### Font and Icon Issues
+
 1. **Automatic font installation**: MesloLGS Nerd Fonts can be installed via `setup-fonts-enhanced.sh`
 2. **VS Code integration**: Generated settings configure fonts automatically
 3. **Terminal configuration**: Scripts detect and configure terminal applications
 
 ### NVM Verbose Messages
+
 The suite provides enhanced solutions for nvm directory messages:
 
 ```bash
@@ -327,30 +344,37 @@ The suite provides enhanced solutions for nvm directory messages:
 ```
 
 These scripts handle:
+
 - `Found '/path/to/.nvmrc' with version <20.19.2>`
 - `Now using node v20.19.2 (npm v11.4.2)`
 - Automatic version switching notifications
 
 ### Setup Validation
+
 ```bash
 # Run comprehensive validation
 ./validate-setup.sh
 ```
 
 This provides:
+
 - Dependency verification
 - Configuration validation
 - Performance analysis
 - Troubleshooting recommendations
 
 ### Library Utilities Debugging
+
 All scripts support debug mode for detailed troubleshooting:
+
 ```bash
 DEBUG=1 ./setup.sh
 ```
 
 ### Recovery and Backup
+
 The automation suite maintains automatic backups:
+
 - Configuration files are backed up before changes
 - Restore functionality available through library utilities
 - Timestamped backups for version tracking
@@ -358,13 +382,17 @@ The automation suite maintains automatic backups:
 ## 🚀 Advanced Usage
 
 ### Custom Configuration
+
 The template system allows for easy customization:
+
 1. Modify `config/vscode-settings.template.json` for custom VS Code settings
 2. Edit theme configurations in `config/professional-dev-p10k.zsh`
 3. Extend library utilities for additional functionality
 
 ### Integration with Development Workflows
+
 The automation suite integrates seamlessly with:
+
 - CI/CD pipelines for consistent environments
 - Docker containers for development
 - Remote development setups

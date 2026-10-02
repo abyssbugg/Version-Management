@@ -1,7 +1,7 @@
 {
     "// TEMPLATE FILE": "This is a template for VS Code settings. Run scripts/generate-vscode-settings.sh to create a personalized version.",
     "// PLACEHOLDERS": "All {{PLACEHOLDER}} values will be replaced with actual system values",
-    
+
     "terminal.integrated.fontFamily": "MesloLGS NF",
     "terminal.integrated.fontSize": 14,
     "editor.fontFamily": "MesloLGS NF, 'Courier New', monospace",
