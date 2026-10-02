@@ -6,7 +6,7 @@
 
 Layered modular monolith in Bash/zsh:
 
-```
+```text
 UI layer            setup.sh (menu) · version-manager.sh · version-advanced.sh (CLIs)
 Orchestration       setup-theme.sh · setup-versions.sh · validate-setup.sh · scripts/fix-*.sh
 Library             lib/*.sh (20 modules, global-namespace functions, DAG rooted at logger.sh)

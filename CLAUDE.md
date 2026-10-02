@@ -74,6 +74,7 @@ during planning**, and it's what makes phase discipline practical at this
 codebase's scale.
 
 In this mode you act as **advisor and orchestrator**:
+
 - Decompose the phase into independent, non-overlapping units
 - Dispatch one subagent per unit with a precise self-contained brief
 - Keep contexts isolated so findings don't cross-contaminate
@@ -87,7 +88,7 @@ In this mode you act as **advisor and orchestrator**:
 A change is not done until verified. State how. "Should work" is not
 verification. The standing gate on this repo:
 
-```
+```text
 make lint 0 failures · make syntax-check clean · make test-unit 0 fail
 · make test-integration 0 fail (sandboxed HOME — never the real $HOME)
 · CI green (pre-commit, gitleaks, shellcheck in Actions)
@@ -112,7 +113,7 @@ standard to your own reporting.
 
 ## Standard workflow
 
-```
+```text
 1. Sequential Thinking MCP  →  decompose the problem
 2. Tool selection           →  plugins / MCPs / skills / subagents /
                                rules / commands / hooks, with justification

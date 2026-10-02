@@ -134,7 +134,7 @@ log_debug "Debug info" # Only shown when DEBUG=true
 
 ### Test Structure
 
-```
+```text
 tests/
 ├── helpers.sh          # Test utilities and assertions
 ├── test_runner.sh      # Main test orchestrator
@@ -272,15 +272,15 @@ newmgr_is_project() { ... }
 export -f newmgr_detect newmgr_install ...
 ```
 
-2. **Add tests** (`tests/unit/test_new_manager.sh`)
+1. **Add tests** (`tests/unit/test_new_manager.sh`)
 
-3. **Update Makefile** with test target
+2. **Update Makefile** with test target
 
-4. **Update documentation** (README, docs/API.md)
+3. **Update documentation** (README, docs/API.md)
 
 ### Module Dependencies
 
-```
+```text
 logger.sh (no deps)
     └── env.sh
         └── cache.sh

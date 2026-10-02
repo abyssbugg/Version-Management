@@ -141,7 +141,7 @@ This theme features:
 
 ## 📁 Project Structure
 
-```
+```text
 /
 ├── config/
 │   ├── professional-dev-p10k.zsh       # Professional theme config
@@ -163,7 +163,7 @@ This theme features:
 
 ## 🏗️ Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         USER INTERFACE LAYER                                │
 ├─────────────────────────────────────────────────────────────────────────────┤

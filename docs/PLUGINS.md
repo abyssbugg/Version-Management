@@ -12,7 +12,7 @@ Each plugin is a single shell script that implements a standard interface.
 
 ### Directory Structure
 
-```
+```text
 plugins/
 ├── rbenv.sh      # Ruby version manager plugin
 ├── asdf.sh       # Universal version manager plugin
@@ -23,7 +23,7 @@ plugins/
 
 Users can install plugins to their personal directory:
 
-```
+```text
 ~/.config/version-manager/plugins/
 ```
 

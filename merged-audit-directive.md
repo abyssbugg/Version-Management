@@ -34,12 +34,14 @@ Each critical subsystem gets its invariant stated before any code changes. Fixes
 ## SECTION A — CONSENSUS FINDINGS (both audits independently reproduced; treat as settled fact, fix without re-validation)
 
 ### A1. CRITICAL — Make test targets mask failures; release trusts them
+
 - `Makefile` unit/integration targets use `for f in tests/...; do (bash ...); done` — loop exit status is the **last** iteration only. Reproduced by both audits: an early failing test with a passing final test returns 0.
 - `.github/workflows/release.yml` (~:93–99) runs `make test`, so broken code can currently ship.
 - The correct orchestrator already exists: `tests/test_runner.sh` aggregates per-file exit codes. Make, package scripts, and CI simply don't call it.
 - **Fix:** route `test-unit` / `test-integration` / `test` exclusively through `tests/test_runner.sh`. Delete the loop pattern everywhere. Add seeded-failure meta-test (early failing file + passing final file ⇒ `make test` exits nonzero). Exit criterion: `make test`, CI, and the direct runner emit and agree on the canonical test manifest (defined in M0) — console output comparison is not the criterion.
 
 ### A2. CRITICAL — Four sourced libraries leak strict mode into callers
+
 - `lib/logger.sh:34`, `lib/env.sh:29`, `lib/backup.sh:25–26`, `lib/plugins.sh:15` unconditionally enable `set -euo pipefail`. Both audits probed `$-` before/after sourcing and observed `hBc → ehuBc`.
 - Violates the binding library contract (ENGINEERING_RULES.md:22–24, "sourced libraries must not set global strict mode").
 - Downstream blast radius: legitimately-false detector returns (`phpenv_detect`, `rustup_detect`) and `((counter++))` arithmetic kill caller shells and tests.
@@ -47,16 +49,19 @@ Each critical subsystem gets its invariant stated before any code changes. Fixes
 - **Governance correction:** MASTER_AUDIT.md currently records the *absence* of strict mode in libraries as the concern. The live defect is the inverse. Correct the register after implementation.
 
 ### A3. CRITICAL — Transaction rollback can restore wrong file contents
+
 - `lib/backup.sh:537–543`: backups keyed by `basename` only. Registering `/a/config` and `/b/config` collapses to one `config.backup`; second registration overwrites first; rollback restores one file's content into another. Reproduced by both audits — the second audit's repro ended with both files containing B's content while the framework logged "Rollback completed successfully."
 - `lib/backup.sh:498`: transaction directory is `${name}_$(date +%Y%m%d_%H%M%S)` — two same-named transactions in the same second collide; the transaction primitive itself is unlocked.
 - `transaction_start` interpolates an unvalidated `name` into filesystem paths and JSON metadata (path escape / metadata corruption).
 - **Fix:** restrictive identifier grammar for names (reject separators, quotes, `.`/`..`); exclusive directory creation via `mktemp -d`; collision-resistant backup IDs or path-preserving encoded layout; reject or make idempotent duplicate registrations; write metadata via a safe encoder, never string interpolation; rollback verifies content hashes against recorded pre-state. Test matrix: same-basename files, concurrent same-name transactions, new files, missing files, permission failure, partial restore failure — all must restore byte-identical hashes or fail loudly.
 
 ### A4. MEDIUM→HIGH — Path containment accepts sibling-prefix paths
+
 - `lib/validation.sh` (~:153/167): raw prefix comparison, so `/tmp/base2/file` passes containment for base `/tmp/base`.
 - **Fix:** `[[ "$abs_path" == "$abs_base" || "$abs_path" == "$abs_base/"* ]]` with symlink canonicalization before comparison for any destructive operation. Both audits also agree these validators currently have **zero production callers** — wiring them into destructive entry points is part of the fix, not optional.
 
 ### A5. STRATEGIC CONSENSUS
+
 - Architecture verdict: shell-native is correct; harden incrementally; rewrite rejected (one-way door, doesn't solve sourced-shell ergonomics).
 - Roadmap verdict: transactional mutation remains the right centerpiece, but the primitive must be hardened (A3) before any adoption expands.
 - Test hygiene: many test files rely on accidental strict-mode leakage or end in unconditional `exit 0` / last-command status; every test must either use its own strict mode with guarded expected-failures, or accumulate failures through an explicit summary.
@@ -107,6 +112,7 @@ Work strictly in order. Each milestone ends with an explicit GO/NO-GO evaluated 
 
 **M0 — Test truth (release frozen throughout).**
 **Session 1 is scoped to steps 1–2 only.** Complete them, produce the session report per REPORTING FORMAT, and stop. Do not begin step 3 (modifying failing test files) until the session-1 report has been reviewed and continuation is explicitly authorized. M0 is not "make everything green" — it is four separate jobs: establish trustworthy measurement, repair false-green gates, make tests self-contained, and prove every gate fails under seeded attack. The GO condition requires all four.
+
 1. Define the **canonical test manifest**: every runner entry point emits one machine-readable record per test file — `test_id`, `platform`, `status`, `exit_code`, `duration` — to a well-known path. Make, CI, and direct invocation all produce it; gate parity is a comparison of normalized manifests, never console output.
 2. Route all test targets through `tests/test_runner.sh`; fix the `find -exec` syntax gate; add `zsh -n` for shipped Zsh assets; zero-tolerance ShellCheck gate in `validate-quality.sh`; remove unconditional `exit 0`s.
 3. Repair the four failing test files **by making each test self-contained** — its own strict-mode posture, guarded expected-false returns (`if phpenv_detect; then ...; fi` patterns), explicit failure accumulation. Note the ordering constraint: `test_phpenv` and `test_rustup` currently fail *because of* the A2 library leakage that M1 removes. Do NOT fix them by touching the libraries (that is M1 work); fix them so they pass regardless of library strict-mode behavior. If a test cannot be made independent of A2, document it and defer that single test's green state to M1 exit — do not pull M1 forward.
@@ -135,6 +141,7 @@ GO per adopter: rerun is byte-identical; injected failure rolls back byte-identi
 Scoped `make clean` root; clean-HOME / no-network / permission-denied / symlink scenarios; consolidated platform API + WSL contract test; gitleaks + pre-commit in the release path (or verified CI attestation per release SHA); SHA-pin generated workflows; checksum/signature-verified remote installers; remove pipe-to-shell guidance from tools and docs; SBOM, artifact signatures, provenance; lockfile decision; font attribution; ADR/security/ops docs.
 
 **Safety SLIs (program-level, report at every milestone exit):**
+
 - 100% of registry mutations flow through the framework (measurable only after M2's registry).
 - 100% byte-for-byte rollback under injected failures.
 - 0 writes during dry-run; 0 diff on idempotent rerun.

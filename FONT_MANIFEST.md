@@ -25,7 +25,7 @@ These files are optional and can be placed at the repository root for local inst
 
 ## License
 
-```
+```text
 Apache License 2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");

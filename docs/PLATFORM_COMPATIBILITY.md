@@ -57,7 +57,7 @@ This document outlines platform support for the Professional Development Termina
 
 ### macOS
 
-**Homebrew Recommended**
+#### Homebrew Recommended
 
 ```bash
 # Install Homebrew
@@ -67,14 +67,14 @@ This document outlines platform support for the Professional Development Termina
 brew install git curl wget zsh
 ```
 
-**Font Installation**
+#### Font Installation
 
 - Double-click `.ttf` files or use Font Book
 - Fonts install to `~/Library/Fonts/` or `/Library/Fonts/`
 
 ### Ubuntu / Debian
 
-**Required Packages**
+#### Required Packages
 
 ```bash
 # Core dependencies
@@ -89,14 +89,14 @@ sudo apt install -y build-essential libssl-dev zlib1g-dev \
 sudo apt install -y fontconfig
 ```
 
-**Font Installation**
+#### Font Installation
 
 - Copy fonts to `~/.local/share/fonts/`
 - Run `fc-cache -f -v`
 
 ### Fedora
 
-**Required Packages**
+#### Required Packages
 
 ```bash
 # Core dependencies
@@ -110,7 +110,7 @@ sudo dnf install -y gcc zlib-devel bzip2 bzip2-devel \
 
 ### Arch Linux
 
-**Required Packages**
+#### Required Packages
 
 ```bash
 # Core dependencies
@@ -125,7 +125,7 @@ yay -S nvm pyenv
 
 ### WSL2 (Windows Subsystem for Linux)
 
-**Limitations**
+#### Limitations
 
 1. **Font Installation**
    - Fonts must be installed on Windows side
@@ -144,7 +144,7 @@ yay -S nvm pyenv
    - pyenv requires Linux build dependencies
    - jenv needs JDK installed manually
 
-**Recommended Setup**
+#### Recommended Setup
 
 ```bash
 # Install in WSL Ubuntu
