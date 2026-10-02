@@ -139,9 +139,9 @@ test_meta_quality_red() {
     printf '%s\n' "shellcheck-in-clone: $( cd "$clone" && command -v shellcheck || echo MISSING )" >&2
     printf '%s\n' "seeded-file-in-clone: $( ls -la "$clone/scripts/__meta_lint__.sh" 2>&1 | head -1 )" >&2
     if printf '%s' "$meta_out" | grep -q "SC2086"; then
-        assert_equals "seeded" "found" "B1.7: gate output cites the seeded SC2086 finding (red for the right reason)" || f=$((f + 1))
+        assert_equals "found" "found" "B1.7: gate output cites the seeded SC2086 finding (red for the right reason)" || f=$((f + 1))
     else
-        assert_equals "seeded" "missing" "B1.7: gate output must cite the seeded SC2086 finding — fail-closed masking is not a pass" || f=$((f + 1))
+        assert_equals "found" "missing" "B1.7: gate output must cite the seeded SC2086 finding — fail-closed masking is not a pass" || f=$((f + 1))
     fi
     rm -rf "$clone"
     return "$f"
