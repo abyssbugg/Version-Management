@@ -89,7 +89,7 @@ aa_pyenv() {
     local pyver_file
     pyver_file="$(_aa_find_up "$PWD" 3 ".python-version")" || return 0
     local wanted
-    wanted="$(cat "$pyver_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$pyver_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(pyenv version-name 2>/dev/null)"
@@ -108,7 +108,7 @@ aa_node() {
     local nvmrc
     nvmrc="$(_aa_find_up "$PWD" 3 ".nvmrc .node-version")" || return 0
     local wanted
-    wanted="$(cat "$nvmrc" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$nvmrc")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(nvm current 2>/dev/null)"
@@ -125,7 +125,7 @@ aa_fnm() {
     local node_file
     node_file="$(_aa_find_up "$PWD" 3 ".node-version .nvmrc")" || return 0
     local wanted
-    wanted="$(cat "$node_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$node_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(fnm current 2>/dev/null)"
@@ -142,7 +142,7 @@ aa_bun() {
     local bun_file
     bun_file="$(_aa_find_up "$PWD" 3 ".bun-version")" || return 0
     local wanted
-    wanted="$(cat "$bun_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$bun_file")"
     [[ -z "$wanted" ]] && return 0
     # bun does not have a version-switch command like nvm;
     # honor .bun-version by printing a warning if the active version doesn't match.
@@ -160,7 +160,7 @@ aa_go() {
     local go_file
     go_file="$(_aa_find_up "$PWD" 3 ".go-version")" || return 0
     local wanted
-    wanted="$(cat "$go_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$go_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(goenv version-name 2>/dev/null)"
@@ -179,7 +179,7 @@ aa_ruby() {
     local ruby_file
     ruby_file="$(_aa_find_up "$PWD" 3 ".ruby-version")" || return 0
     local wanted
-    wanted="$(cat "$ruby_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$ruby_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(rbenv version-name 2>/dev/null)"
@@ -198,7 +198,7 @@ aa_java() {
     local java_file
     java_file="$(_aa_find_up "$PWD" 3 ".java-version")" || return 0
     local wanted
-    wanted="$(cat "$java_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$java_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(jenv version-name 2>/dev/null)"
@@ -213,7 +213,7 @@ aa_php() {
     local php_file
     php_file="$(_aa_find_up "$PWD" 3 ".php-version")" || return 0
     local wanted
-    wanted="$(cat "$php_file" 2>/dev/null | tr -d '[:space:]')"
+    wanted="$(tr -d '[:space:]' 2>/dev/null < "$php_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(phpenv version-name 2>/dev/null)"
