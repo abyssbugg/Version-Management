@@ -22,13 +22,27 @@ steps:
     steps:
       - label: ":shell: ShellCheck Lint"
         key: "lint"
-        command: "./scripts/lint-shell.sh -- --severity=warning"
+        command: |
+          # Provision the hosted Linux agent (idempotent): the fail-closed
+          # lint gate requires shellcheck.
+          command -v shellcheck >/dev/null 2>&1 || {
+            apt-get update -qq
+            apt-get install -y -qq shellcheck
+          }
+          ./scripts/lint-shell.sh -- --severity=warning
         agents:
           queue: "linux-small"
 
       - label: ":white_check_mark: Syntax Validation"
         key: "syntax"
-        command: "make syntax-check"
+        command: |
+          # Provision the hosted Linux agent (idempotent): the fail-closed
+          # syntax gate verifies shipped Zsh assets with zsh -n.
+          command -v zsh >/dev/null 2>&1 || {
+            apt-get update -qq
+            apt-get install -y -qq zsh
+          }
+          make syntax-check
         agents:
           queue: "linux-small"
 
