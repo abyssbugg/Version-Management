@@ -1,10 +1,11 @@
 name: Test
 
+# Engine ownership (2026-10-02): Buildkite (.buildkite/pipeline.yml) is the
+# sole AUTOMATIC CI engine for this repository. This GitHub Actions twin is
+# retained as a MANUAL-ONLY fallback (workflow_dispatch) so the two engines
+# never double-fire. Same rationale as the directive's engine-ownership rule.
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   shellcheck:
