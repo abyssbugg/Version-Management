@@ -117,3 +117,39 @@ Keep shell, add guardrails (GPT-5.5 trade-off analysis §13). Full rewrite rejec
 - `docs/analysis/audit-2026-07-04-gpt5.5.md` — historical, architecture/governance perspective (stronger overall; primary source for §3 P0/P3 and §5)
 - `docs/analysis/audit-2026-07-04-glm5.2.md` — historical, implementation perspective (primary source for duplication/inventory findings)
 - `docs/analysis/audit-2026-07-04-adjudication-chatgpt.md` — historical, cross-audit quality assessment that mandated this consolidation
+
+---
+
+## 6. Remediation-Program Register (merged-audit-directive.md v3 — added 2026-10-02)
+
+Directive-scoped findings beyond the P0–P3 register above. **Correction (A2):**
+P2-1 above records the *absence* of strict mode in sourced libraries as the
+concern; the live defect was the **inverse** — four libraries (`logger.sh`,
+`env.sh`, `backup.sh`, `plugins.sh`) set `set -euo pipefail` and leaked it into
+every caller, transitively into every module sourcing them. P2-1's policy
+position (libraries must not set global strict mode) is unchanged and now
+enforced by contract test. P1-3 and P3-1/P3-2 remain tracked below via their
+directive milestone mapping (M4).
+
+| ID | Finding | Status | Evidence |
+|----|---------|--------|----------|
+| A1 | Make test targets mask failures (`for` loop last-iteration exit); release trusts them | **FIXED** (`104e65e`, `683ccbe`) | `make test*` routed through `tests/test_runner.sh` via `tests/emit-manifest.sh`; canonical manifest; seeded-failure meta-tests (`tests/unit/test_gate_meta.sh`) proven red in CI (builds #12) |
+| A2 | Four sourced libraries leak strict mode (`set -euo pipefail`) into callers | **FIXED** (`cdcba9e`) | direct setters stripped; `tests/unit/test_library_contract.sh`: every lib+plugin sourced under strict AND non-strict callers, `$-` preservation asserted — 0 violations; blast radius was broader than the four named (all modules sourcing them) |
+| A3 | Transaction rollback can restore wrong file contents (basename keying, name interpolation, same-second collision) | OPEN — M2 | `lib/backup.sh` transaction primitive; hardening scheduled M2 with byte-identical rollback tests |
+| A4 | Path containment accepts sibling-prefix paths; validators have zero production callers | OPEN — M3 | `lib/validation.sh`; fail-closed redesign + wiring scheduled M3 |
+| B1.1 | Plugin path traversal (`plugin_install`/`plugin_remove` unvalidated names) | OPEN — M3 | single-witness critical with sandbox repro; identifier grammar + containment scheduled M3 |
+| B1.2 | Auto-activation crosses trust/privilege boundaries (chpwd sources repo scripts, installs versions, sudo symlinks on cd) | OPEN — M3 | single-witness critical; split into passive switching + explicit trust-registry commands scheduled M3 |
+| B1.4 | `find -exec` syntax gate can never fail; three shipped Zsh themes failed `zsh -n` | **FIXED** (`104e65e` themes `56bd20f`) | fail-closed `scripts/syntax-check.sh` (bash -n + zsh -n, 89 files); themes repaired; gate proven red under seeded failure |
+| B1.5 | `((x++))` systemic under strict mode | **FIXED** (`cdcba9e`) | 57 sites swept to `var=$((var + 1))` across 19+ files; 0 residual |
+| B1.6 | Mutation inventory incomplete | **FIXED** (`cdcba9e` census artifact) | full static census: 237 sinks / 41 mutating scripts / 7 critical no-backup-no-dry-run paths; registry publication scheduled M2 |
+| B1.7 | Quality gate tolerates failure (<50 lines); validate fails open without shellcheck | **FIXED** (`9957d20`→`09b78a3`) | zero tolerance; fail-closed on missing shellcheck; B1.7 meta-case rejects vacuous reds |
+| B1.9 | fonts.sh `0
+0` on no-match; Bash 3.2 vs 4+ contract undefined | **FIXED** (`cdcba9e`) | `|| true` on grep -c (single count); Bash >= 4.0 contract documented (ENGINEERING_RULES §3.1) and enforced in test_runner |
+| B2.1 | `.zshrc` bare appends, no managed blocks, `NVM_SILENT` drift | OPEN — M4 | managed-block editor + canonical NVM block scheduled M4 with per-adopter canary gates |
+| B2.2 | `make clean` deletes unscoped `/tmp/test_*` | OPEN — M5 | scoped cleanup root scheduled M5 |
+| B2.4 | Logger contaminates stdout of value-returning functions | OPEN — M4 | theme_detect_current symptom tolerated in tests; contract fix lands with M4's mutation-surface rework (same call sites) |
+
+**Directive execution state (2026-10-02):** M0 **GO** (Buildkite build #16: 7/7
+green; 4-way manifest parity; seeded red observed — builds #12/#13); M1 **GO**
+(`cdcba9e`: 0 contract violations, 0 arithmetic residuals, both verified by
+the full suite and CI). M2 next.
