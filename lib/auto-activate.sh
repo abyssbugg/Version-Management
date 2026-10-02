@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1091,SC2034  # SC1091: dynamic source paths; SC2034: intentionally exported vars
+# shellcheck disable=SC1091,SC2034  # SC1091: dynamic source paths; SC2034: env-contract vars
 
 # Unified Runtime Auto-Activation Library
 # Part of Professional Development Terminal Setup
@@ -19,29 +19,194 @@
 #   Java      | .java-version                           | jenv local
 #   PHP       | .php-version                            | phpenv local
 #   Rust      | rust-toolchain  rust-toolchain.toml     | rustup (native)
+#
+# ============================================================================
+# TRUST MODEL (remediation directive B1.2 — trust-boundary repair)
+# ============================================================================
+# A directory hook runs ARBITRARY project content on every `cd`, so the hook's
+# authority is split by capability:
+#
+#   - UN-GATED (safe switching only): moving to an ALREADY-INSTALLED version
+#     (pyenv local, nvm use, goenv local, rbenv local, jenv local, phpenv
+#     local, bun path check, asdf reshim).
+#
+#   - TRUST-GATED, per project, persisted in a registry:
+#       venv_source   — sourcing the repo-controlled .venv/bin/activate
+#                       (code execution from whatever the repo ships)
+#       node_install  — INSTALLING a missing Node version found in
+#                       .nvmrc/.node-version (network + $HOME writes)
+#       symlink_sync  — updating /usr/local/bin/{node,npm,npx} via ln -sf and
+#                       the sudo -n fallback (privileged mutation on `cd`)
+#
+#   Registry: $HOME/.config/version-manager/trusted-projects
+#             one entry per line, tab-delimited:
+#               <sha256-of-canonical-project-dir><TAB><capability>
+#   The project dir is canonicalized (symlinks resolved) before hashing, so a
+#   bind-mounted/aliased path cannot mint a second trust identity.
+#
+#   When a capability is not trusted, the hook does NOTHING for it (no
+#   prompt, no write, no install); a log_debug notice is all that is emitted.
+#   Grant/revoke with: auto_trust <dir> <cap> / auto_untrust <dir> <cap>.
+#
+# The functions between here and auto_activate_setup are emitted VERBATIM
+# (via typeset -f) into the user's rc by auto_activate_setup — the rc cannot
+# source this library at runtime — so their bodies are written in the
+# bash/zsh-portable subset (no ${var:h}, no ${=x}, no print -P, no
+# shell-specific array syntax).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/logger.sh"
 
-# Hook block delimiters — must stay in sync with _auto_activate_remove()
+# Transactions (M2 primitives) back every rc mutation. Sourced lazily so a
+# caller that already loaded lib/backup.sh is not double-loaded.
+if ! declare -f transaction_start >/dev/null 2>&1; then
+    # shellcheck source=lib/backup.sh
+    source "${SCRIPT_DIR}/backup.sh"
+fi
+
+# Hook block delimiters — must stay in sync with auto_activate_remove()
 readonly _AA_START="# >>> dev auto-activate hook <<<"
 readonly _AA_END="# <<< dev auto-activate hook <<<"
+
+# Capabilities (exact strings) granted through the trust registry.
+readonly _AA_CAPABILITIES="venv_source node_install symlink_sync"
+
+# ============================================================================
+# TRUST REGISTRY  (public API — also emitted into the hook verbatim)
+# ============================================================================
+
+# Echo the registry path. XDG_CONFIG_HOME is honored when set (the test
+# runner sandboxes both HOME and XDG_CONFIG_HOME consistently).
+_aa_trust_registry() {
+    printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/version-manager/trusted-projects"
+}
+
+# Canonicalize an EXISTING directory (symlinks fully resolved).
+# Self-contained on purpose: the emitted hook uses the exact same routine,
+# so admin-time and runtime identities can never diverge. Fails closed.
+_aa_canonical_dir() {
+    local p="${1:-}"
+    [[ -n "$p" && -e "$p" ]] || return 1
+    local r
+    r="$(readlink -f "$p" 2>/dev/null)" && [[ -n "$r" ]] && { printf '%s\n' "$r"; return 0; }
+    r="$(cd -P "$p" 2>/dev/null && pwd)" && [[ -n "$r" ]] && { printf '%s\n' "$r"; return 0; }
+    if command -v python3 >/dev/null 2>&1; then
+        r="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$p" 2>/dev/null)" \
+            && [[ -n "$r" ]] && { printf '%s\n' "$r"; return 0; }
+    fi
+    return 1
+}
+
+# sha256 of a STRING (the canonical path), via whatever tool the host has.
+_aa_sha256_str() {
+    local s="${1:-}"
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$s" | sha256sum 2>/dev/null | awk '{print $1}'
+        return 0
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        printf '%s' "$s" | shasum -a 256 2>/dev/null | awk '{print $1}'
+        return 0
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        printf '%s' "$s" | openssl dgst -sha256 2>/dev/null | awk '{print $NF}'
+        return 0
+    fi
+    return 1
+}
+
+# Public: does <dir> hold <capability>? Returns 0/1. Fail closed on any
+# doubt (missing registry, unresolvable dir, unknown capability, no sha256).
+auto_is_trusted() {
+    local dir="${1:-}" cap="${2:-}"
+    case "$cap" in
+        venv_source|node_install|symlink_sync) ;;
+        *) return 1 ;;
+    esac
+    [[ -n "$dir" ]] || return 1
+    local reg canon hash h c
+    reg="$(_aa_trust_registry)" || return 1
+    [[ -f "$reg" ]] || return 1
+    canon="$(_aa_canonical_dir "$dir")" || return 1
+    hash="$(_aa_sha256_str "$canon")" || return 1
+    while IFS=$'\t' read -r h c || [[ -n "${h:-}" ]]; do
+        [[ "$h" == "$hash" && "$c" == "$cap" ]] && return 0
+    done < "$reg"
+    return 1
+}
+
+# Public: grant <capability> to <dir> (must exist). Idempotent.
+auto_trust() {
+    local dir="${1:-}" cap="${2:-}"
+    case "$cap" in
+        venv_source|node_install|symlink_sync) ;;
+        *) log_error "auto_trust: invalid capability '${cap}' (allowed: ${_AA_CAPABILITIES})"; return 1 ;;
+    esac
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        log_error "auto_trust: directory does not exist: ${dir:-<empty>}"
+        return 1
+    fi
+    local reg canon hash reg_dir
+    reg="$(_aa_trust_registry)" || return 1
+    canon="$(_aa_canonical_dir "$dir")" || { log_error "auto_trust: cannot canonicalize: $dir"; return 1; }
+    hash="$(_aa_sha256_str "$canon")" || { log_error "auto_trust: no sha256 tool available"; return 1; }
+    reg_dir="$(dirname "$reg")"
+    mkdir -p "$reg_dir" || { log_error "auto_trust: cannot create $reg_dir"; return 1; }
+    [[ -f "$reg" ]] || : > "$reg" || { log_error "auto_trust: cannot create $reg"; return 1; }
+    if grep -qxF "$(printf '%s\t%s' "$hash" "$cap")" "$reg" 2>/dev/null; then
+        log_debug "auto_trust: already trusted ($cap): $canon"
+        return 0
+    fi
+    printf '%s\t%s\n' "$hash" "$cap" >> "$reg" || { log_error "auto_trust: registry write failed"; return 1; }
+    chmod 600 "$reg" 2>/dev/null || true
+    log_info "auto_trust: granted $cap for $canon"
+    return 0
+}
+
+# Public: revoke <capability> from <dir>. A missing registry is a clean no-op.
+auto_untrust() {
+    local dir="${1:-}" cap="${2:-}"
+    case "$cap" in
+        venv_source|node_install|symlink_sync) ;;
+        *) log_error "auto_untrust: invalid capability '${cap}' (allowed: ${_AA_CAPABILITIES})"; return 1 ;;
+    esac
+    local reg canon hash needle tmp grc=0
+    reg="$(_aa_trust_registry)" || return 1
+    [[ -f "$reg" ]] || return 0
+    canon="$(_aa_canonical_dir "$dir")" || { log_error "auto_untrust: cannot canonicalize: $dir"; return 1; }
+    hash="$(_aa_sha256_str "$canon")" || return 1
+    needle="$(printf '%s\t%s' "$hash" "$cap")"
+    tmp="$(mktemp)" || return 1
+    grep -vxF -- "$needle" "$reg" > "$tmp" 2>/dev/null || grc=$?
+    # grc 0: lines kept; 1: every line matched (entry removed); 2: grep error
+    if [[ "$grc" -eq 2 ]]; then
+        rm -f "$tmp"
+        log_error "auto_untrust: registry read failed"
+        return 1
+    fi
+    if ! mv "$tmp" "$reg"; then
+        rm -f "$tmp" 2>/dev/null
+        log_error "auto_untrust: registry rewrite failed"
+        return 1
+    fi
+    log_info "auto_untrust: revoked $cap for $canon"
+    return 0
+}
 
 # ============================================================================
 # RUNTIME DETECTION HELPERS  (called from the installed zsh hook)
 # ============================================================================
 
-# Walk upward from $1 (default: $PWD) for up to $2 (default: 3) levels
-# looking for any file in $3 (space-separated list of names).
-# Echoes the first match found; returns 1 if nothing found.
+# Walk upward from $1 for up to $2 levels looking for any of the FILE NAMES
+# given as remaining arguments. Echoes the first match; returns 1 if none.
 _aa_find_up() {
     local dir="${1:-$PWD}"
     local max="${2:-3}"
-    local depth=0
-    local file
+    shift 2
+    local depth=0 f
     while [[ "$dir" != "/" && $depth -lt $max ]]; do
-        for file in $3; do
-            [[ -e "$dir/$file" ]] && { echo "$dir/$file"; return 0; }
+        for f in "$@"; do
+            [[ -e "$dir/$f" ]] && { printf '%s\n' "$dir/$f"; return 0; }
         done
         dir="$(dirname "$dir")"
         depth=$((depth + 1))
@@ -50,27 +215,34 @@ _aa_find_up() {
 }
 
 # ============================================================================
-# INDIVIDUAL RUNTIME HANDLERS  (bash-callable, also embedded into zsh hook)
+# INDIVIDUAL RUNTIME HANDLERS  (bash-callable, also emitted into zsh hook)
+# Each accepts an optional directory (default $PWD) so the hook glue can pass
+# the post-cd directory explicitly — and tests can drive it without cd.
 # ============================================================================
 
-# --- Python venv ---
+# --- Python venv (capability: venv_source — repo-controlled code execution) ---
 aa_python() {
+    local dir="${1:-$PWD}"
     local venv_dirs=(".venv" "venv" ".virtualenv")
     local activate_script="" venv_dir
-    local dir="$PWD" depth=0 vname
+    local p="$dir" depth=0 vname
 
-    while [[ "$dir" != "/" && $depth -lt 3 ]]; do
+    while [[ "$p" != "/" && $depth -lt 3 ]]; do
         for vname in "${venv_dirs[@]}"; do
-            if [[ -f "$dir/$vname/bin/activate" ]]; then
-                activate_script="$dir/$vname/bin/activate"
+            if [[ -f "$p/$vname/bin/activate" ]]; then
+                activate_script="$p/$vname/bin/activate"
                 break 2
             fi
         done
-        dir="$(dirname "$dir")"
+        p="$(dirname "$p")"
         depth=$((depth + 1))
     done
 
     if [[ -n "$activate_script" ]]; then
+        if ! auto_is_trusted "$dir" venv_source; then
+            log_debug "auto-activate: venv found ($activate_script) but project not trusted for venv_source — skipped"
+            return 0
+        fi
         venv_dir="$(dirname "$(dirname "$activate_script")")"
         [[ "${VIRTUAL_ENV:-}" == "$venv_dir" ]] && return 0
         [[ -n "${VIRTUAL_ENV:-}" ]] && command -v deactivate >/dev/null 2>&1 && deactivate
@@ -83,13 +255,14 @@ aa_python() {
     fi
 }
 
-# --- Python version via pyenv ---
+# --- Python version via pyenv (switch only — never installs) ---
 aa_pyenv() {
     command -v pyenv >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local pyver_file
-    pyver_file="$(_aa_find_up "$PWD" 3 ".python-version")" || return 0
+    pyver_file="$(_aa_find_up "$dir" 3 .python-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$pyver_file")"
+    wanted="$(tr -d '[:space:]' < "$pyver_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(pyenv version-name 2>/dev/null)"
@@ -102,47 +275,65 @@ aa_pyenv() {
     fi
 }
 
-# --- Node.js via nvm ---
+# --- Node.js via nvm (switch ungated; MISSING-version install = node_install) ---
 aa_node() {
-    command -v nvm >/dev/null 2>&1 || return 0
+    typeset -f nvm >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local nvmrc
-    nvmrc="$(_aa_find_up "$PWD" 3 ".nvmrc .node-version")" || return 0
+    nvmrc="$(_aa_find_up "$dir" 3 .nvmrc .node-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$nvmrc")"
+    wanted="$(tr -d '[:space:]' < "$nvmrc")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(nvm current 2>/dev/null)"
     # Strip leading 'v' for comparison
     [[ "${current#v}" == "${wanted#v}" ]] && return 0
-    nvm use "$wanted" --silent 2>/dev/null \
-        || nvm install "$wanted" 2>/dev/null \
-        && log_debug "auto-activate: Node → $wanted"
+    if nvm use "$wanted" --silent 2>/dev/null; then
+        log_debug "auto-activate: Node → $wanted"
+        return 0
+    fi
+    # Version missing: installing is a separately-trusted capability (B1.2)
+    if auto_is_trusted "$dir" node_install; then
+        nvm install "$wanted" 2>/dev/null \
+            && log_debug "auto-activate: Node installed → $wanted"
+    else
+        log_debug "auto-activate: Node $wanted not installed; project not trusted for node_install — skipped"
+    fi
 }
 
-# --- Node.js via fnm ---
+# --- Node.js via fnm (switch ungated; install gated like aa_node) ---
 aa_fnm() {
     command -v fnm >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local node_file
-    node_file="$(_aa_find_up "$PWD" 3 ".node-version .nvmrc")" || return 0
+    node_file="$(_aa_find_up "$dir" 3 .node-version .nvmrc)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$node_file")"
+    wanted="$(tr -d '[:space:]' < "$node_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(fnm current 2>/dev/null)"
     # Strip leading 'v' for comparison
     [[ "${current#v}" == "${wanted#v}" ]] && return 0
-    fnm use "$wanted" --silent-if-unchanged 2>/dev/null \
-        || fnm install "$wanted" 2>/dev/null \
-        && log_debug "auto-activate: Node → $wanted (fnm)"
+    if fnm use "$wanted" --silent-if-unchanged 2>/dev/null; then
+        log_debug "auto-activate: Node → $wanted (fnm)"
+        return 0
+    fi
+    if auto_is_trusted "$dir" node_install; then
+        fnm install "$wanted" 2>/dev/null \
+            && log_debug "auto-activate: Node installed → $wanted (fnm)"
+    else
+        log_debug "auto-activate: Node $wanted not installed; project not trusted for node_install — skipped (fnm)"
+    fi
 }
 
-# --- Bun ---
+# --- Bun (informational warning only — never mutates anything) ---
 aa_bun() {
     command -v bun >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local bun_file
-    bun_file="$(_aa_find_up "$PWD" 3 ".bun-version")" || return 0
+    bun_file="$(_aa_find_up "$dir" 3 .bun-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$bun_file")"
+    wanted="$(tr -d '[:space:]' < "$bun_file")"
     [[ -z "$wanted" ]] && return 0
     # bun does not have a version-switch command like nvm;
     # honor .bun-version by printing a warning if the active version doesn't match.
@@ -154,13 +345,14 @@ aa_bun() {
     fi
 }
 
-# --- Go via goenv ---
+# --- Go via goenv (switch only — never installs) ---
 aa_go() {
     command -v goenv >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local go_file
-    go_file="$(_aa_find_up "$PWD" 3 ".go-version")" || return 0
+    go_file="$(_aa_find_up "$dir" 3 .go-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$go_file")"
+    wanted="$(tr -d '[:space:]' < "$go_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(goenv version-name 2>/dev/null)"
@@ -173,13 +365,14 @@ aa_go() {
     fi
 }
 
-# --- Ruby via rbenv ---
+# --- Ruby via rbenv (switch only — never installs) ---
 aa_ruby() {
     command -v rbenv >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local ruby_file
-    ruby_file="$(_aa_find_up "$PWD" 3 ".ruby-version")" || return 0
+    ruby_file="$(_aa_find_up "$dir" 3 .ruby-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$ruby_file")"
+    wanted="$(tr -d '[:space:]' < "$ruby_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(rbenv version-name 2>/dev/null)"
@@ -192,13 +385,14 @@ aa_ruby() {
     fi
 }
 
-# --- Java via jenv ---
+# --- Java via jenv (switch only) ---
 aa_java() {
     command -v jenv >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local java_file
-    java_file="$(_aa_find_up "$PWD" 3 ".java-version")" || return 0
+    java_file="$(_aa_find_up "$dir" 3 .java-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$java_file")"
+    wanted="$(tr -d '[:space:]' < "$java_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(jenv version-name 2>/dev/null)"
@@ -207,13 +401,14 @@ aa_java() {
         && log_debug "auto-activate: Java → $wanted"
 }
 
-# --- PHP via phpenv ---
+# --- PHP via phpenv (switch only — never installs) ---
 aa_php() {
     command -v phpenv >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local php_file
-    php_file="$(_aa_find_up "$PWD" 3 ".php-version")" || return 0
+    php_file="$(_aa_find_up "$dir" 3 .php-version)" || return 0
     local wanted
-    wanted="$(tr -d '[:space:]' 2>/dev/null < "$php_file")"
+    wanted="$(tr -d '[:space:]' < "$php_file")"
     [[ -z "$wanted" ]] && return 0
     local current
     current="$(phpenv version-name 2>/dev/null)"
@@ -226,13 +421,21 @@ aa_php() {
     fi
 }
 
-# --- Node.js global symlink sync ---
+# --- Node.js global symlink sync (capability: symlink_sync — PRIVILEGED) ---
 # After an nvm (or fnm) version switch, optionally update
 # /usr/local/bin/{node,npm,npx} symlinks so desktop apps (Electron, VS Code
-# extensions, etc.) see the new version.
-# Disabled by default. Set DEV_AUTO_SYNC_NODE_SYMLINKS=true to enable.
+# extensions, etc.) see the new version. Two independent gates (B1.2):
+#   1. DEV_AUTO_SYNC_NODE_SYMLINKS=true (user opt-in), AND
+#   2. the CURRENT project is trusted for symlink_sync.
+# Never prompts for a password; the sudo -n fallback is attempted only when
+# both gates pass.
 _nvm_sync_symlinks() {
+    local dir="${1:-$PWD}"
     [[ "${DEV_AUTO_SYNC_NODE_SYMLINKS:-false}" == "true" ]] || return 0
+    if ! auto_is_trusted "$dir" symlink_sync; then
+        log_debug "auto-activate: symlink sync skipped (project not trusted for symlink_sync)"
+        return 0
+    fi
 
     local nvm_bin=""
 
@@ -281,26 +484,54 @@ aa_rust() {
 # `asdf reshim` to ensure shims are current (e.g. after `asdf install`).
 aa_asdf() {
     command -v asdf >/dev/null 2>&1 || return 0
+    local dir="${1:-$PWD}"
     local tool_versions
-    tool_versions="$(_aa_find_up "$PWD" 3 ".tool-versions")" || return 0
+    tool_versions="$(_aa_find_up "$dir" 3 .tool-versions)" || return 0
     # asdf auto-resolves versions through shims — just ensure they are fresh
     asdf reshim 2>/dev/null || true
     log_debug "auto-activate: asdf reshim (found $tool_versions)"
 }
 
-# Master caller — runs all handlers in order
+# Master caller — runs all handlers in order (bash side; defaults to $PWD)
 auto_activate_all() {
-    aa_python
-    aa_pyenv
-    aa_node
-    aa_fnm
-    aa_bun
-    aa_go
-    aa_ruby
-    aa_java
-    aa_php
+    local dir="${1:-$PWD}"
+    aa_python "$dir"
+    aa_pyenv "$dir"
+    aa_node "$dir"
+    aa_fnm "$dir"
+    aa_bun "$dir"
+    aa_go "$dir"
+    aa_ruby "$dir"
+    aa_java "$dir"
+    aa_php "$dir"
     aa_rust
-    aa_asdf
+    aa_asdf "$dir"
+    _nvm_sync_symlinks "$dir"
+}
+
+# ============================================================================
+# HOOK BODY — single source of truth (B1.2)
+# ============================================================================
+# The chpwd glue emitted into .zshrc is exactly `_dev_chpwd_hook() {
+# auto_activate_on_cd "$PWD"; }`; the body below is what auto_activate_setup
+# dumps verbatim into the rc (typeset -f), so tests exercise the same code
+# users run. Capability gates live here and in the handlers above.
+
+auto_activate_on_cd() {
+    local dir="${1:-$PWD}"
+    aa_python "$dir"          # gated: venv_source
+    aa_pyenv "$dir"           # switch only
+    aa_node "$dir"            # switch ungated; install gated: node_install
+    aa_fnm "$dir"             # switch ungated; install gated: node_install
+    aa_bun "$dir"             # informational only
+    aa_go "$dir"              # switch only
+    aa_ruby "$dir"            # switch only
+    aa_java "$dir"            # switch only
+    aa_php "$dir"             # switch only
+    aa_rust                   # no-op (rustup native)
+    aa_asdf "$dir"            # reshim only
+    _nvm_sync_symlinks "$dir" # gated: symlink_sync (+ DEV_AUTO_SYNC_NODE_SYMLINKS)
+    return 0
 }
 
 # ============================================================================
@@ -309,6 +540,8 @@ auto_activate_all() {
 
 # Install a unified chpwd hook into ~/.zshrc (or $ZDOTDIR/.zshrc).
 # Safe to call multiple times — idempotent.
+# The rc mutation is transactional (M2): pre-state backed up, rollback on
+# any emission failure (B1.2).
 auto_activate_setup() {
     local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
 
@@ -322,214 +555,51 @@ auto_activate_setup() {
         return 0
     fi
 
-    cat >> "$shell_rc" <<'ZSHOOK'
-
-# >>> dev auto-activate hook <<<
-# Unified runtime auto-activation for Python, Node, Bun, Go, Ruby, Java, PHP, FNM, pyenv.
-# Optional: set DEV_AUTO_SYNC_NODE_SYMLINKS=true to auto-sync /usr/local/bin/node symlinks.
-# Managed by version-management-setup — edit lib/auto-activate.sh to change.
-_dev_chpwd_hook() {
-    # ---------- helpers ----------
-    _aa_h_find_up() {
-        local dir="${1:-$PWD}" max="${2:-3}" depth=0 f
-        while [[ "$dir" != "/" && $depth -lt $max ]]; do
-            for f in ${=3}; do
-                [[ -e "$dir/$f" ]] && { echo "$dir/$f"; return 0; }
-            done
-            dir="${dir:h}"
-            depth=$(( depth + 1 ))
-        done
+    transaction_start "auto_activate_setup" || return 1
+    if ! transaction_add_file "$shell_rc"; then
+        transaction_rollback >/dev/null 2>&1
         return 1
-    }
-
-    # Sync /usr/local/bin/node symlinks to the active NVM/FNM version.
-    # Disabled unless DEV_AUTO_SYNC_NODE_SYMLINKS=true.
-    _aa_h_sync_node_symlinks() {
-        [[ "${DEV_AUTO_SYNC_NODE_SYMLINKS:-false}" == "true" ]] || return 0
-
-        local _sn_bin=""
-        if [[ -n "${NVM_DIR:-}" ]] && typeset -f nvm >/dev/null 2>&1; then
-            local _sn_cur
-            _sn_cur="$(nvm current 2>/dev/null)" || return 0
-            [[ "$_sn_cur" == "system" || "$_sn_cur" == "none" || -z "$_sn_cur" ]] && return 0
-            _sn_bin="$NVM_DIR/versions/node/${_sn_cur}/bin"
-        elif command -v fnm >/dev/null 2>&1; then
-            local _sn_fcur
-            _sn_fcur="$(fnm current 2>/dev/null)" || return 0
-            [[ "$_sn_fcur" == "none" || -z "$_sn_fcur" ]] && return 0
-            local _sn_fdir="${FNM_DIR:-$HOME/.local/share/fnm}"
-            _sn_bin="$_sn_fdir/node-versions/v${_sn_fcur#v}/installation/bin"
-        fi
-        [[ -d "$_sn_bin" ]] || return 0
-        # Skip if already correct
-        [[ "$(readlink /usr/local/bin/node 2>/dev/null)" == "$_sn_bin/node" ]] && return 0
-        local _sn_c
-        for _sn_c in node npm npx; do
-            [[ -f "$_sn_bin/$_sn_c" ]] || continue
-            ln -sf "$_sn_bin/$_sn_c" /usr/local/bin/"$_sn_c" 2>/dev/null \
-                || sudo -n ln -sf "$_sn_bin/$_sn_c" /usr/local/bin/"$_sn_c" 2>/dev/null \
-                || true
-        done
-    }
-
-    # ---------- Python venv ----------
-    local _py_venv_dirs=(.venv venv .virtualenv)
-    local _py_act="" _py_vdir="" _py_d="$PWD" _py_depth=0 _py_vn
-    while [[ "$_py_d" != "/" && $_py_depth -lt 3 ]]; do
-        for _py_vn in "${_py_venv_dirs[@]}"; do
-            if [[ -f "$_py_d/$_py_vn/bin/activate" ]]; then
-                _py_act="$_py_d/$_py_vn/bin/activate"
-                break 2
-            fi
-        done
-        _py_d="${_py_d:h}"
-        _py_depth=$(( _py_depth + 1 ))
-    done
-    if [[ -n "$_py_act" ]]; then
-        _py_vdir="${_py_act:h:h}"
-        if [[ "${VIRTUAL_ENV:-}" != "$_py_vdir" ]]; then
-            [[ -n "${VIRTUAL_ENV:-}" ]] && typeset -f deactivate >/dev/null 2>&1 && deactivate
-            source "$_py_act"
-        fi
-    elif [[ -n "${VIRTUAL_ENV:-}" ]]; then
-        typeset -f deactivate >/dev/null 2>&1 && deactivate
     fi
 
-    # ---------- Python version via pyenv ----------
-    if command -v pyenv >/dev/null 2>&1; then
-        local _pyv_f
-        _pyv_f="$(_aa_h_find_up "$PWD" 3 ".python-version")" 2>/dev/null
-        if [[ -n "$_pyv_f" ]]; then
-            local _pyv_want
-            _pyv_want="$(< "$_pyv_f" tr -d '[:space:]')"
-            if [[ -n "$_pyv_want" && "$(pyenv version-name 2>/dev/null)" != "$_pyv_want" ]]; then
-                if pyenv versions --bare 2>/dev/null | grep -q "^${_pyv_want}$"; then
-                    pyenv local "$_pyv_want" 2>/dev/null
-                else
-                    print -P "%F{yellow}[auto-activate] Python ${_pyv_want} not installed. Run: pyenv install ${_pyv_want}%f"
-                fi
-            fi
-        fi
-    fi
+    {
+        printf '\n%s\n' "$_AA_START"
+        cat <<'ZSHOOK'
+# Unified runtime auto-activation — capability-gated (B1.2).
+# The hook only SWITCHES between already-installed versions. Three
+# capabilities require explicit per-project trust (auto_trust <dir> <cap>):
+#   venv_source   — source the project's .venv/bin/activate (repo code)
+#   node_install  — install a MISSING Node version from .nvmrc/.node-version
+#   symlink_sync  — update /usr/local/bin/{node,npm,npx} (incl. sudo -n)
+# Registry: $HOME/.config/version-manager/trusted-projects
+#           <sha256-of-canonical-project-dir><TAB><capability>
+# Optional symlink sync env: DEV_AUTO_SYNC_NODE_SYMLINKS=true (plus trust).
+# Managed by version-management-setup — edit lib/auto-activate.sh to change.
+ZSHOOK
+        cat <<'ZSHOOK'
+# Logger fallbacks — per-function guards (the rc may load its own logger).
+typeset -f log_info >/dev/null 2>&1 || log_info() { printf '[INFO] %s\n' "$*"; }
+typeset -f log_warn >/dev/null 2>&1 || log_warn() { printf '[WARN] %s\n' "$*" >&2; }
+typeset -f log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*" >&2; }
+typeset -f log_success >/dev/null 2>&1 || log_success() { printf '[OK] %s\n' "$*"; }
+typeset -f log_debug >/dev/null 2>&1 || log_debug() { :; }
+ZSHOOK
+        # Self-contained runtime: trust registry + handlers, emitted verbatim
+        # from this library (single source of truth — see TRUST MODEL above).
+        typeset -f _aa_trust_registry _aa_canonical_dir _aa_sha256_str auto_is_trusted \
+            _aa_find_up aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java \
+            aa_php aa_rust aa_asdf _nvm_sync_symlinks auto_activate_on_cd
+        cat <<'ZSHOOK'
 
-    # ---------- Node.js via nvm ----------
-    if typeset -f nvm >/dev/null 2>&1; then
-        local _nvm_f
-        _nvm_f="$(_aa_h_find_up "$PWD" 3 ".nvmrc .node-version")" 2>/dev/null
-        if [[ -n "$_nvm_f" ]]; then
-            local _nvm_want
-            _nvm_want="$(< "$_nvm_f" tr -d '[:space:]')"
-            if [[ -n "$_nvm_want" && "${$(nvm current)#v}" != "${_nvm_want#v}" ]]; then
-                if ! nvm use "$_nvm_want" --silent 2>/dev/null; then
-                    local _nvm_sync_src
-                    _nvm_sync_src="$(nvm current 2>/dev/null)"
-                    if [[ -n "$_nvm_sync_src" && "$_nvm_sync_src" != "none" && "$_nvm_sync_src" != "system" ]]; then
-                        nvm install "$_nvm_want" --reinstall-packages-from="$_nvm_sync_src" --silent 2>/dev/null
-                    else
-                        nvm install "$_nvm_want" --silent 2>/dev/null
-                    fi
-                fi
-            fi
-        fi
-    fi
-
-    # ---------- Node.js via fnm (used when nvm is not loaded) ----------
-    if ! typeset -f nvm >/dev/null 2>&1 && command -v fnm >/dev/null 2>&1; then
-        local _fnm_f
-        _fnm_f="$(_aa_h_find_up "$PWD" 3 ".node-version .nvmrc")" 2>/dev/null
-        if [[ -n "$_fnm_f" ]]; then
-            local _fnm_want
-            _fnm_want="$(< "$_fnm_f" tr -d '[:space:]')"
-            if [[ -n "$_fnm_want" && "${$(fnm current 2>/dev/null)#v}" != "${_fnm_want#v}" ]]; then
-                fnm use "$_fnm_want" --silent-if-unchanged 2>/dev/null \
-                    || fnm install "$_fnm_want" 2>/dev/null
-            fi
-        fi
-    fi
-
-    # ---------- Sync /usr/local/bin symlinks after Node switch ----------
-    _aa_h_sync_node_symlinks
-
-    # ---------- Bun ----------
-    if command -v bun >/dev/null 2>&1; then
-        local _bun_f
-        _bun_f="$(_aa_h_find_up "$PWD" 3 ".bun-version")" 2>/dev/null
-        if [[ -n "$_bun_f" ]]; then
-            local _bun_want _bun_cur
-            _bun_want="$(< "$_bun_f" tr -d '[:space:]')"
-            _bun_cur="$(bun --version 2>/dev/null)"
-            if [[ -n "$_bun_want" && "$_bun_cur" != "$_bun_want" ]]; then
-                print -P "%F{yellow}[auto-activate] .bun-version=${_bun_want} but active=${_bun_cur}%f"
-                print -P "%F{yellow}  → Run: bun upgrade --version ${_bun_want}%f"
-            fi
-        fi
-    fi
-
-    # ---------- Go via goenv ----------
-    if command -v goenv >/dev/null 2>&1; then
-        local _go_f
-        _go_f="$(_aa_h_find_up "$PWD" 3 ".go-version")" 2>/dev/null
-        if [[ -n "$_go_f" ]]; then
-            local _go_want
-            _go_want="$(< "$_go_f" tr -d '[:space:]')"
-            if [[ -n "$_go_want" && "$(goenv version-name 2>/dev/null)" != "$_go_want" ]]; then
-                goenv local "$_go_want" 2>/dev/null \
-                    || print -P "%F{yellow}[auto-activate] Go ${_go_want} not installed. Run: goenv install ${_go_want}%f"
-            fi
-        fi
-    fi
-
-    # ---------- Ruby via rbenv ----------
-    if command -v rbenv >/dev/null 2>&1; then
-        local _rb_f
-        _rb_f="$(_aa_h_find_up "$PWD" 3 ".ruby-version")" 2>/dev/null
-        if [[ -n "$_rb_f" ]]; then
-            local _rb_want
-            _rb_want="$(< "$_rb_f" tr -d '[:space:]')"
-            if [[ -n "$_rb_want" && "$(rbenv version-name 2>/dev/null)" != "$_rb_want" ]]; then
-                rbenv local "$_rb_want" 2>/dev/null \
-                    || print -P "%F{yellow}[auto-activate] Ruby ${_rb_want} not installed. Run: rbenv install ${_rb_want}%f"
-            fi
-        fi
-    fi
-
-    # ---------- Java via jenv ----------
-    if command -v jenv >/dev/null 2>&1; then
-        local _jv_f
-        _jv_f="$(_aa_h_find_up "$PWD" 3 ".java-version")" 2>/dev/null
-        if [[ -n "$_jv_f" ]]; then
-            local _jv_want
-            _jv_want="$(< "$_jv_f" tr -d '[:space:]')"
-            if [[ -n "$_jv_want" && "$(jenv version-name 2>/dev/null)" != "$_jv_want" ]]; then
-                jenv local "$_jv_want" 2>/dev/null
-            fi
-        fi
-    fi
-
-    # ---------- PHP via phpenv ----------
-    if command -v phpenv >/dev/null 2>&1; then
-        local _php_f
-        _php_f="$(_aa_h_find_up "$PWD" 3 ".php-version")" 2>/dev/null
-        if [[ -n "$_php_f" ]]; then
-            local _php_want
-            _php_want="$(< "$_php_f" tr -d '[:space:]')"
-            if [[ -n "$_php_want" && "$(phpenv version-name 2>/dev/null)" != "$_php_want" ]]; then
-                phpenv local "$_php_want" 2>/dev/null \
-                    || print -P "%F{yellow}[auto-activate] PHP ${_php_want} not installed. Run: phpenv install ${_php_want}%f"
-            fi
-        fi
-    fi
-
-    # Rust: rustup reads rust-toolchain / rust-toolchain.toml natively — no hook needed.
-}
-
+# chpwd glue — the hook body lives in auto_activate_on_cd (emitted above).
+_dev_chpwd_hook() { auto_activate_on_cd "$PWD"; }
 autoload -Uz add-zsh-hook 2>/dev/null
 add-zsh-hook chpwd _dev_chpwd_hook
 _dev_chpwd_hook   # run for current directory on shell start-up
 
 # ---------- nvm wrapper: auto-sync symlinks on manual switches ----------
 # Wraps the nvm function so that `nvm use`, `nvm install`, and `nvm alias`
-# automatically update /usr/local/bin symlinks.
+# attempt the /usr/local/bin sync — which is itself gated on the CURRENT
+# project's symlink_sync trust (see _nvm_sync_symlinks).
 if typeset -f nvm >/dev/null 2>&1; then
     _nvm_real=$(functions nvm)
     eval "_nvm_original() { ${_nvm_real#nvm*\{}"
@@ -540,7 +610,7 @@ if typeset -f nvm >/dev/null 2>&1; then
         local _nvm_ret=$?
         case "${1:-}" in
             use|install|alias)
-                _aa_h_sync_node_symlinks 2>/dev/null
+                _nvm_sync_symlinks 2>/dev/null
                 # Auto-sync global packages after install (skip if user specified --reinstall-packages-from)
                 if [[ "${1:-}" == "install" && "$*" != *"--reinstall-packages-from"* ]]; then
                     local _nvm_new_ver
@@ -557,15 +627,35 @@ if typeset -f nvm >/dev/null 2>&1; then
 fi
 # <<< dev auto-activate hook <<<
 ZSHOOK
+    } >> "$shell_rc" || {
+        transaction_rollback >/dev/null 2>&1
+        return 1
+    }
 
+    # Fail closed: every emitted function must actually be present (typeset -f
+    # silently skips undefined names).
+    local fn missing=""
+    for fn in _aa_trust_registry _aa_canonical_dir _aa_sha256_str auto_is_trusted \
+              _aa_find_up aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby \
+              aa_java aa_php aa_rust aa_asdf _nvm_sync_symlinks auto_activate_on_cd; do
+        grep -q "^${fn} ()" "$shell_rc" || missing="$missing $fn"
+    done
+    if [[ -n "$missing" ]]; then
+        log_error "auto_activate_setup: emission incomplete — missing:$missing"
+        transaction_rollback >/dev/null 2>&1
+        return 1
+    fi
+
+    transaction_commit
     log_success "dev auto-activate hook installed in $shell_rc"
     log_info "Applies to: Python venv/pyenv, Node (nvm/fnm), Bun, Go (goenv), Ruby (rbenv), Java (jenv), PHP (phpenv)"
-    log_info "Optional symlink sync: set DEV_AUTO_SYNC_NODE_SYMLINKS=true to update /usr/local/bin/{node,npm,npx}"
+    log_info "Trust-gated capabilities: venv_source, node_install, symlink_sync (see auto_trust)"
+    log_info "Optional symlink sync env: set DEV_AUTO_SYNC_NODE_SYMLINKS=true AND trust the project for symlink_sync"
     log_info "Restart your terminal or run: source $shell_rc"
     return 0
 }
 
-# Remove the hook from ~/.zshrc
+# Remove the hook from ~/.zshrc (transactional — pre-state backed up, B1.2)
 auto_activate_remove() {
     local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
 
@@ -574,15 +664,33 @@ auto_activate_remove() {
         return 0
     fi
 
+    transaction_start "auto_activate_remove" || return 1
+    if ! transaction_add_file "$shell_rc"; then
+        transaction_rollback >/dev/null 2>&1
+        return 1
+    fi
+
     local tmp
-    tmp="$(mktemp)"
-    awk "/^# >>> dev auto-activate hook <<<\$/,/^# <<< dev auto-activate hook <<<\$/{next} 1" \
-        "$shell_rc" > "$tmp" && mv "$tmp" "$shell_rc"
+    tmp="$(mktemp)" || { transaction_rollback >/dev/null 2>&1; return 1; }
+    if ! awk "/^# >>> dev auto-activate hook <<<\$/,/^# <<< dev auto-activate hook <<<\$/{next} 1" \
+            "$shell_rc" > "$tmp"; then
+        rm -f "$tmp" 2>/dev/null
+        transaction_rollback >/dev/null 2>&1
+        return 1
+    fi
+    if ! mv "$tmp" "$shell_rc"; then
+        rm -f "$tmp" 2>/dev/null
+        transaction_rollback >/dev/null 2>&1
+        return 1
+    fi
+    transaction_commit
     log_success "dev auto-activate hook removed from $shell_rc"
     return 0
 }
 
 # Export public API
-export -f auto_activate_all auto_activate_setup auto_activate_remove
+export -f auto_activate_all auto_activate_on_cd auto_activate_setup auto_activate_remove
+export -f auto_trust auto_untrust auto_is_trusted
 export -f aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java aa_php aa_rust aa_asdf
 export -f _aa_find_up _nvm_sync_symlinks
+export -f _aa_trust_registry _aa_canonical_dir _aa_sha256_str
