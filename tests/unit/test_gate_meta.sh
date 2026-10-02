@@ -133,6 +133,10 @@ test_meta_quality_red() {
     # Red is not enough: the gate must fail BECAUSE OF the seeded finding.
     # A fail-closed "shellcheck missing" would also be red — that is not a
     # pass for this case (needed on hosted CI agents: builds #4–#5).
+    # CI diagnosability: show what the gate actually did (builds #4-#6).
+    printf '%s\n' "---- B1.7 gate output (tail) ----" >&2
+    printf '%s\n' "$meta_out" | tail -12 >&2
+    printf '%s\n' "shellcheck-in-clone: $( cd "$clone" && command -v shellcheck || echo MISSING )" >&2
     if printf '%s' "$meta_out" | grep -q "SC2086"; then
         assert_equals "seeded" "found" "B1.7: gate output cites the seeded SC2086 finding (red for the right reason)" || f=$((f + 1))
     else
