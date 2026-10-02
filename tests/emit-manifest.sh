@@ -96,6 +96,11 @@ for f in "${files[@]}"; do
         # the invocation rc is the suite aggregate, so extract the per-file code.
         parsed="$(printf '%s\n' "$plain" | grep -F "✗ ${name} (exit" | tail -1 | sed -E 's/.*\(exit ([0-9]+)\).*/\1/')"
         [[ -n "$parsed" ]] && file_rc="$parsed"
+        # Surface the failing file's own output — without this, CI logs show
+        # only the manifest summary and a failing test is undiagnosable.
+        printf '%s\n' "---- failed: ${name} (output tail) ----" >&2
+        printf '%s\n' "$plain" | tail -40 >&2
+        printf '%s\n' "--------------------------------" >&2
     elif printf '%s\n' "$plain" | grep -Eq "⊘ ${name}( |$)"; then
         status="skip"
         skipped=$((skipped + 1))
