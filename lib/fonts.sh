@@ -104,7 +104,7 @@ font_detect_installed() {
 # Check if MesloLGS Nerd Font is installed
 font_is_installed() {
     local installed
-    installed=$(font_detect_installed | grep -c "MesloLGS" || echo "0")
+    installed=$(font_detect_installed | grep -c "MesloLGS" || true)  # grep -c already prints 0; a second echo made "0\n0" and broke -gt arithmetic
     [[ "$installed" -gt 0 ]]
 }
 
@@ -157,7 +157,7 @@ font_bundled_exist() {
 
     for font in "${BUNDLED_FONTS[@]}"; do
         if [[ ! -f "$SCRIPT_DIR/$font" ]]; then
-            ((missing++))
+            missing=$(( missing + 1 ))
         fi
     done
 
@@ -190,14 +190,14 @@ font_install_bundled() {
         if [[ -f "$src" ]]; then
             if cp "$src" "$target_dir/"; then
                 log_success "Installed: $font"
-                ((installed++))
+                installed=$(( installed + 1 ))
             else
                 log_error "Failed to install: $font"
-                ((failed++))
+                failed=$(( failed + 1 ))
             fi
         else
             log_warn "Missing local font file: $font"
-            ((failed++))
+            failed=$(( failed + 1 ))
         fi
     done
 
@@ -279,7 +279,7 @@ font_uninstall() {
         if [[ -f "$font_path" ]]; then
             rm -f "$font_path"
             log_info "Removed: $font"
-            ((removed++))
+            removed=$(( removed + 1 ))
         fi
     done
 

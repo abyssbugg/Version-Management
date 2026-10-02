@@ -152,17 +152,17 @@ generate_text_report() {
 
     if [[ ${errors:-0} -gt 5 ]]; then
         echo "  • Run diagnostics to investigate errors: ./tools/system-diagnostics.sh"
-        ((recommendations++))
+        recommendations=$(( recommendations + 1 ))
     fi
 
     if [[ ${version_switches:-0} -eq 0 && ${total_sessions:-0} -gt 3 ]]; then
         echo "  • Consider using .nvmrc/.python-version files for automatic switching"
-        ((recommendations++))
+        recommendations=$(( recommendations + 1 ))
     fi
 
     if [[ ${total_sessions:-0} -lt 5 ]]; then
         echo "  • Continue using the tools to build up usage data"
-        ((recommendations++))
+        recommendations=$(( recommendations + 1 ))
     fi
 
     if [[ $recommendations -eq 0 ]]; then

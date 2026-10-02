@@ -20,21 +20,21 @@ main() {
         log_success "Node.js: $(node --version)"
     else
         log_error "Node.js: not found"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     if command -v npm >/dev/null 2>&1; then
         log_success "npm: v$(npm --version)"
     else
         log_error "npm: not found"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     if command -v python3 >/dev/null 2>&1; then
         log_success "Python: $(python3 --version | cut -d' ' -f2)"
     else
         log_error "Python: not found"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     echo

@@ -86,7 +86,7 @@ list_all_backups() {
     if [[ -d "$BACKUP_DIR" ]]; then
         local count=0
         while IFS= read -r backup; do
-            ((count++))
+            count=$(( count + 1 ))
             local basename
             basename=$(basename "$backup")
             local mtime
@@ -115,7 +115,7 @@ list_restore_points() {
         local count=0
         for point_dir in "$RESTORE_POINTS_DIR"/*/; do
             [[ -d "$point_dir" ]] || continue
-            ((count++))
+            count=$(( count + 1 ))
             local point_name
             point_name=$(basename "$point_dir")
             local metadata="$point_dir/metadata.txt"
@@ -210,21 +210,21 @@ restore_all() {
     local failed=0
 
     if restore_zshrc 2>/dev/null; then
-        ((restored++))
+        restored=$(( restored + 1 ))
     else
-        ((failed++))
+        failed=$(( failed + 1 ))
     fi
 
     if restore_p10k 2>/dev/null; then
-        ((restored++))
+        restored=$(( restored + 1 ))
     else
-        ((failed++))
+        failed=$(( failed + 1 ))
     fi
 
     if restore_vscode 2>/dev/null; then
-        ((restored++))
+        restored=$(( restored + 1 ))
     else
-        ((failed++))
+        failed=$(( failed + 1 ))
     fi
 
     echo

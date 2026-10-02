@@ -277,7 +277,7 @@ theme_list_available() {
 
         if [ -f "$theme_path" ]; then
             echo "  ✓ $theme_name - $description"
-            ((theme_count++))
+            theme_count=$(( theme_count + 1 ))
         else
             echo "  ✗ $theme_name - $description (file not found)"
         fi

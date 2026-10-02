@@ -59,12 +59,12 @@ backup_existing_symlinks() {
             # Backup symlink
             cp -P "/usr/local/bin/$cmd" "$backup_dir/"
             log_info "Backed up: /usr/local/bin/$cmd"
-            ((backed_up++))
+            backed_up=$(( backed_up + 1 ))
         elif [[ -f "/usr/local/bin/$cmd" ]]; then
             # Backup regular file
             cp "/usr/local/bin/$cmd" "$backup_dir/"
             log_warn "Backed up (non-symlink): /usr/local/bin/$cmd"
-            ((backed_up++))
+            backed_up=$(( backed_up + 1 ))
         fi
     done
 

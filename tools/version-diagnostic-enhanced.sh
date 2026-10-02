@@ -427,7 +427,7 @@ diagnose_dependencies() {
     for tool in "${required_tools[@]}"; do
         if command -v "$tool" >/dev/null 2>&1; then
             log_success " $tool available"
-            ((found_tools++))
+            found_tools=$(( found_tools + 1 ))
         else
             log_error " $tool missing"
             track_result "error"

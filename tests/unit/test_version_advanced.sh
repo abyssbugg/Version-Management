@@ -191,7 +191,7 @@ test_all_cicd_generator_functions_exist() {
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
-            ((missing++))
+            missing=$(( missing + 1 ))
         fi
     done
 
@@ -213,7 +213,7 @@ test_all_dockerfile_generator_functions_exist() {
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
-            ((missing++))
+            missing=$(( missing + 1 ))
         fi
     done
 

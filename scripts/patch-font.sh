@@ -169,7 +169,7 @@ install_patched_fonts() {
     while IFS= read -r font; do
         cp "$font" "$dest_dir/"
         log_success "Installed: $(basename "$font") → $dest_dir/"
-        ((count++))
+        count=$(( count + 1 ))
     done <<< "$font_files"
 
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then

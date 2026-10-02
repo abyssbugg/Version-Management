@@ -181,7 +181,7 @@ safe_exec() {
             return 0
         fi
 
-        attempt=$((attempt + 1))  # portable: avoids exit-1 from ((attempt++)) when attempt==0 under set -e
+        attempt=$((attempt + 1))  # portable: avoids exit-1 from attempt=$(( attempt + 1 )) when attempt==0 under set -e
         log_warn "Command failed (attempt $attempt/$max_retries): $command"
 
         if (( attempt < max_retries )); then
@@ -224,7 +224,7 @@ safe_exec_backoff() {
             return 0
         fi
 
-        attempt=$((attempt + 1))  # portable: avoids exit-1 from ((attempt++)) when attempt==0 under set -e
+        attempt=$((attempt + 1))  # portable: avoids exit-1 from attempt=$(( attempt + 1 )) when attempt==0 under set -e
         log_warn "Command failed (attempt $attempt/$max_retries): $command"
 
         if (( attempt < max_retries )); then

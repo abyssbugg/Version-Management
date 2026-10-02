@@ -26,7 +26,9 @@ _ENV_SH_LOADED=1
 #   if detect_nvm; then echo "NVM is available"; fi
 # =============================================================================
 
-set -euo pipefail
+# Contract (directive A2/M1): this file is SOURCED — it must not set global
+# shell options; callers own their strict-mode posture. Argument validation
+# and error propagation are explicit inside library functions.
 
 # Source logger if available
 if [[ -f "$(dirname "${BASH_SOURCE[0]}")/logger.sh" ]]; then

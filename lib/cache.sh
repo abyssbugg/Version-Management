@@ -186,7 +186,7 @@ cache_cleanup() {
             if ! is_cache_valid "$cache_file" "$ttl"; then
                 log_debug "Removing expired cache file: $(basename "$cache_file")"
                 rm "$cache_file"
-                ((cleaned_count++))
+                cleaned_count=$(( cleaned_count + 1 ))
             fi
         fi
     done

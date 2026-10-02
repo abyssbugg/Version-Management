@@ -107,7 +107,7 @@ validate_nerd_font() {
     for font in "${font_files[@]}"; do
         if [[ -f "$font" ]]; then
             log_success " Font file available: $font"
-            ((fonts_found++))
+            fonts_found=$(( fonts_found + 1 ))
         else
             log_warn "  Font file missing: $font"
             track_result "warning"

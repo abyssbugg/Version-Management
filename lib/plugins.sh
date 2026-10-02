@@ -12,7 +12,9 @@
 [[ -n "${_PLUGINS_SH_LOADED:-}" ]] && return 0 2>/dev/null || true
 _PLUGINS_SH_LOADED=1
 
-set -euo pipefail
+# Contract (directive A2/M1): this file is SOURCED — it must not set global
+# shell options; callers own their strict-mode posture. Argument validation
+# and error propagation are explicit inside library functions.
 
 # Source dependencies
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

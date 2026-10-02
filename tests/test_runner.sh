@@ -14,6 +14,14 @@
 
 set -euo pipefail
 
+# Bash version contract (directive M1, finding B1.9): the harness uses
+# bash-4+ constructs (mapfile, associative arrays). Fail with a clear
+# message instead of a confusing syntax error on bash 3.x (macOS default).
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "test_runner: bash >= 4.0 required (found ${BASH_VERSION})" >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 

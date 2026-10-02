@@ -85,12 +85,12 @@ install_local_fonts() {
                 # macOS installation
                 cp "$SCRIPT_DIR/$font" ~/Library/Fonts/
                 log_success " Installed: $font"
-                ((installed++))
+                installed=$(( installed + 1 ))
             elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
                 # Linux installation
                 mkdir -p ~/.local/share/fonts
                 cp "$SCRIPT_DIR/$font" ~/.local/share/fonts/
-                ((installed++))
+                installed=$(( installed + 1 ))
             fi
         else
             log_warn " Font file not found: $font"

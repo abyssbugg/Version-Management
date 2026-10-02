@@ -23,7 +23,9 @@
 #   restore_backup "$HOME/.zshrc" "20240101_120000"
 # =============================================================================
 
-set -euo pipefail
+# Contract (directive A2/M1): this file is SOURCED — it must not set global
+# shell options; callers own their strict-mode posture. Argument validation
+# and error propagation are explicit inside library functions.
 
 # Source logger utilities if available
 LIB_DIR="$(dirname "${BASH_SOURCE[0]}")"
@@ -369,7 +371,7 @@ cleanup_old_backups() {
     while IFS= read -r -d '' old_file; do
         if rm "$old_file" 2>/dev/null; then
             log_debug "Removed old backup: $(basename "$old_file")"
-                    cleanup_count=$((cleanup_count + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+                    cleanup_count=$((cleanup_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
         fi
     done < <(find "$backup_dir" -name "*.backup.*" -type f -mtime "+$max_age_days" -print0 2>/dev/null)
 
@@ -408,7 +410,7 @@ cleanup_old_backups() {
             for ((i=0; i<excess_count; i++)); do
                 if rm "${type_backups[i]}" 2>/dev/null; then
                     log_debug "Removed excess backup: $(basename "${type_backups[i]}")"
-                    cleanup_count=$((cleanup_count + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+                    cleanup_count=$((cleanup_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
                 fi
             done
         fi
@@ -598,7 +600,7 @@ transaction_rollback() {
                     log_debug "Restored: $original"
                 else
                     log_error "Failed to restore: $original"
-                    rollback_errors=$((rollback_errors + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+                    rollback_errors=$((rollback_errors + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
                 fi
             fi
         done < "$_TRANSACTION_DIR/mappings.txt"
@@ -693,7 +695,7 @@ create_restore_point() {
             backup_name=$(echo "$file" | tr '/' '_')
             cp "$file" "$restore_dir/$backup_name"
             echo "$file|$restore_dir/$backup_name" >> "$restore_dir/mappings.txt"
-            file_count=$((file_count + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+            file_count=$((file_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
         else
             log_debug "File not found, skipping: $file"
         fi
@@ -748,10 +750,10 @@ restore_from_point() {
 
             if cp "$backup" "$original"; then
                 log_debug "Restored: $original"
-                restore_count=$((restore_count + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+                restore_count=$((restore_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
             else
                 log_error "Failed to restore: $original"
-                restore_errors=$((restore_errors + 1))  # portable: avoids exit-1 from ((n++)) when n=0 under set -e
+                restore_errors=$((restore_errors + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
             fi
         fi
     done < "$restore_dir/mappings.txt"

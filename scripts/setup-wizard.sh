@@ -118,7 +118,7 @@ prompt_select() {
     local i=1
     for opt in "${options[@]}"; do
         echo -e "    ${CYAN}$i)${NC} $opt"
-        ((i++))
+        i=$(( i + 1 ))
     done
     echo
 
@@ -290,7 +290,7 @@ step_system_check() {
     else
         show_warning "Zsh not detected as default shell"
         show_info "Some features require zsh. Consider switching: chsh -s \$(which zsh)"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     # Check git
@@ -298,7 +298,7 @@ step_system_check() {
         show_success "Git installed: $(git --version | head -1)"
     else
         show_error "Git not found - required for installation"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     # Check curl/wget
@@ -308,7 +308,7 @@ step_system_check() {
         show_success "wget available"
     else
         show_error "Neither curl nor wget found - required for downloads"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     # Check Homebrew on macOS

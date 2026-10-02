@@ -212,7 +212,7 @@ install_fonts() {
     for font in "${REPO_ROOT}"/MesloLGS*.ttf; do
         if [[ -f "$font" ]]; then
             cp "$font" "$font_dir/"
-            ((fonts_installed++))
+            fonts_installed=$(( fonts_installed + 1 ))
         fi
     done
 

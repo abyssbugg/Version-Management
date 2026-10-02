@@ -186,7 +186,7 @@ show_history() {
             local color
             color=$(get_score_color "${score:-0}")
             echo -e "  ${timestamp}: Score ${color}${score:-0}%${NC}"
-            ((count++))
+            count=$(( count + 1 ))
         fi
     done
 
@@ -363,8 +363,8 @@ validate_setup() {
     local issues=0
 
     echo "=== Project Files Check ==="
-    [[ -f ".nvmrc" ]] && echo -e "${GREEN}✓${NC} .nvmrc present" || { echo -e "${YELLOW}!${NC} .nvmrc missing"; ((issues++)) || true; }
-    [[ -f ".python-version" ]] && echo -e "${GREEN}✓${NC} .python-version present" || { echo -e "${YELLOW}!${NC} .python-version missing"; ((issues++)) || true; }
+    [[ -f ".nvmrc" ]] && echo -e "${GREEN}✓${NC} .nvmrc present" || { echo -e "${YELLOW}!${NC} .nvmrc missing"; issues=$(( issues + 1 )); }
+    [[ -f ".python-version" ]] && echo -e "${GREEN}✓${NC} .python-version present" || { echo -e "${YELLOW}!${NC} .python-version missing"; issues=$(( issues + 1 )); }
     [[ -f "package.json" ]] && echo -e "${GREEN}✓${NC} package.json present" || echo -e "${BLUE}i${NC} package.json not present (optional)"
     echo
 
@@ -373,7 +373,7 @@ validate_setup() {
         echo -e "${GREEN}✓${NC} PowerLevel10k config found"
     else
         echo -e "${YELLOW}!${NC} PowerLevel10k not configured"
-        ((issues++)) || true
+        issues=$(( issues + 1 ))
     fi
     echo
 
@@ -383,7 +383,7 @@ validate_setup() {
             echo -e "${GREEN}✓${NC} MesloLGS Nerd Font detected"
         else
             echo -e "${YELLOW}!${NC} MesloLGS Nerd Font not found in system"
-            ((issues++)) || true
+            issues=$(( issues + 1 ))
         fi
     else
         echo -e "${BLUE}i${NC} fc-list not available, cannot check fonts"

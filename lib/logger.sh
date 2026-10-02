@@ -31,7 +31,9 @@ _LOGGER_SH_LOADED=1
 #   - SILENT_MODE : Set to 'true' to suppress all terminal output (file logging still occurs)
 # =============================================================================
 
-set -euo pipefail
+# Contract (directive A2/M1): this file is SOURCED — it must not set global
+# shell options; callers own their strict-mode posture. Argument validation
+# and error propagation are explicit inside library functions.
 
 # Color codes for terminal output (only declare if not already set)
 if [[ -z "${BLUE:-}" ]]; then

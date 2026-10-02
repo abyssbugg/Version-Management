@@ -252,7 +252,7 @@ _show_top_features() {
             value="${value// /}"
             if [[ -n "$key" && "$value" =~ ^[0-9]+$ && $value -gt 0 ]]; then
                 printf "║    %-18s %8s uses                        ║\n" "$key" "$value"
-                ((found++))
+                found=$(( found + 1 ))
                 [[ $found -ge $limit ]] && break
             fi
         done < <(grep -A20 "\"$category\"" "$METRICS_STATS" 2>/dev/null | grep -E '^\s+"[^"]+": [0-9]+' | sort -t: -k2 -rn)

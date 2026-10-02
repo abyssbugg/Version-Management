@@ -77,7 +77,7 @@ count_rendering_issues() {
 
     for icon in "${test_icons[@]}"; do
         if [[ -z "$icon" ]]; then
-            ((issues++))
+            issues=$(( issues + 1 ))
         fi
     done
 
@@ -245,7 +245,7 @@ offer_auto_fix() {
     # Check if fonts are in project but not installed
     local project_fonts=0
     for font in "$SCRIPT_DIR"/MesloLGS*.ttf; do
-        [[ -f "$font" ]] && ((project_fonts++))
+        [[ -f "$font" ]] && project_fonts=$(( project_fonts + 1 ))
     done
 
     if [[ $project_fonts -gt 0 ]]; then
@@ -290,7 +290,7 @@ install_fonts_auto() {
         if [[ -f "$font" ]]; then
             cp "$font" "$target_dir/"
             echo -e "${GREEN}${NC} Installed: $(basename "$font")"
-            ((installed++))
+            installed=$(( installed + 1 ))
         fi
     done
 

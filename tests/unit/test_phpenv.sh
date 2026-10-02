@@ -219,7 +219,7 @@ test_all_exported_functions_exist() {
     for func in "${functions[@]}"; do
         if ! declare -f "$func" >/dev/null 2>&1; then
             echo "Missing function: $func"
-            ((missing++))
+            missing=$(( missing + 1 ))
         fi
     done
 

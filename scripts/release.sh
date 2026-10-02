@@ -310,7 +310,7 @@ run_checks() {
     # Check git status
     if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
         log_warn "Working directory has uncommitted changes"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     # Check we're on main/master
@@ -318,7 +318,7 @@ run_checks() {
     branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     if [[ "$branch" != "main" && "$branch" != "master" ]]; then
         log_warn "Not on main/master branch (current: $branch)"
-        ((issues++))
+        issues=$(( issues + 1 ))
     fi
 
     # Run tests if available
@@ -328,7 +328,7 @@ run_checks() {
             log_success "Tests passed"
         else
             log_warn "Tests failed or not available"
-            ((issues++))
+            issues=$(( issues + 1 ))
         fi
     fi
 
@@ -339,7 +339,7 @@ run_checks() {
             log_success "Lint passed"
         else
             log_warn "Lint issues found"
-            ((issues++))
+            issues=$(( issues + 1 ))
         fi
     fi
 
