@@ -26,6 +26,18 @@ source "$SCRIPT_DIR/logger.sh" 2>/dev/null || {
     log_success() { echo "[SUCCESS] $*"; }
 }
 
+# B1.1: the plugin mutation paths depend on the shared validation foundation
+# (identifier grammar, canonical containment). If it cannot be sourced,
+# install fail-closed stubs — a plugin must never be written or removed
+# through an unvalidated trust boundary.
+if ! source "$SCRIPT_DIR/validation.sh" 2>/dev/null; then
+    log_error "plugins.sh: validation.sh unavailable — fail-closed stubs active"
+    validate_identifier() { log_error "Validation unavailable — refusing plugin name: $1"; return 1; }
+    path_validate_containment() { log_error "Validation unavailable — refusing path: $1"; return 1; }
+    validate_safe_path() { log_error "Validation unavailable — refusing path: $1"; return 1; }
+    _path_realpath() { return 1; }
+fi
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -160,6 +172,11 @@ plugin_load_all() {
 plugin_unload() {
     local plugin_name="$1"
 
+    # B1.1: registry keys are plugin names — apply the identifier grammar.
+    if ! validate_identifier "$plugin_name"; then
+        return 1
+    fi
+
     if [[ -z "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
         log_debug "Plugin not loaded: $plugin_name"
         return 0
@@ -254,6 +271,15 @@ plugin_list_loaded() {
 plugin_run() {
     local plugin_name="$1"
     local func_name="$2"
+
+    # B1.1: both names are composed into a function identifier — grammar gate.
+    if ! validate_identifier "$plugin_name"; then
+        return 1
+    fi
+    if ! validate_identifier "$func_name"; then
+        return 1
+    fi
+
     shift 2
 
     if [[ -z "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
@@ -277,6 +303,11 @@ plugin_has_capability() {
     local plugin_name="$1"
     local capability="$2"
 
+    # B1.1: same grammar gate as plugin_run (composed function identifier).
+    if ! validate_identifier "$plugin_name" || ! validate_identifier "$capability"; then
+        return 1
+    fi
+
     local full_func="${plugin_name}_${capability}"
     declare -f "$full_func" >/dev/null 2>&1
 }
@@ -285,6 +316,8 @@ plugin_has_capability() {
 # Usage: is_plugin_installed "plugin_name"
 is_plugin_installed() {
     local plugin_name="$1"
+    # B1.1: a non-identifier can never denote an installed plugin.
+    validate_identifier "$plugin_name" || return 1
     [[ -f "$PLUGIN_DIR/${plugin_name}.sh" ]] || [[ -f "$PLUGIN_ENABLED_DIR/${plugin_name}.sh" ]]
 }
 
@@ -297,8 +330,21 @@ list_plugins() {
 # Plugin Installation
 # ============================================================================
 
+# B1.1: transaction names must satisfy the transaction grammar in backup.sh
+# (letters/digits/underscore/hyphen, first char alnum, <=63 chars). Plugin
+# names are already grammar-validated ([A-Za-z0-9._-]) before reaching this
+# helper; dots are folded to underscores, the '.sh' suffix is stripped and
+# the suffix truncated so the composed name always fits the grammar.
+_plugin_txn_name() {
+    local op="$1" name="$2"
+    local suffix="${name%.sh}"
+    suffix="${suffix//./_}"
+    suffix="${suffix:0:48}"
+    printf 'plugin_%s_%s' "$op" "$suffix"
+}
+
 # Install a plugin from a file
-# Usage: plugin_install_from_file "/path/to/plugin.sh"
+# Usage: plugin_install_from_file "/path/to/plugin.sh" [target_name]
 plugin_install_from_file() {
     local source_path="$1"
     local target_name="${2:-}"
@@ -312,11 +358,65 @@ plugin_install_from_file() {
         target_name=$(basename "$source_path")
     fi
 
+    # B1.1: strict identifier grammar — applies to explicit names AND to
+    # basename-derived ones. Rejects traversal ('..'), separators, leading
+    # dots, empties; nothing outside the plugin dir can be denoted.
+    if ! validate_identifier "$target_name"; then
+        return 1
+    fi
+
+    # The plugin directory is configuration (not caller input); create it
+    # before the containment check, which requires an existing base.
+    if ! mkdir -p "$PLUGIN_ENABLED_DIR"; then
+        log_error "Cannot create plugin directory: $PLUGIN_ENABLED_DIR"
+        return 1
+    fi
+
     local target_path="$PLUGIN_ENABLED_DIR/$target_name"
 
-    mkdir -p "$PLUGIN_ENABLED_DIR"
-    cp "$source_path" "$target_path"
-    chmod +x "$target_path"
+    # B1.1: canonical containment — sibling-proof and canonical (raw-string
+    # prefix tricks like PLUGIN_ENABLED_DIR2 fail; not-yet-existing targets
+    # are canonicalized through their existing ancestor).
+    if ! path_validate_containment "$target_path" "$PLUGIN_ENABLED_DIR"; then
+        return 1
+    fi
+
+    # B1.1: never install THROUGH a symlink — cp would follow it and write
+    # outside the plugin directory. A plugin install target must be absent
+    # or a regular file; escaping links are rejected outright.
+    if [[ -L "$target_path" ]]; then
+        log_error "Refusing to install over a symlink: $target_path"
+        return 1
+    fi
+
+    # B1.1: route the mutation through the transaction primitive — a mid-way
+    # failure rolls back to fully-absent (new file) or the prior bytes
+    # (overwrite). The transaction name is derived to satisfy the
+    # transaction grammar (see _plugin_txn_name).
+    if ! transaction_start "$(_plugin_txn_name install "$target_name")"; then
+        return 1
+    fi
+    if ! transaction_add_file "$target_path"; then
+        transaction_rollback
+        return 1
+    fi
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would install plugin: $target_name"
+    else
+        if ! cp "$source_path" "$target_path"; then
+            transaction_rollback
+            return 1
+        fi
+        if ! chmod +x "$target_path"; then
+            transaction_rollback
+            return 1
+        fi
+    fi
+
+    if ! transaction_commit; then
+        return 1
+    fi
 
     log_success "Plugin installed: $target_name"
     log_info "Reload plugins with: plugin_load_all"
@@ -327,17 +427,72 @@ plugin_install_from_file() {
 plugin_remove() {
     local plugin_name="$1"
 
+    # B1.1: grammar gate FIRST — a non-identifier cannot denote a plugin
+    # inside PLUGIN_ENABLED_DIR, so nothing is unloaded or deleted.
+    if ! validate_identifier "$plugin_name"; then
+        return 1
+    fi
+
     # Unload first
     plugin_unload "$plugin_name"
 
     # Remove from user directory
     local plugin_path="$PLUGIN_ENABLED_DIR/${plugin_name}.sh"
-    if [[ -f "$plugin_path" ]]; then
-        rm -f "$plugin_path"
-        log_success "Plugin removed: $plugin_name"
-    else
+
+    if [[ ! -e "$plugin_path" && ! -L "$plugin_path" ]]; then
         log_warn "Plugin file not found: $plugin_path"
+        return 0
     fi
+
+    # B1.1: symlink-escape rejection with a distinct message — resolve the
+    # link and refuse if its referent lives outside the plugin directory
+    # (both the link and the outside target survive).
+    if [[ -L "$plugin_path" ]]; then
+        local resolved rbase
+        resolved=$(_path_realpath "$plugin_path") || {
+            log_error "Cannot resolve plugin symlink: $plugin_path"
+            return 1
+        }
+        rbase=$(_path_realpath "$PLUGIN_ENABLED_DIR") || {
+            log_error "Cannot resolve plugin directory: $PLUGIN_ENABLED_DIR"
+            return 1
+        }
+        if [[ "$resolved" != "$rbase" && "$resolved" != "$rbase/"* ]]; then
+            log_error "Refusing to remove plugin through symlink escaping the plugin directory: $plugin_path"
+            return 1
+        fi
+    fi
+
+    # B1.1: canonical containment as the general gate (covers any remaining
+    # resolution trick — sibling prefixes, indirection through in-dir links).
+    if ! path_validate_containment "$plugin_path" "$PLUGIN_ENABLED_DIR"; then
+        return 1
+    fi
+
+    # B1.1: transactional delete — the pre-state (file or symlink) is backed
+    # up hash-verified before the rm; a failed rm rolls back.
+    if ! transaction_start "$(_plugin_txn_name remove "$plugin_name")"; then
+        return 1
+    fi
+    if ! transaction_add_file "$plugin_path"; then
+        transaction_rollback
+        return 1
+    fi
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would remove plugin: $plugin_name"
+    else
+        if ! rm -f "$plugin_path"; then
+            transaction_rollback
+            return 1
+        fi
+    fi
+
+    if ! transaction_commit; then
+        return 1
+    fi
+
+    log_success "Plugin removed: $plugin_name"
 }
 
 # ============================================================================
@@ -345,17 +500,46 @@ plugin_remove() {
 # ============================================================================
 
 # Generate a plugin template
-# Usage: plugin_create_template "my_plugin"
+# Usage: plugin_create_template "my_plugin" [output_path]
 plugin_create_template() {
     local plugin_name="$1"
-    local output_path="${2:-$PLUGIN_ENABLED_DIR/${plugin_name}.sh}"
+    local output_path="${2:-}"
 
     if [[ -z "$plugin_name" ]]; then
         log_error "Plugin name required"
         return 1
     fi
 
-    mkdir -p "$(dirname "$output_path")"
+    # B1.1: the name is interpolated into generated code (function names)
+    # and into the sed substitution below — grammar-restrict it so it can
+    # neither smuggle traversal nor corrupt the template generation.
+    if ! validate_identifier "$plugin_name"; then
+        return 1
+    fi
+
+    if [[ -n "$output_path" ]]; then
+        # Explicit caller-supplied path: lexical screen only (no traversal,
+        # no shell metacharacters). The caller chooses the location; the
+        # screen guarantees the path cannot smuggle '..' or metacharacters.
+        if ! validate_safe_path "$output_path"; then
+            return 1
+        fi
+    else
+        # Name-derived path: must be canonically contained in the plugin dir.
+        if ! mkdir -p "$PLUGIN_ENABLED_DIR"; then
+            log_error "Cannot create plugin directory: $PLUGIN_ENABLED_DIR"
+            return 1
+        fi
+        output_path="$PLUGIN_ENABLED_DIR/${plugin_name}.sh"
+        if ! path_validate_containment "$output_path" "$PLUGIN_ENABLED_DIR"; then
+            return 1
+        fi
+    fi
+
+    if ! mkdir -p "$(dirname "$output_path")"; then
+        log_error "Cannot create output directory for: $output_path"
+        return 1
+    fi
 
     cat > "$output_path" << 'TEMPLATE'
 #!/usr/bin/env bash
@@ -441,11 +625,20 @@ plugin_use() { PLUGIN_NAME_use "$@"; }
 plugin_cleanup() { PLUGIN_NAME_cleanup; }
 TEMPLATE
 
-    # Replace PLUGIN_NAME placeholder
-    sed -i '' "s/PLUGIN_NAME/$plugin_name/g" "$output_path" 2>/dev/null || \
-        sed -i "s/PLUGIN_NAME/$plugin_name/g" "$output_path"
+    # Replace PLUGIN_NAME placeholder (name is grammar-validated: no '/', no
+    # '&', no newlines — the sed expression cannot be corrupted).
+    if ! sed -i '' "s/PLUGIN_NAME/$plugin_name/g" "$output_path" 2>/dev/null \
+        && ! sed -i "s/PLUGIN_NAME/$plugin_name/g" "$output_path"; then
+        log_error "Template substitution failed for: $output_path"
+        rm -f "$output_path"
+        return 1
+    fi
 
-    chmod +x "$output_path"
+    if ! chmod +x "$output_path"; then
+        log_error "Cannot make template executable: $output_path"
+        rm -f "$output_path"
+        return 1
+    fi
 
     log_success "Plugin template created: $output_path"
     log_info "Edit the file and replace TOOL_COMMAND with your tool's command"
