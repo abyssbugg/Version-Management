@@ -1,0 +1,81 @@
+# =============================================================================
+# Buildkite CI pipeline — version-management-setup
+# =============================================================================
+# Migrated from .github/workflows/test.yml (2026-10-02). Buildkite is the
+# sole AUTOMATIC CI engine; the GitHub Actions twin is a manual-only
+# fallback (workflow_dispatch) so the two engines never double-fire.
+#
+# Gate parity with the pre-migration workflow:
+#   ShellCheck lint (warning severity) · fail-closed syntax gate ·
+#   pre-commit · gitleaks secret scan · test matrix (Linux + macOS)
+#
+# M0 addition: every test step emits the canonical test manifest
+# (tests/emit-manifest.sh via `make test`) and uploads it as a per-OS
+# artifact — Buildkite is an evidence producer for the manifest-parity
+# GO condition. artifact_paths matching no files fails the step, which
+# keeps the evidence chain fail-closed.
+# =============================================================================
+
+steps:
+  - group: ":mag: Linting & Validation"
+    key: "lint-group"
+    steps:
+      - label: ":shell: ShellCheck Lint"
+        key: "lint"
+        command: "./scripts/lint-shell.sh -- --severity=warning"
+        agents:
+          queue: "linux-small"
+
+      - label: ":white_check_mark: Syntax Validation"
+        key: "syntax"
+        command: "make syntax-check"
+        agents:
+          queue: "linux-small"
+
+      - label: ":hook: Pre-commit Hooks"
+        key: "pre-commit"
+        command: |
+          command -v pre-commit >/dev/null 2>&1 || pip3 install --quiet pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+        agents:
+          queue: "linux-small"
+
+      - label: ":lock: Secret Scan (gitleaks)"
+        key: "secret-scan"
+        command: |
+          git fetch --unshallow || true
+          command -v gitleaks >/dev/null 2>&1 || {
+            echo "installing pinned gitleaks v8.28.0"
+            curl -fsSL -o /tmp/gitleaks.tgz \
+              https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+            tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+            install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          }
+          gitleaks detect --verbose --redact
+        agents:
+          queue: "linux-small"
+
+  - wait
+
+  - group: ":test_tube: Tests (canonical manifest per OS)"
+    key: "test-group"
+    steps:
+      - label: ":penguin: Tests (Linux)"
+        key: "test-linux"
+        command: |
+          command -v zsh >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq zsh; }
+          make test
+        artifact_paths:
+          - "test-results/manifest.json"
+          - "test-results/manifest.tsv"
+        agents:
+          queue: "linux-small"
+
+      - label: ":apple: Tests (macOS)"
+        key: "test-macos"
+        command: "make test"
+        artifact_paths:
+          - "test-results/manifest.json"
+          - "test-results/manifest.tsv"
+        agents:
+          queue: "macos-medium"
