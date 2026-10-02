@@ -487,39 +487,101 @@ _TRANSACTION_NAME=""
 _TRANSACTION_DIR=""
 _TRANSACTION_FILES=()
 
+# Name grammar (A3): restrictive identifier — letters, digits, underscore,
+# hyphen only, 1-63 chars. Names are interpolated into filesystem paths and
+# metadata, so anything else is rejected outright.
+_TRANSACTION_NAME_RE='^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$'
+
+# A3: content hashes use whatever 256-bit tool the platform provides.
+_txn_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" 2>/dev/null | awk '{print $1}'
+    else
+        shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+    fi
+}
+
+# Audit journal (P3-2 seed; M2: metadata recorded per operation). Best-effort:
+# a journal failure is surfaced but never blocks rollback safety.
+_txn_journal() {
+    local event="$1" detail="$2"
+    local journal="${TXN_AUDIT_LOG:-$HOME/.config/version-manager/audit.log}"
+    local dir
+    dir=$(dirname "$journal")
+    if ! mkdir -p "$dir" 2>/dev/null; then
+        log_warn "audit journal unavailable: $journal"
+        return 0
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$event" "${_TRANSACTION_NAME:-}" "${_TRANSACTION_DIR:-}" "$detail" >> "$journal" 2>/dev/null \
+        || log_warn "audit journal write failed: $journal"
+}
+
 # Start a new transaction
 # Usage: transaction_start "theme_installation"
 transaction_start() {
-    local name="${1:-transaction}"
+    local name="${1-transaction}"  # empty arg is NOT defaulted — it must fail the grammar
 
     if [[ -n "$_TRANSACTION_ACTIVE" ]]; then
         log_error "Transaction already active: $_TRANSACTION_NAME"
         return 1
     fi
 
+    if ! [[ "$name" =~ $_TRANSACTION_NAME_RE ]]; then
+        log_error "Invalid transaction name '${name}' (allowed: letters, digits, underscore, hyphen; max 63 chars)"
+        return 1
+    fi
+
+    # Dry-run (mutation invariant): plan-only — zero filesystem writes.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        _TRANSACTION_ACTIVE="dryrun"
+        _TRANSACTION_NAME="$name"
+        _TRANSACTION_DIR=""
+        _TRANSACTION_FILES=()
+        log_info "Transaction (dry-run, zero writes): $name"
+        _txn_journal "start" "mode=dry_run"
+        return 0
+    fi
+
     _TRANSACTION_NAME="$name"
-    _TRANSACTION_DIR="$DEFAULT_BACKUP_DIR/transactions/${name}_$(date +%Y%m%d_%H%M%S)"
     _TRANSACTION_FILES=()
     _TRANSACTION_ACTIVE="true"
 
-    mkdir -p "$_TRANSACTION_DIR"
+    # A3: exclusive, collision-resistant directory. mktemp guarantees that no
+    # two transactions — concurrent or same-named — ever share a directory or
+    # backup namespace (asserted from the filesystem by the M2 test matrix).
+    if ! mkdir -p "$DEFAULT_BACKUP_DIR/transactions" 2>/dev/null; then
+        log_error "Cannot create transactions directory: $DEFAULT_BACKUP_DIR/transactions"
+        _TRANSACTION_ACTIVE=""
+        return 1
+    fi
+    _TRANSACTION_DIR=$(mktemp -d "${DEFAULT_BACKUP_DIR}/transactions/${name}.XXXXXX") || {
+        log_error "Cannot create transaction directory"
+        _TRANSACTION_ACTIVE=""
+        return 1
+    }
+    mkdir -p "$_TRANSACTION_DIR/files"
+    : > "$_TRANSACTION_DIR/files.tsv"
+    : > "$_TRANSACTION_DIR/new_files.txt"
 
-    # Write transaction metadata
+    # Metadata: the name is grammar-validated (no quotes/separators), so the
+    # interpolation below cannot be corrupted into invalid JSON.
     cat > "$_TRANSACTION_DIR/metadata.json" << EOF
 {
     "name": "$name",
     "started_at": "$(date -Iseconds)",
     "status": "active",
+    "layout": 2,
     "files": []
 }
 EOF
 
+    _txn_journal "start" "mode=apply dir=$_TRANSACTION_DIR"
     log_info "Transaction started: $name"
     log_debug "Transaction directory: $_TRANSACTION_DIR"
     return 0
 }
 
-# Add a file to the current transaction (creates backup)
+# Add a file to the current transaction (creates hash-verified backup)
 # Usage: transaction_add_file "/path/to/file"
 transaction_add_file() {
     local file="$1"
@@ -529,28 +591,65 @@ transaction_add_file() {
         return 1
     fi
 
-    if [[ ! -f "$file" ]]; then
+    if [[ "$_TRANSACTION_ACTIVE" == "dryrun" ]]; then
+        log_info "[dry-run] would register: $file"
+        return 0
+    fi
+
+    # A3: the registry is tab-delimited; embedded newlines/tabs would corrupt
+    # it. Reject such paths outright (fail closed).
+    if [[ "$file" == *$'\n'* || "$file" == *$'\t'* ]]; then
+        log_error "Refusing to register a path containing newline/tab: $file"
+        return 1
+    fi
+
+    # Idempotent duplicate registration: the same path registered twice keeps
+    # its first backup (the pre-transaction state).
+    if grep -qxF "$file" "$_TRANSACTION_DIR/files.tsv" 2>/dev/null \
+        || grep -qxF "$file" "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null; then
+        log_debug "Already registered, idempotent: $file"
+        return 0
+    fi
+
+    # New files: nothing to back up; recorded for removal on rollback.
+    if [[ ! -e "$file" ]]; then
         log_debug "File does not exist yet, marking as new: $file"
         echo "$file" >> "$_TRANSACTION_DIR/new_files.txt"
         _TRANSACTION_FILES+=("NEW:$file")
         return 0
     fi
 
-    # Create backup of existing file
-    local backup_name
-    backup_name=$(basename "$file")
-    cp "$file" "$_TRANSACTION_DIR/${backup_name}.backup"
+    # A3: path-preserving layout — each registration gets its own index
+    # directory; backups are keyed by index, never by basename, so
+    # /a/config and /b/config can never collapse into one entry.
+    local idx
+    idx=$(printf '%04d' "$(wc -l < "$_TRANSACTION_DIR/files.tsv" | tr -d ' ')")
+    local entry_dir="$_TRANSACTION_DIR/files/$idx"
+    mkdir -p "$entry_dir" || { log_error "Cannot create backup entry dir"; return 1; }
 
-    # Store original path mapping
-    echo "$file" >> "$_TRANSACTION_DIR/file_list.txt"
-    echo "$file|$_TRANSACTION_DIR/${backup_name}.backup" >> "$_TRANSACTION_DIR/mappings.txt"
+    local kind sha
+    if [[ -L "$file" ]]; then
+        # Symlink semantics (M2): preserve the LINK itself, not the target's
+        # content. The stored payload is the link target; rollback recreates
+        # the link.
+        kind="symlink"
+        readlink "$file" > "$entry_dir/data" || { log_error "Cannot read symlink: $file"; return 1; }
+    elif [[ -f "$file" ]]; then
+        kind="file"
+        cp "$file" "$entry_dir/data" || { log_error "Cannot back up: $file"; return 1; }
+    else
+        log_error "Unsupported file type (not regular/symlink): $file"
+        return 1
+    fi
 
+    sha=$(_txn_sha256 "$entry_dir/data")
+    printf '%s\t%s\t%s\t%s\n' "$kind" "$idx" "$sha" "$file" >> "$_TRANSACTION_DIR/files.tsv"
     _TRANSACTION_FILES+=("$file")
-    log_debug "Added to transaction: $file"
+    log_debug "Added to transaction [$idx kind=$kind sha=${sha:0:12}]: $file"
     return 0
 }
 
-# Commit the transaction (cleanup backups, mark complete)
+# Commit the transaction (mark complete; backups retained until cleanup)
 # Usage: transaction_commit
 transaction_commit() {
     if [[ -z "$_TRANSACTION_ACTIVE" ]]; then
@@ -558,29 +657,31 @@ transaction_commit() {
         return 1
     fi
 
-    # Update metadata
-    cat > "$_TRANSACTION_DIR/metadata.json" << EOF
+    if [[ "$_TRANSACTION_ACTIVE" != "dryrun" ]]; then
+        cat > "$_TRANSACTION_DIR/metadata.json" << EOF
 {
     "name": "$_TRANSACTION_NAME",
-    "started_at": "$(date -Iseconds)",
     "completed_at": "$(date -Iseconds)",
     "status": "committed",
+    "layout": 2,
     "files_count": ${#_TRANSACTION_FILES[@]}
 }
 EOF
+        _txn_journal "commit" "files=${#_TRANSACTION_FILES[@]}"
+        log_success "Transaction committed: $_TRANSACTION_NAME (${#_TRANSACTION_FILES[@]} files)"
+    else
+        _txn_journal "commit" "mode=dry_run"
+        log_info "Dry-run transaction committed (zero writes): $_TRANSACTION_NAME"
+    fi
 
-    log_success "Transaction committed: $_TRANSACTION_NAME (${#_TRANSACTION_FILES[@]} files)"
-
-    # Clear transaction state
     _TRANSACTION_ACTIVE=""
     _TRANSACTION_NAME=""
     _TRANSACTION_DIR=""
     _TRANSACTION_FILES=()
-
     return 0
 }
 
-# Rollback the transaction (restore all files)
+# Rollback the transaction (hash-verified restore: byte-identical or loud)
 # Usage: transaction_rollback
 transaction_rollback() {
     if [[ -z "$_TRANSACTION_ACTIVE" ]]; then
@@ -588,57 +689,108 @@ transaction_rollback() {
         return 1
     fi
 
+    if [[ "$_TRANSACTION_ACTIVE" == "dryrun" ]]; then
+        _txn_journal "rollback" "mode=dry_run"
+        log_info "Dry-run rollback (zero writes): $_TRANSACTION_NAME"
+        _TRANSACTION_ACTIVE=""
+        _TRANSACTION_NAME=""
+        _TRANSACTION_DIR=""
+        _TRANSACTION_FILES=()
+        return 0
+    fi
+
     log_warn "Rolling back transaction: $_TRANSACTION_NAME"
 
     local rollback_errors=0
 
-    # Restore backed up files
-    if [[ -f "$_TRANSACTION_DIR/mappings.txt" ]]; then
-        while IFS='|' read -r original backup; do
-            if [[ -f "$backup" ]]; then
-                if cp "$backup" "$original"; then
-                    log_debug "Restored: $original"
+    # Restore backed-up entries: verify the backup's own hash first (a
+    # tampered/corrupt backup must never be presented as a successful
+    # restore), then restore, then verify the restored bytes.
+    if [[ -s "$_TRANSACTION_DIR/files.tsv" ]]; then
+        while IFS=$'\t' read -r kind idx sha path; do
+            local data="$_TRANSACTION_DIR/files/$idx/data"
+            if [[ ! -f "$data" ]]; then
+                log_error "Backup payload missing for [$idx]: $path"
+                rollback_errors=$((rollback_errors + 1))
+                continue
+            fi
+            if [[ "$(_txn_sha256 "$data")" != "$sha" ]]; then
+                log_error "Backup hash mismatch for [$idx] $path — refusing to restore tampered data"
+                rollback_errors=$((rollback_errors + 1))
+                continue
+            fi
+            if [[ "$kind" == "symlink" ]]; then
+                rm -f "$path" 2>/dev/null
+                if ln -s "$(cat "$data")" "$path" 2>/dev/null; then
+                    log_debug "Restored symlink: $path"
                 else
-                    log_error "Failed to restore: $original"
-                    rollback_errors=$((rollback_errors + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
+                    log_error "Failed to restore symlink: $path"
+                    rollback_errors=$((rollback_errors + 1))
+                fi
+            else
+                if cp "$data" "$path" 2>/dev/null; then
+                    if [[ "$(_txn_sha256 "$path")" == "$sha" ]]; then
+                        log_debug "Restored (hash-verified): $path"
+                    else
+                        log_error "Restored bytes differ from recorded pre-state: $path"
+                        rollback_errors=$((rollback_errors + 1))
+                    fi
+                else
+                    log_error "Failed to restore: $path"
+                    rollback_errors=$((rollback_errors + 1))
                 fi
             fi
-        done < "$_TRANSACTION_DIR/mappings.txt"
+        done < "$_TRANSACTION_DIR/files.tsv"
     fi
 
     # Remove newly created files
-    if [[ -f "$_TRANSACTION_DIR/new_files.txt" ]]; then
-        while read -r new_file; do
-            if [[ -f "$new_file" ]]; then
+    if [[ -s "$_TRANSACTION_DIR/new_files.txt" ]]; then
+        while IFS= read -r new_file; do
+            [[ -z "$new_file" ]] && continue
+            if [[ -e "$new_file" || -L "$new_file" ]]; then
                 rm -f "$new_file"
                 log_debug "Removed new file: $new_file"
             fi
         done < "$_TRANSACTION_DIR/new_files.txt"
     fi
 
-    # Update metadata
+    if [[ $rollback_errors -gt 0 ]]; then
+        cat > "$_TRANSACTION_DIR/metadata.json" << EOF
+{
+    "name": "$_TRANSACTION_NAME",
+    "rolled_back_at": "$(date -Iseconds)",
+    "status": "rolled_back_with_errors",
+    "layout": 2,
+    "errors": $rollback_errors
+}
+EOF
+        _txn_journal "rollback" "status=with_errors errors=$rollback_errors"
+        log_error "Rollback FAILED for $rollback_errors entr(y/ies) — success not claimed"
+        local ret=$rollback_errors
+        _TRANSACTION_ACTIVE=""
+        _TRANSACTION_NAME=""
+        _TRANSACTION_DIR=""
+        _TRANSACTION_FILES=()
+        return "$ret"
+    fi
+
     cat > "$_TRANSACTION_DIR/metadata.json" << EOF
 {
     "name": "$_TRANSACTION_NAME",
     "rolled_back_at": "$(date -Iseconds)",
     "status": "rolled_back",
-    "errors": $rollback_errors
+    "layout": 2,
+    "errors": 0
 }
 EOF
+    _txn_journal "rollback" "status=ok hash_verified"
+    log_info "Rollback completed successfully (hash-verified)"
 
-    if [[ $rollback_errors -gt 0 ]]; then
-        log_error "Rollback completed with $rollback_errors errors"
-    else
-        log_info "Rollback completed successfully"
-    fi
-
-    # Clear transaction state
     _TRANSACTION_ACTIVE=""
     _TRANSACTION_NAME=""
     _TRANSACTION_DIR=""
     _TRANSACTION_FILES=()
-
-    return $rollback_errors
+    return 0
 }
 
 # Check if a transaction is active
