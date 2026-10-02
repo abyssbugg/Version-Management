@@ -127,9 +127,17 @@ test_meta_quality_red() {
     clone="$(_new_clone)" || { assert_equals "clone" "ok" "meta: clone for quality case (git source unavailable)"; return 1; }
     # SC2086 (unquoted variable) — not in .shellcheckrc's disable list.
     printf '#!/usr/bin/env bash\nrm $UNQUOTED_META_VAR\n' > "$clone/scripts/__meta_lint__.sh"
-    ( cd "$clone" && make validate ) >/dev/null 2>&1
+    meta_out="$( cd "$clone" && make validate 2>&1 )"
     rc=$?
     _assert_red "$rc" "B1.7: zero-tolerance quality gate red on a ShellCheck finding" || f=$((f + 1))
+    # Red is not enough: the gate must fail BECAUSE OF the seeded finding.
+    # A fail-closed "shellcheck missing" would also be red — that is not a
+    # pass for this case (needed on hosted CI agents: builds #4–#5).
+    if printf '%s' "$meta_out" | grep -q "SC2086"; then
+        assert_equals "seeded" "found" "B1.7: gate output cites the seeded SC2086 finding (red for the right reason)" || f=$((f + 1))
+    else
+        assert_equals "seeded" "missing" "B1.7: gate output must cite the seeded SC2086 finding — fail-closed masking is not a pass" || f=$((f + 1))
+    fi
     rm -rf "$clone"
     return "$f"
 }
