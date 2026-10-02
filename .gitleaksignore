@@ -1,11 +1,15 @@
-# gitleaks suppression — auditable false positive
+# gitleaks suppressions — audited false positives
 #
-# Fingerprint: e27ea1182c2d57d1bdbc3cd73536943c70895072:FontPatcher/font-patcher:generic-api-key:1811
-# Line 1811 of FontPatcher/font-patcher is `key = 'GlyphsToScale+'` — a local
-# variable assignment inside the upstream Nerd Fonts patcher script (v3.4.0,
-# script_version 4.20.3), not a credential. The generic-api-key rule matches
-# the `key = '...'` shape with entropy 3.66.
-#
-# Verification: 2026-10-02, Buildkite build #1 gitleaks job (run against the
-# full committed history, 37 commits).
+# 1) e27ea11…:FontPatcher/font-patcher:generic-api-key:1811 — line 1811 of
+#    the upstream Nerd Fonts patcher (v3.4.0, script_version 4.20.3) assigns
+#    a local variable whose name and quoted-value shape trip the
+#    generic-api-key rule (entropy 3.66). It is a case-label key for scale
+#    rules inside the patcher, not a credential. Verified against the full
+#    committed history (37 commits) in Buildkite build #1 (2026-10-02).
 e27ea1182c2d57d1bdbc3cd73536943c70895072:FontPatcher/font-patcher:generic-api-key:1811
+#
+# 2) b9c0c35…:.gitleaksignore:generic-api-key:4 — the original documentation
+#    comment for (1) reproduced the triggering source line verbatim and
+#    tripped the same rule. Reworded to describe rather than quote it.
+#    Verified in Buildkite build #2 (2026-10-02).
+b9c0c35be4a4eea9e706a7cc1e09bb7d1b76b924:.gitleaksignore:generic-api-key:4
