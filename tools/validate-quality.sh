@@ -23,6 +23,14 @@ validate_shellcheck() {
     local findings=0
     local output=""
 
+    # Fail closed: a missing shellcheck would make the find -exec below
+    # produce zero findings and this gate would pass vacuously (caught by
+    # the M0.4 meta-tests on hosted CI agents without shellcheck).
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        echo -e "${RED} ShellCheck not found — quality gate FAILS CLOSED (install shellcheck)${NC}"
+        return 1
+    fi
+
     if ! output=$(find . -name "*.sh" -type f -not -path "./backups/*" -not -path "./node_modules/*" -exec shellcheck --format=gcc {} + 2>&1); then
         :
     fi

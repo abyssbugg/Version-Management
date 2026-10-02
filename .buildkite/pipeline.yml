@@ -81,6 +81,9 @@ steps:
         depends_on: ["lint", "syntax"]
         command: |
           command -v zsh >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq zsh; }
+          # gate_meta's B1.7 case exercises the real zero-tolerance quality
+          # gate (make validate), which now fails closed without shellcheck.
+          command -v shellcheck >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq shellcheck; }
           make test
         artifact_paths:
           - "test-results/manifest.json"
@@ -91,7 +94,9 @@ steps:
       - label: ":apple: Tests (macOS)"
         key: "test-macos"
         depends_on: ["lint", "syntax"]
-        command: "make test"
+        command: |
+          command -v shellcheck >/dev/null 2>&1 || { brew install --quiet shellcheck; }
+          make test
         artifact_paths:
           - "test-results/manifest.json"
           - "test-results/manifest.tsv"

@@ -82,3 +82,6 @@ test-results/
 
 # Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Buildkite CLI local config
+.bk.yaml
