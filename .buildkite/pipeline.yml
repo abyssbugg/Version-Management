@@ -69,13 +69,16 @@ steps:
         agents:
           queue: "linux-small"
 
-  - wait
-
+  # Test steps depend only on lint + syntax — mirroring the pre-migration
+  # GitHub workflow (needs: [shellcheck, syntax-check]). pre-commit and
+  # gitleaks run in parallel and do not gate the test matrix; pre-commit is
+  # expected red until the owner's protected staged set lands (see ledger).
   - group: ":test_tube: Tests (canonical manifest per OS)"
     key: "test-group"
     steps:
       - label: ":penguin: Tests (Linux)"
         key: "test-linux"
+        depends_on: ["lint", "syntax"]
         command: |
           command -v zsh >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq zsh; }
           make test
@@ -87,6 +90,7 @@ steps:
 
       - label: ":apple: Tests (macOS)"
         key: "test-macos"
+        depends_on: ["lint", "syntax"]
         command: "make test"
         artifact_paths:
           - "test-results/manifest.json"
