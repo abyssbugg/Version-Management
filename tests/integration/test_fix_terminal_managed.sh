@@ -171,6 +171,14 @@ test_fonts_apply_and_rerun() {
     local rc2=$?
     _chk "0" "$rc2" "fonts rerun exits zero"
     _chk "$(sha "$f1")" "$(sha "$SBX/MesloLGS-Regular.ttf")" "fonts rerun bytes stable"
+    # M4 diagnosis: which byte-compare capability exists, and do the hashes
+    # of source vs installed actually agree on this agent?
+    local cmp_have="missing" sha_have="missing" fsrc fsha
+    command -v cmp >/dev/null 2>&1 && cmp_have="present"
+    command -v sha256sum >/dev/null 2>&1 && sha_have="present"
+    fsrc=$(sha "$SBX/MesloLGS-Regular.ttf")
+    fsha=$(sha "$f1")
+    echo "    [evidence] cmp=$cmp_have sha256sum=$sha_have src=${fsrc:0:12} tgt=${fsha:0:12}"
     _chk "$m1" "$(mtime "$f1")" "fonts rerun leaves mtime unchanged when bytes identical"
 }
 
