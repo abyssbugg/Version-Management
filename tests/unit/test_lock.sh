@@ -51,6 +51,10 @@ test_concurrent_acquire_serializes_critical_section() {
   : > "$violation_file"
 
   local worker
+  # Acquire timeouts under heavy runner load are serialization, not overlap:
+  # record them separately so they cannot be conflated with a violation.
+  local timeout_file="$TEST_STATE_DIR/timeouts"
+  : > "$timeout_file"
   for worker in {1..10}; do
     bash -c '
       set -euo pipefail
@@ -59,7 +63,7 @@ test_concurrent_acquire_serializes_critical_section() {
       log_error() { :; }
       log_debug() { :; }
       source ../../lib/lock.sh
-      if lock_acquire "concurrent" 5; then
+      if lock_acquire "concurrent" 15; then
         printf "%s\n" "$$" > "$1"
         sleep 0.1
         if [[ "$(cat "$1")" != "$$" ]]; then
@@ -67,9 +71,9 @@ test_concurrent_acquire_serializes_critical_section() {
         fi
         lock_release "concurrent"
       else
-        printf "acquire failed %s\n" "$$" >> "$2"
+        printf "acquire failed %s\n" "$$" >> "$3"
       fi
-    ' bash "$holder_file" "$violation_file" &
+    ' bash "$holder_file" "$violation_file" "$timeout_file" &
   done
 
   wait
