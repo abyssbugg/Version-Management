@@ -29,6 +29,13 @@ _LOGGER_SH_LOADED=1
 #   - LOG_FILE    : Optional file path for logging output
 #   - NO_COLOR    : Set to disable color output
 #   - SILENT_MODE : Set to 'true' to suppress all terminal output (file logging still occurs)
+#
+# Stream contract (directive M4, finding B2.4): ALL human-facing log output
+# (INFO/WARN/ERROR/SUCCESS/DEBUG) goes to STDERR. Value-returning functions
+# own a clean stdout — a function that logs and echoes a value can be safely
+# captured with command substitution and yields only the value. The only
+# stdout-facing helper in this file is the private _get_timestamp, whose
+# output is captured internally and never shown to the user.
 # =============================================================================
 
 # Contract (directive A2/M1): this file is SOURCED — it must not set global
@@ -87,12 +94,9 @@ _log() {
         formatted_message="[$(_get_timestamp)] [$level] $message"
     fi
 
-    # Output to appropriate stream
-    if [[ "$level" == "ERROR" ]]; then
-        echo -e "$formatted_message" >&2
-    else
-        echo -e "$formatted_message"
-    fi
+    # Output to stderr (directive M4, finding B2.4): all human-facing log
+    # levels go to stderr — value-returning functions own a clean stdout.
+    echo -e "$formatted_message" >&2
 }
 
 # Public logging functions
