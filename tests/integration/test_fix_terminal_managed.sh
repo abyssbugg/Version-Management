@@ -42,7 +42,15 @@ sha() {
 }
 
 mtime() {
-    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+    # ORDER MATTERS: on Linux `stat -f` means FILESYSTEM info (exit 0, wrong
+    # data), so the BSD form must be probed only when the GNU form fails —
+    # otherwise Linux reports phantom mtime churn (builds #22/#25 evidence:
+    # cmp+sha256 present, src==tgt, yet "churned").
+    if stat -c %Y "$1" >/dev/null 2>&1; then
+        stat -c %Y "$1"
+    else
+        stat -f %m "$1" 2>/dev/null
+    fi
 }
 
 audit_path() {
