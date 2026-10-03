@@ -40,16 +40,16 @@ test_first_run_creates_block() {
     _setup
     bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all >/dev/null 2>&1
     grep -q 'BEGIN version-management-setup:nvm' "$SBX/.zshrc" \
-        && assert_equals "managed" "managed" "canonical managed block created" \
+        && chk assert_equals "managed" "managed" "canonical managed block created" \
         || assert_equals "managed" "absent" "canonical managed block must be created"
     grep -q 'NVM_SILENT=true' "$SBX/.zshrc" \
-        && assert_equals "canonical" "canonical" "NVM_SILENT=true canonical posture" \
+        && chk assert_equals "canonical" "canonical" "NVM_SILENT=true canonical posture" \
         || assert_equals "canonical" "missing" "NVM_SILENT=true must be present"
     ! grep -q 'NVM_SILENT=1$' "$SBX/.zshrc" \
-        && assert_equals "no-drift" "no-drift" "no NVM_SILENT=1 drift line" \
+        && chk assert_equals "no-drift" "no-drift" "no NVM_SILENT=1 drift line" \
         || assert_equals "no-drift" "drift" "NVM_SILENT=1 drift line must not be written"
     grep -q 'export EDITOR=vim' "$SBX/.zshrc" \
-        && assert_equals "preserved" "preserved" "user preamble preserved" \
+        && chk assert_equals "preserved" "preserved" "user preamble preserved" \
         || assert_equals "preserved" "lost" "user preamble preserved"
     _teardown
 }
@@ -62,8 +62,8 @@ test_rerun_byte_identical() {
     bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all > /tmp/nvm-child-err.log 2>&1
     local rc=$?
     local h2; h2=$(sha "$SBX/.zshrc")
-    assert_equals "0" "$rc" "rerun exits zero"
-    assert_equals "$h1" "$h2" "rerun is byte-identical"
+    chk assert_equals "0" "$rc" "rerun exits zero"
+    chk assert_equals "$h1" "$h2" "rerun is byte-identical"
     _teardown
 }
 
@@ -76,12 +76,12 @@ test_legacy_drift_converges() {
     printf '\n# NVM Permanent Silence Configuration\n' >> "$SBX/.zshrc"
     bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all >/dev/null 2>&1
     ! grep -q 'NVM_SILENT=1' "$SBX/.zshrc" \
-        && assert_equals "converged" "converged" "legacy NVM_SILENT=1 drift removed" \
+        && chk assert_equals "converged" "converged" "legacy NVM_SILENT=1 drift removed" \
         || assert_equals "converged" "still-present" "legacy NVM_SILENT=1 drift must be removed"
     local h1; h1=$(sha "$SBX/.zshrc")
     bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all >/dev/null 2>&1
     local h2; h2=$(sha "$SBX/.zshrc")
-    assert_equals "$h1" "$h2" "convergence rerun byte-identical"
+    chk assert_equals "$h1" "$h2" "convergence rerun byte-identical"
     _teardown
 }
 
@@ -103,11 +103,11 @@ test_injected_failure_rolls_back() {
         bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all >/dev/null 2>&1
         local rc=$?
         [[ $rc -ne 0 ]] \
-            && assert_equals "loud" "loud" "injected failure exits nonzero" \
+            && chk assert_equals "loud" "loud" "injected failure exits nonzero" \
             || assert_equals "loud" "silent-success" "injected failure MUST exit nonzero"
-        assert_equals "$pre" "$(sha "$SBX/.zshrc")" "pre-state byte-identical after failed run"
+        chk assert_equals "$pre" "$(sha "$SBX/.zshrc")" "pre-state byte-identical after failed run"
     else
-        assert_equals "skip-capability" "skip-capability" "immutable-flag injection unsupported on this FS (reported, not silently passed)"
+        chk assert_equals "skip-capability" "skip-capability" "immutable-flag injection unsupported on this FS (reported, not silently passed)"
     fi
     if command -v chflags >/dev/null 2>&1; then chflags nouchg "$SBX/.zshrc" 2>/dev/null; fi
     if command -v chattr >/dev/null 2>&1; then chattr -i "$SBX/.zshrc" 2>/dev/null; fi
@@ -120,10 +120,16 @@ test_dry_run_zero_writes() {
     local pre; pre=$(sha "$SBX/.zshrc")
     bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --dry-run --all >/dev/null 2>&1
     local rc=$?
-    assert_equals "0" "$rc" "dry-run exits zero"
-    assert_equals "$pre" "$(sha "$SBX/.zshrc")" "dry-run leaves .zshrc byte-identical"
+    chk assert_equals "0" "$rc" "dry-run exits zero"
+    chk assert_equals "$pre" "$(sha "$SBX/.zshrc")" "dry-run leaves .zshrc byte-identical"
     _teardown
 }
+
+# chk: per-assertion failure accounting that survives _teardown masking
+# (lane V's pattern — a case ending with _teardown otherwise exits 0 even
+# when its assertions failed, and the runner judges by exit code).
+FAILURES=0
+chk() { "$@" || FAILURES=$((FAILURES + 1)); }
 
 failures=0
 test_first_run_creates_block || failures=$((failures + 1))

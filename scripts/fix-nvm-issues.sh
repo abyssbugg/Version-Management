@@ -58,6 +58,8 @@ show_usage() {
 _fix_nvm_strip_legacy() {
     local file="$1"
     [[ -f "$file" ]] || return 0
+    # Dry-run: zero writes (lane V's improvement, backported)
+    [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]] && { log_info "[dry-run] would strip legacy drift lines from $file"; return 0; }
     local tmp
     tmp=$(mktemp "$(dirname "$file")/.vms-legacy.XXXXXX") || return 1
     grep -vFx -e 'export NVM_SILENT=1' \
