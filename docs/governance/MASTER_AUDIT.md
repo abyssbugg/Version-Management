@@ -136,20 +136,22 @@ directive milestone mapping (M4).
 | A1 | Make test targets mask failures (`for` loop last-iteration exit); release trusts them | **FIXED** (`104e65e`, `683ccbe`) | `make test*` routed through `tests/test_runner.sh` via `tests/emit-manifest.sh`; canonical manifest; seeded-failure meta-tests (`tests/unit/test_gate_meta.sh`) proven red in CI (builds #12) |
 | A2 | Four sourced libraries leak strict mode (`set -euo pipefail`) into callers | **FIXED** (`cdcba9e`) | direct setters stripped; `tests/unit/test_library_contract.sh`: every lib+plugin sourced under strict AND non-strict callers, `$-` preservation asserted — 0 violations; blast radius was broader than the four named (all modules sourcing them) |
 | A3 | Transaction rollback can restore wrong file contents (basename keying, name interpolation, same-second collision) | **FIXED** (`fcbc584`, 2026-10-02) | hardened primitive: index-keyed backups, hash-verified rollback (tamper-refusing), name grammar, `mktemp -d` exclusivity, dry-run zero-writes, audit journal; 8-case matrix (22 assertions) written first — 13 failures reproduced against the old primitive, then green; CI build #19 7/7 |
-| A4 | Path containment accepts sibling-prefix paths; validators have zero production callers | OPEN — M3 | `lib/validation.sh`; fail-closed redesign + wiring scheduled M3 |
-| B1.1 | Plugin path traversal (`plugin_install`/`plugin_remove` unvalidated names) | OPEN — M3 | single-witness critical with sandbox repro; identifier grammar + containment scheduled M3 |
-| B1.2 | Auto-activation crosses trust/privilege boundaries (chpwd sources repo scripts, installs versions, sudo symlinks on cd) | OPEN — M3 | single-witness critical; split into passive switching + explicit trust-registry commands scheduled M3 |
+| A4 | Path containment accepts sibling-prefix paths; validators have zero production callers | **FIXED** (`c158de3`, 2026-10-02) | sibling-proof canonical containment (`path_validate_containment`), fail-closed lexical (`validate_safe_path`), nearest-existing-ancestor canonicalization for install targets; 11-failure red matrix → green |
+| B1.1 | Plugin path traversal (`plugin_install`/`plugin_remove` unvalidated names) | **FIXED** (`5c92004`, 2026-10-02) | identifier grammar at every entry point; canonical containment on every write/delete sink; symlink-escape rejection; installs/removes transaction-routed; 30/47 red → 47/47 |
+| B1.2 | Auto-activation crosses trust/privilege boundaries (chpwd sources repo scripts, installs versions, sudo symlinks on cd) | **FIXED** (`76dc3b9`, 2026-10-02) | cd hook reduced to version-switching; venv_source/node_install/symlink_sync behind persistent per-project capability registry; passwordless-sudo path asserted against a recording shim (no real elevation); rc rewrites transaction-backed; 12/12 red (3 live-vuln demos) → 51/51 |
+| B1.3 | `validate_safe_path` broken by construction (NUL check dead code; '..' warn-and-pass) | **FIXED** (`c158de3`, 2026-10-02) | lexical/containment separation per B1.3's own redesign recommendation; dead NUL check replaced with newline/tab + metacharacter + '..' fail-closed checks (was folded into A4 at registration) |
 | B1.4 | `find -exec` syntax gate can never fail; three shipped Zsh themes failed `zsh -n` | **FIXED** (`104e65e` themes `56bd20f`) | fail-closed `scripts/syntax-check.sh` (bash -n + zsh -n, 89 files); themes repaired; gate proven red under seeded failure |
 | B1.5 | `((x++))` systemic under strict mode | **FIXED** (`cdcba9e`) | 57 sites swept to `var=$((var + 1))` across 19+ files; 0 residual |
 | B1.6 | Mutation inventory incomplete | **FIXED** (`cdcba9e` census artifact) | full static census: 237 sinks / 41 mutating scripts / 7 critical no-backup-no-dry-run paths; registry publication scheduled M2 |
 | B1.7 | Quality gate tolerates failure (<50 lines); validate fails open without shellcheck | **FIXED** (`9957d20`→`09b78a3`) | zero tolerance; fail-closed on missing shellcheck; B1.7 meta-case rejects vacuous reds |
-| B1.9 | fonts.sh `0
-0` on no-match; Bash 3.2 vs 4+ contract undefined | **FIXED** (`cdcba9e`) | `|| true` on grep -c (single count); Bash >= 4.0 contract documented (ENGINEERING_RULES §3.1) and enforced in test_runner |
+| B1.9 | fonts.sh double-zero on no-match (grep -c + `\|\| echo 0`); Bash 3.2 vs 4+ contract undefined | **FIXED** (`cdcba9e`) | `|| true` on grep -c (single count); Bash >= 4.0 contract documented (ENGINEERING_RULES §3.1) and enforced in test_runner |
 | B2.1 | `.zshrc` bare appends, no managed blocks, `NVM_SILENT` drift | OPEN — M4 | managed-block editor + canonical NVM block scheduled M4 with per-adopter canary gates |
 | B2.2 | `make clean` deletes unscoped `/tmp/test_*` | OPEN — M5 | scoped cleanup root scheduled M5 |
 | B2.4 | Logger contaminates stdout of value-returning functions | OPEN — M4 | theme_detect_current symptom tolerated in tests; contract fix lands with M4's mutation-surface rework (same call sites) |
 
-**Directive execution state (2026-10-02):** M0 **GO** (Buildkite build #16: 7/7
-green; 4-way manifest parity; seeded red observed — builds #12/#13); M1 **GO**
-(`cdcba9e`: 0 contract violations, 0 arithmetic residuals, both verified by
-the full suite and CI). M2 next.
+**Directive execution state (2026-10-02):** M0 **GO**, M1 **GO**, M2 **GO**
+(builds #16–#19 7/7; 4-way manifest parity; seeded red observed), M3 **GO**
+(build #21 7/7; traversal/symlink-escape/untrusted-repo/passwordless-sudo all
+fail closed; sudo assertions via recording shim). New B1.3 row added 2026-10-02
+— it was folded into A4's entry at registration time.
+Remaining: M4 (managed-block adoption), M5 (delivery/compliance).
