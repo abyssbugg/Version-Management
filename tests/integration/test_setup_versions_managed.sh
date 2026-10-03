@@ -30,9 +30,18 @@ _setup() {
     SBX=$(mktemp -d "${TMPDIR:-/tmp}/vms-setup-versions.XXXXXX")
     export HOME="$SBX"
     printf '# user preamble\nexport EDITOR=vim\n' > "$SBX/.zshrc"
-    # check_nvm_installed() must pass: detect_nvm finds $HOME/.nvm/nvm.sh.
+    # check_nvm_installed() must pass: nvm_detect sources $NVM_DIR/nvm.sh
+    # and requires it to define a working `nvm` command (a comment-only stub
+    # sources to nothing — the gate then fails on agents without a preloaded
+    # nvm function, which is why this test flapped between CI agent images).
     mkdir -p "$SBX/.nvm"
-    printf '# nvm stub (sandbox)\n' > "$SBX/.nvm/nvm.sh"
+    cat > "$SBX/.nvm/nvm.sh" <<'NVMSH'
+nvm() {
+    if [ "${1:-}" = "--version" ]; then printf '0.0.0-sandbox\n'; fi
+    return 0
+}
+NVMSH
+    export NVM_DIR="$SBX/.nvm"
 }
 
 _teardown() {

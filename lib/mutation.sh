@@ -42,8 +42,8 @@ mutation_files_identical() {
     local a="$1" b="$2"
     [[ -f "$a" && -f "$b" ]] || return 1
     if command -v cmp >/dev/null 2>&1; then
-        cmp -s "$a" "$b"
-        return 0
+        cmp -s "$a" "$b"   # verdict propagates — a return 0 here made every
+                           # skip unconditional (builds #22-#23, "block absent")
     fi
     local ha hb
     ha=$(_txn_sha256 "$a")
