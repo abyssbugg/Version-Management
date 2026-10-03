@@ -3,11 +3,18 @@
 
 # Professional Terminal Setup - Version Manager Setup Script
 # Configures nvm and pyenv for professional development environment
+# M4 (B2.1/P1-3): rc-file mutation goes through the managed-block editor
+# (lib/mutation.sh) under a transaction — atomic, idempotent, rollback-safe,
+# dry-run aware.
 
 set -euo pipefail
 
 # Source library utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Stable repo root for later sources: sourced libs (nvm.sh, validation.sh via
+# mutation.sh, ...) reassign SCRIPT_DIR to their own directory — never rely on
+# SCRIPT_DIR once the source block has begun (M4 canary lesson).
+_VMS_ROOT="$SCRIPT_DIR"
 source "${SCRIPT_DIR}/lib/logger.sh"
 source "${SCRIPT_DIR}/lib/env.sh"
 source "${SCRIPT_DIR}/lib/backup.sh"
@@ -33,6 +40,14 @@ fi
 if [[ -f "${SCRIPT_DIR}/lib/phpenv.sh" ]]; then
     source "${SCRIPT_DIR}/lib/phpenv.sh"
 fi
+
+# Managed-block editor (B2.1): sourced UNCONDITIONALLY and LAST — after the
+# language libs, because lib/validation.sh (pulled in by mutation.sh)
+# reassigns SCRIPT_DIR, which would break the ${SCRIPT_DIR}/lib/* guards
+# above. The _VMS_ROOT path is immune to that reassignment, and sourcing
+# unconditionally avoids the declare -f guard trap: exported functions
+# defeat the guard while their module variables do not travel with them.
+source "${_VMS_ROOT}/lib/mutation.sh"
 
 # Default command
 DEFAULT_COMMAND="pro-status"
@@ -402,7 +417,10 @@ install_python_version() {
     fi
 }
 
-# Configure NVM for silent operation
+# Configure NVM for silent operation (M4 managed-block adopter, B2.1/P1-3).
+# The rc mutation is performed by lib/mutation.sh under a transaction:
+# atomic write, byte-identical reruns, hash-verified rollback, dry-run via
+# TRANSACTION_DRY_RUN=1, legacy pre-adoption drift lines stripped.
 configure_nvm_silent() {
     log_info " Configuring NVM for silent operation..."
 
@@ -417,28 +435,80 @@ configure_nvm_silent() {
         return 1
     fi
 
-    # Backup .zshrc
-    if ! create_backup "$zshrc"; then
-        log_error "Failed to backup ~/.zshrc"
+    if ! transaction_start "setup_versions_nvm"; then
+        log_error "Cannot start transaction for ~/.zshrc mutation"
         return 1
     fi
 
-    # Check if NVM_SILENT is already configured
-    if grep -q "export NVM_SILENT" "$zshrc"; then
-        log_success "NVM_SILENT already configured"
+    if _setup_versions_converge_nvm; then
+        transaction_commit
+        log_success "NVM silent mode configured (canonical managed block)"
+        log_info " Restart your terminal or run 'source ~/.zshrc' to apply changes"
         return 0
     fi
 
-    # Add NVM_SILENT configuration
-    log_info "Adding NVM_SILENT configuration to ~/.zshrc..."
-    {
-        echo ""
-        echo "# Professional terminal setup - silence nvm output"
-        echo "export NVM_SILENT=true"
-    } >> "$zshrc"
+    transaction_rollback
+    log_error "NVM silent mode configuration FAILED — rolled back"
+    return 1
+}
 
-    log_success "NVM silent mode configured"
-    log_info " Restart your terminal or run 'source ~/.zshrc' to apply changes"
+# Converge $HOME/.zshrc onto the canonical managed NVM block. The CALLER owns
+# the transaction (start/commit/rollback).
+_setup_versions_converge_nvm() {
+    local zshrc="$HOME/.zshrc"
+
+    # Register the target BEFORE any mutation so rollback restores the
+    # pre-state. (mutation_block_write re-registers idempotently; the first
+    # backup — the true pre-transaction state — wins.)
+    transaction_add_file "$zshrc" || return 1
+
+    # Build the CANONICAL NVM block (single source of truth: lib/mutation.sh).
+    local content
+    content=$(mktemp "${TMPDIR:-/tmp}/vms-nvm-block.XXXXXX") || return 1
+    if ! mutation_nvm_block > "$content"; then
+        rm -f "$content"
+        return 1
+    fi
+    if ! mutation_block_write "$zshrc" "nvm" "$content"; then
+        rm -f "$content"
+        return 1
+    fi
+    rm -f "$content"
+
+    _setup_versions_strip_legacy_nvm "$zshrc" || return 1
+    return 0
+}
+
+# Strip legacy pre-adoption drift lines (exact FULL-LINE matches only — our
+# own and sibling scripts' past output, never user content; the canonical
+# block's bare 'NVM_SILENT=true' line does not match any pattern here).
+# Runs inside the caller's transaction (file already registered). Dry-run:
+# plan only, no writes.
+_setup_versions_strip_legacy_nvm() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would strip legacy NVM drift lines: $file"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp "$(dirname "$file")/.vms-legacy.XXXXXX") || return 1
+    grep -vFx -e 'export NVM_SILENT=1' \
+              -e 'export NVM_SILENT=true' \
+              -e '# Professional terminal setup - silence nvm output' \
+              -e '# Silence NVM verbose messages' \
+              -e '# NVM Permanent Silence Configuration' \
+        "$file" > "$tmp" || true
+    if ! cmp -s "$tmp" "$file"; then
+        local mode
+        mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
+        chmod "$mode" "$tmp"
+        mv "$tmp" "$file"
+        log_info "Legacy NVM drift lines removed"
+    else
+        rm -f "$tmp"
+    fi
+    return 0
 }
 
 # Main function
