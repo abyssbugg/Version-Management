@@ -182,10 +182,23 @@ fix_shell_configuration() {
 # failure rolls back the pre-state byte-identically; an unchanged source
 # writes nothing (idempotent, no mtime churn); the replace itself is
 # atomic (temp file in the target directory + rename).
+_files_identical() {
+    local a="$1" b="$2"
+    [[ -f "$a" && -f "$b" ]] || return 1
+    if command -v cmp >/dev/null 2>&1; then
+        cmp -s "$a" "$b"
+        return 0
+    fi
+    local ha hb
+    ha=$(sha256sum "$a" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$a" 2>/dev/null | awk '{print $1}')
+    hb=$(sha256sum "$b" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$b" 2>/dev/null | awk '{print $1}')
+    [[ -n "$ha" && "$ha" == "$hb" ]]
+}
+
 _fix_terminal_apply_p10k() {
     transaction_add_file "$P10K_CONFIG" || return 1
 
-    if [[ -f "$P10K_CONFIG" ]] && cmp -s "$PROJECT_P10K_CONFIG" "$P10K_CONFIG"; then
+    if [[ -f "$P10K_CONFIG" ]] && _files_identical "$PROJECT_P10K_CONFIG" "$P10K_CONFIG"; then
         log_info "P10k configuration already matches project source — no change"
         return 0
     fi
@@ -286,7 +299,7 @@ install_fonts() {
             break
         fi
 
-        if [[ -f "$target" ]] && cmp -s "$font" "$target"; then
+        if [[ -f "$target" ]] && _files_identical "$font" "$target"; then
             log_debug "Font already identical, no change: $target"
             continue
         fi

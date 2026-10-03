@@ -34,6 +34,23 @@ if ! declare -f validate_identifier >/dev/null 2>&1; then
     source "$_MUTATION_DIR/validation.sh"
 fi
 
+# Portable byte-identical check (M4 lesson): the Buildkite hosted Linux
+# agent image does NOT ship `cmp` (diffutils) — a missing cmp made every
+# idempotent skip degrade into a silent same-bytes rewrite. sha256sum (or
+# shasum) is present wherever this repo runs.
+mutation_files_identical() {
+    local a="$1" b="$2"
+    [[ -f "$a" && -f "$b" ]] || return 1
+    if command -v cmp >/dev/null 2>&1; then
+        cmp -s "$a" "$b"
+        return 0
+    fi
+    local ha hb
+    ha=$(_txn_sha256 "$a")
+    hb=$(_txn_sha256 "$b")
+    [[ -n "$ha" && "$ha" == "$hb" ]]
+}
+
 mutation_begin_marker() { printf '# BEGIN version-management-setup:%s\n' "$1"; }
 mutation_end_marker()   { printf '# END version-management-setup:%s\n' "$1"; }
 
@@ -135,7 +152,7 @@ PY
     chmod "$mode" "$tmp"
 
     # Idempotency: if the composed result equals the current file, skip.
-    if [[ -f "$file" ]] && cmp -s "$tmp" "$file"; then
+    if [[ -f "$file" ]] && mutation_files_identical "$tmp" "$file"; then
         rm -f "$tmp"
         log_debug "mutation_block_write: already identical, no change: $file ($name)"
         return 0
