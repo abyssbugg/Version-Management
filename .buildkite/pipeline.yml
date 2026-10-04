@@ -72,7 +72,8 @@ steps:
   # Test steps depend only on lint + syntax — mirroring the pre-migration
   # GitHub workflow (needs: [shellcheck, syntax-check]). pre-commit and
   # gitleaks run in parallel and do not gate the test matrix; pre-commit is
-  # expected red until the owner's protected staged set lands (see ledger).
+  # green since build #31 (the M5 lanes closed its last finding — the stale
+  # "expected red" note that lived here was retired 2026-10-04).
   - group: ":test_tube: Tests (canonical manifest per OS)"
     key: "test-group"
     steps:
