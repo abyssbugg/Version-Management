@@ -94,6 +94,14 @@ export VMS_STATE_DIR="${VMS_STATE_DIR:-$STATE_DIR}"
 # shellcheck source=lib/lock.sh
 source "$SCRIPT_DIR/lib/lock.sh"
 
+# Canonical platform API (P1-9): lib/env.sh is the single owner of
+# get_os/get_shell/detect_os. This script's duplicated bodies (a private
+# get_os that reported "linux" under WSL; a private get_shell that probed
+# the running shell instead of the login shell) are deleted below — the
+# sourced canonical implementations serve every call site.
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
 # Compatibility shim: allow callers that use log "LEVEL" "msg" directly
 log() {
     local level="$1"; shift
@@ -127,15 +135,9 @@ command_exists() {
     command -v "$1" &>/dev/null
 }
 
-# Get OS type
-get_os() {
-    case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
-        Darwin*) echo "macos" ;;
-        CYGWIN*|MINGW*|MSYS*) echo "windows" ;;
-        *)       echo "unknown" ;;
-    esac
-}
+# get_os: canonical implementation lives in lib/env.sh (sourced above, P1-9).
+# WSL is reported as "wsl" — the install_* case labels below carry explicit
+# wsl branches so WSL keeps its pre-conversion behavior.
 
 # Get architecture
 get_arch() {
@@ -148,22 +150,17 @@ get_arch() {
     esac
 }
 
-# Get shell type
-get_shell() {
-    if [[ -n "${ZSH_VERSION:-}" ]]; then
-        echo "zsh"
-    elif [[ -n "${BASH_VERSION:-}" ]]; then
-        echo "bash"
-    elif [[ -n "${FISH_VERSION:-}" ]]; then
-        echo "fish"
-    else
-        basename "$SHELL"
-    fi
-}
+# get_shell: canonical implementation lives in lib/env.sh (sourced above,
+# P1-9) — the login-shell name, basename of $SHELL with a /bin/bash default.
 
 # Get shell config file
 get_shell_config() {
     local shell_type="$(get_shell)"
+    # fish intentionally falls through to the generic POSIX fallback: the
+    # blocks this script appends are bash/zsh-flavored and must never be
+    # appended to a fish config. (The pre-P1-9 fish branch was unreachable —
+    # a bash executable always sees BASH_VERSION — but becomes reachable
+    # under the canonical login-shell get_shell.)
     case "$shell_type" in
         zsh)  echo "$HOME/.zshrc" ;;
         bash)
@@ -173,7 +170,6 @@ get_shell_config() {
                 echo "$HOME/.bash_profile"
             fi
             ;;
-        fish) echo "$HOME/.config/fish/config.fish" ;;
         *)    echo "$HOME/.profile" ;;
     esac
 }
@@ -515,8 +511,10 @@ install_pyenv() {
     fi
 
     # Install dependencies when available
+    # "wsl" keeps the linux branch (P1-9): the pre-conversion get_os answered
+    # "linux" under WSL, so build dependencies were installed there.
     case "$os" in
-        linux)
+        linux|wsl)
             if command_exists apt-get; then
                 sudo apt-get update
                 sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
@@ -603,6 +601,8 @@ install_rbenv() {
         mv "$HOME/.rbenv" "$BACKUP_DIR/rbenv_$(date +%Y%m%d_%H%M%S)"
     fi
 
+    # "wsl" keeps the linux branch (P1-9): WSL previously matched via the old
+    # get_os "linux" value — preserve that behavior.
     case "$os" in
         macos)
             if command_exists brew; then
@@ -612,7 +612,7 @@ install_rbenv() {
                 git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
             fi
             ;;
-        linux)
+        linux|wsl)
             git clone https://github.com/rbenv/rbenv.git ~/.rbenv
             git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
             ;;
@@ -701,6 +701,8 @@ install_phpenv() {
         mv "$HOME/.phpenv" "$BACKUP_DIR/phpenv_$(date +%Y%m%d_%H%M%S)"
     fi
 
+    # "wsl" keeps the linux branch (P1-9): WSL previously matched via the old
+    # get_os "linux" value — preserve that behavior.
     case "$os" in
         macos)
             if command_exists brew; then
@@ -710,7 +712,7 @@ install_phpenv() {
                 git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
             fi
             ;;
-        linux)
+        linux|wsl)
             git clone https://github.com/phpenv/phpenv.git ~/.phpenv
             git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
             ;;
