@@ -29,6 +29,9 @@ _LOGGER_SH_LOADED=1
 #   - LOG_FILE    : Optional file path for logging output
 #   - NO_COLOR    : Set to disable color output
 #   - SILENT_MODE : Set to 'true' to suppress all terminal output (file logging still occurs)
+#   - VMS_LOG_RETENTION_DAYS : Age-based log rotation window in days (default 14).
+#     init_logger prunes stale logs when it initializes a LOG_FILE; set to 0
+#     (or any non-integer) to disable pruning.
 #
 # Stream contract (directive M4, finding B2.4): ALL human-facing log output
 # (INFO/WARN/ERROR/SUCCESS/DEBUG) goes to STDERR. Value-returning functions
@@ -152,6 +155,36 @@ validate_logger() {
     return 0
 }
 
+# Age-based log rotation (P2-5): prune stale logs when the logger initializes
+# a LOG_FILE. Scope is deliberately narrow — only the configured log file and
+# its rotated fragments ("<basename>.*") in the same directory are candidates;
+# arbitrary sibling files are never touched. The window is VMS_LOG_RETENTION_DAYS
+# (default 14 days); 0 or a non-integer disables pruning. This library owns no
+# global shell options (M1): validation is explicit, failures are silent no-ops.
+_logger_prune_old_logs() {
+    local log_file="$1"
+
+    [[ -n "$log_file" ]] || return 0
+
+    local retention_days="${VMS_LOG_RETENTION_DAYS:-14}"
+    if ! [[ "$retention_days" =~ ^[0-9]+$ ]] || (( retention_days == 0 )); then
+        return 0
+    fi
+
+    local log_dir
+    log_dir="$(dirname "$log_file")"
+    [[ -d "$log_dir" ]] || return 0
+
+    local base
+    base="$(basename "$log_file")"
+    # find -mtime +N selects files strictly older than N whole days; the -1
+    # shift turns the retention window into that "older than the window" test.
+    find "$log_dir" -maxdepth 1 -type f \
+        \( -name "$base" -o -name "$base.*" \) \
+        -mtime "+$((retention_days - 1))" -exec rm -f {} + 2>/dev/null
+    return 0
+}
+
 # Initialize logger system
 init_logger() {
     local log_file="${1:-}"
@@ -170,6 +203,10 @@ init_logger() {
                 return 1
             }
         fi
+
+        # P2-5: drop logs beyond the retention window before appending, so a
+        # fresh file starts below (stale content is discarded, not rotated in).
+        _logger_prune_old_logs "$log_file"
 
         # Test write permissions
         if ! touch "$log_file" 2>/dev/null; then
