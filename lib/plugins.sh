@@ -17,8 +17,8 @@ _PLUGINS_SH_LOADED=1
 # and error propagation are explicit inside library functions.
 
 # Source dependencies
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/logger.sh" 2>/dev/null || {
+_VMS_PLUGINS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_VMS_PLUGINS_DIR/logger.sh" 2>/dev/null || {
     log_info() { echo "[INFO] $*"; }
     log_warn() { echo "[WARN] $*" >&2; }
     log_error() { echo "[ERROR] $*" >&2; }
@@ -30,7 +30,7 @@ source "$SCRIPT_DIR/logger.sh" 2>/dev/null || {
 # (identifier grammar, canonical containment). If it cannot be sourced,
 # install fail-closed stubs — a plugin must never be written or removed
 # through an unvalidated trust boundary.
-if ! source "$SCRIPT_DIR/validation.sh" 2>/dev/null; then
+if ! source "$_VMS_PLUGINS_DIR/validation.sh" 2>/dev/null; then
     log_error "plugins.sh: validation.sh unavailable — fail-closed stubs active"
     validate_identifier() { log_error "Validation unavailable — refusing plugin name: $1"; return 1; }
     path_validate_containment() { log_error "Validation unavailable — refusing path: $1"; return 1; }
@@ -43,7 +43,7 @@ fi
 # ============================================================================
 
 # Plugin directories
-PLUGIN_DIR="${PLUGIN_DIR:-$SCRIPT_DIR/../plugins}"
+PLUGIN_DIR="${PLUGIN_DIR:-$_VMS_PLUGINS_DIR/../plugins}"
 PLUGIN_ENABLED_DIR="${PLUGIN_ENABLED_DIR:-$HOME/.config/version-manager/plugins}"
 
 # Plugin registry - requires bash 4+ for associative arrays

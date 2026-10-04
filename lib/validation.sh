@@ -9,9 +9,9 @@
 # ============================================================================
 
 # Source logger if not already loaded
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_VMS_VALIDATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! declare -f log_error >/dev/null 2>&1; then
-    source "$SCRIPT_DIR/logger.sh" 2>/dev/null || {
+    source "$_VMS_VALIDATION_DIR/logger.sh" 2>/dev/null || {
         log_error() { echo "[ERROR] $*" >&2; }
         log_warn() { echo "[WARN] $*" >&2; }
         log_debug() { [[ "${DEBUG:-false}" == "true" ]] && echo "[DEBUG] $*"; }

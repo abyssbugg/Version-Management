@@ -9,14 +9,31 @@
 # ============================================================================
 
 # Source logger if not already loaded
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A5-new: private directory derived from BASH_SOURCE — sourcing this file
+# must not clobber the caller's global SCRIPT_DIR.
+_VMS_UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! declare -f log_info >/dev/null 2>&1; then
-    source "$SCRIPT_DIR/logger.sh" 2>/dev/null || {
+    source "$_VMS_UTILS_DIR/logger.sh" 2>/dev/null || {
         log_info() { echo "[INFO] $*"; }
         log_warn() { echo "[WARN] $*" >&2; }
         log_error() { echo "[ERROR] $*" >&2; }
         log_debug() { [[ "${DEBUG:-false}" == "true" ]] && echo "[DEBUG] $*"; }
     }
+fi
+
+# ============================================================================
+# Platform API delegation (P1-9)
+# ============================================================================
+# get_os / detect_os / get_shell are CANONICAL in lib/env.sh (one semantic:
+# WSL reports "wsl", binding decision documented there). This file sources
+# env.sh so scripts that source only utils.sh get the identical platform
+# values; the legacy names below (is_macos, is_linux, is_wsl, is_zsh,
+# is_bash) derive from the canonical functions. No local platform code.
+if [[ -f "$_VMS_UTILS_DIR/env.sh" ]]; then
+    # shellcheck source=lib/env.sh
+    source "$_VMS_UTILS_DIR/env.sh"
+else
+    log_warn "utils.sh: lib/env.sh not found — canonical platform API unavailable"
 fi
 
 # ============================================================================
@@ -182,22 +199,8 @@ version_meets_min() {
 # ============================================================================
 # Platform Detection
 # ============================================================================
-
-# Get current OS type
-# Returns: macos, linux, or wsl
-get_os() {
-    case "$(uname -s)" in
-        Darwin) echo "macos" ;;
-        Linux)
-            if grep -q Microsoft /proc/version 2>/dev/null; then
-                echo "wsl"
-            else
-                echo "linux"
-            fi
-            ;;
-        *) echo "unknown" ;;
-    esac
-}
+# get_os/detect_os: canonical implementations live in lib/env.sh (sourced
+# above — P1-9). Only the derived predicates below live here.
 
 # Check if running on macOS
 is_macos() {
@@ -217,11 +220,8 @@ is_wsl() {
 # ============================================================================
 # Shell Detection
 # ============================================================================
-
-# Get current shell name
-get_shell() {
-    basename "${SHELL:-/bin/bash}"
-}
+# get_shell: canonical implementation lives in lib/env.sh (sourced above —
+# P1-9). Only the derived predicates below live here.
 
 # Check if running in zsh
 is_zsh() {

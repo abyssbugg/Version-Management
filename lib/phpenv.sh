@@ -8,10 +8,10 @@
 # Includes Composer and Laravel support
 
 # Source foundational libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/env.sh"
-source "${SCRIPT_DIR}/cache.sh"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_PHPENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_PHPENV_DIR}/env.sh"
+source "${_VMS_PHPENV_DIR}/cache.sh"
+source "${_VMS_PHPENV_DIR}/logger.sh"
 
 # PHP version management configuration
 PHPENV_CACHE_PREFIX="phpenv"

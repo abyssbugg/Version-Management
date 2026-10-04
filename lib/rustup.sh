@@ -7,10 +7,10 @@
 # Integrates with foundational libraries for caching, logging, and environment setup
 
 # Source foundational libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/env.sh"
-source "${SCRIPT_DIR}/cache.sh"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_RUSTUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_RUSTUP_DIR}/env.sh"
+source "${_VMS_RUSTUP_DIR}/cache.sh"
+source "${_VMS_RUSTUP_DIR}/logger.sh"
 
 # Rust version management configuration
 RUSTUP_CACHE_PREFIX="rustup"

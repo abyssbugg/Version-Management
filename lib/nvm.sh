@@ -7,10 +7,10 @@
 # Integrates with foundational libraries for caching, logging, and environment setup
 
 # Source foundational libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/env.sh"
-source "${SCRIPT_DIR}/cache.sh"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_NVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_NVM_DIR}/env.sh"
+source "${_VMS_NVM_DIR}/cache.sh"
+source "${_VMS_NVM_DIR}/logger.sh"
 
 # Node.js version management configuration
 NVM_CACHE_PREFIX="nvm"

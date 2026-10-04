@@ -54,14 +54,14 @@
 # bash/zsh-portable subset (no ${var:h}, no ${=x}, no print -P, no
 # shell-specific array syntax).
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_AUTO_ACTIVATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_AUTO_ACTIVATE_DIR}/logger.sh"
 
 # Transactions (M2 primitives) back every rc mutation. Sourced lazily so a
 # caller that already loaded lib/backup.sh is not double-loaded.
 if ! declare -f transaction_start >/dev/null 2>&1; then
     # shellcheck source=lib/backup.sh
-    source "${SCRIPT_DIR}/backup.sh"
+    source "${_VMS_AUTO_ACTIVATE_DIR}/backup.sh"
 fi
 
 # Hook block delimiters — must stay in sync with auto_activate_remove()
