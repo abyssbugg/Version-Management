@@ -72,12 +72,27 @@ plugin_install() {
         echo "Already installed"
         return 0
     fi
-    
-    # Installation logic here
-    curl -fsSL https://example.com/install.sh | bash
+
+    # Preferred channels: platform package manager, or the tool's official
+    # installer with a checksum-verified download. Never pipe-to-shell.
+    case "$(uname -s)" in
+        Darwin) brew install my-tool ;;
+        Linux)  apt-get install -y my-tool ;;
+    esac
     return $?
 }
 ```
+
+**Installer policy:** plugins must never use `curl | bash` /
+`curl | sh` — not in project code and not in generated content
+(ENGINEERING_RULES.md §2.3, ADR-002's injection discipline applies to
+what a plugin executes too). Use, in order of preference:
+
+1. The platform package manager (`brew`, `apt`, `dnf`, …).
+2. A pinned git clone of the tool.
+3. A direct download that is checksum-verified before execution.
+
+A plugin that reaches for pipe-to-shell will not pass review.
 
 ### `plugin_version()`
 
