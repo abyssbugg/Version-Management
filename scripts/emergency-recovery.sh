@@ -5,21 +5,42 @@
 # Part of Professional Development Terminal Setup
 # ============================================================================
 # Restores system to a known-good state when things go wrong.
+#
+# M4 adopter (P3-1): restore_file and reset_to_defaults mutations run under
+# backup transactions (lib/backup.sh) — hash-verified rollback restoring the
+# pre-operation state byte-identically on any failure, byte-compare
+# verification of every restored file, and --dry-run planning with zero
+# writes. Every target is registered with the transaction BEFORE mutation.
+# Preserved by design: the menu flow, the typed-RESET confirm, and the
+# .emergency-<ts> backup convention (belt-and-braces archaeology alongside
+# the transaction guarantee).
 # ============================================================================
 
-set -euo pipefail
+# Only set strict mode when executing directly (not when sourced for testing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    set -euo pipefail
+fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve lib paths from THIS file's location (never an inherited SCRIPT_DIR,
+# which lib sources and test harnesses may clobber).
+_EMERGENCY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Source dependencies
-source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
+# Source dependencies UNCONDITIONALLY (inherited exported logger functions
+# defeat the fallback definitions across process boundaries).
+if [[ -f "${_EMERGENCY_ROOT}/lib/logger.sh" ]]; then
+    source "${_EMERGENCY_ROOT}/lib/logger.sh"
+else
     log_info() { echo "[INFO] $*"; }
     log_success() { echo "[SUCCESS] $*"; }
     log_warn() { echo "[WARN] $*"; }
     log_error() { echo "[ERROR] $*" >&2; }
-}
+    log_debug() { [[ "${DEBUG:-false}" == "true" ]] && echo "[DEBUG] $*"; return 0; }
+fi
 
-source "$SCRIPT_DIR/lib/backup.sh" 2>/dev/null || true
+if ! source "${_EMERGENCY_ROOT}/lib/backup.sh"; then
+    log_error "Cannot load lib/backup.sh (transaction framework)"
+    exit 1
+fi
 
 # ============================================================================
 # Configuration
@@ -35,6 +56,37 @@ readonly RECOVERABLE_FILES=(
     "$HOME/.bashrc"
     "$HOME/.config/Code/User/settings.json"
 )
+
+# ============================================================================
+# Transaction helpers (P3-1)
+# ============================================================================
+
+# Byte-identical verdict for two files (cmp when present, hash fallback).
+# The verdict must propagate — a swallowed comparison result would make every
+# verification pass unconditionally.
+_er_files_identical() {
+    local a="$1" b="$2"
+    [[ -f "$a" && -f "$b" ]] || return 1
+    if command -v cmp >/dev/null 2>&1; then
+        if cmp -s "$a" "$b"; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+    local ha hb
+    ha=$(sha256sum "$a" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$a" 2>/dev/null | awk '{print $1}')
+    hb=$(sha256sum "$b" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$b" 2>/dev/null | awk '{print $1}')
+    [[ -n "$ha" && "$ha" == "$hb" ]]
+}
+
+# Shared failure path: roll the active transaction back (hash-verified,
+# byte-identical) and surface rollback errors loudly.
+_er_rollback() {
+    if ! transaction_rollback; then
+        log_error "Rollback reported errors — inspect $HOME/.config-backups/transactions"
+    fi
+}
 
 # ============================================================================
 # UI Functions
@@ -140,6 +192,11 @@ list_restore_points() {
 # Recovery Functions
 # ============================================================================
 
+# Restore a single file from a backup under a transaction (P3-1): the target
+# is registered BEFORE any mutation so a failure rolls back the pre-restore
+# state byte-identically (or removes the file entirely if the restore created
+# it). The .emergency-<ts> backup is kept as belt-and-braces. Dry-run plans
+# with zero writes.
 restore_file() {
     local backup_path="$1"
     local target_path="$2"
@@ -149,16 +206,84 @@ restore_file() {
         return 1
     fi
 
-    # Create backup of current file
+    # Dry-run: plan only — journal the plan, list the targets, zero writes.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        transaction_start "emergency_restore" || return 1
+        transaction_add_file "$target_path" || { _er_rollback; return 1; }
+        log_info "[dry-run] would restore: $target_path (from: $backup_path)"
+        if [[ -f "$target_path" ]]; then
+            log_info "[dry-run] would create emergency backup: ${target_path}.emergency-<timestamp>"
+        fi
+        transaction_commit || return 1
+        return 0
+    fi
+
+    transaction_start "emergency_restore" || return 1
+
+    if ! transaction_add_file "$target_path"; then
+        _er_rollback
+        return 1
+    fi
+
+    # Belt-and-braces emergency backup (convention preserved alongside the
+    # transaction — the rollback is the guarantee, this is the archaeology).
     if [[ -f "$target_path" ]]; then
         local emergency_backup="${target_path}.emergency-$(date +%Y%m%d%H%M%S)"
-        cp "$target_path" "$emergency_backup"
+        if ! cp "$target_path" "$emergency_backup"; then
+            log_error "Cannot create emergency backup: $emergency_backup"
+            _er_rollback
+            return 1
+        fi
         log_info "Created emergency backup: $emergency_backup"
     fi
 
-    # Restore from backup
-    cp "$backup_path" "$target_path"
+    local target_dir
+    target_dir=$(dirname "$target_path")
+    if [[ ! -d "$target_dir" ]]; then
+        log_error "Target directory missing: $target_dir"
+        _er_rollback
+        return 1
+    fi
+
+    # Stage in the target directory and rename (atomic replace). The rename
+    # is the failure point for hostile targets — an immutable target fails
+    # LOUD here and the rollback below restores the pre-state.
+    local tmp
+    tmp=$(mktemp "$target_dir/.vms-restore.XXXXXX") || {
+        log_error "Cannot stage restore in $target_dir"
+        _er_rollback
+        return 1
+    }
+    if ! cp "$backup_path" "$tmp"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Cannot stage backup content: $backup_path"
+        _er_rollback
+        return 1
+    fi
+    # Preserve the target's existing mode (mktemp creates 0600).
+    local mode
+    mode=$(stat -f '%Lp' "$target_path" 2>/dev/null || stat -c '%a' "$target_path" 2>/dev/null || echo 644)
+    chmod "$mode" "$tmp" 2>/dev/null || true
+    if ! mv "$tmp" "$target_path"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Restore FAILED for: $target_path"
+        _er_rollback
+        return 1
+    fi
+
+    # Verify: the restored bytes must match the backup source.
+    if ! _er_files_identical "$backup_path" "$target_path"; then
+        log_error "Post-restore verification FAILED: $target_path differs from $backup_path"
+        _er_rollback
+        return 1
+    fi
+
+    if ! transaction_commit; then
+        log_error "Transaction commit failed for: $target_path"
+        return 1
+    fi
     log_success "Restored: $target_path"
+    return 0
 }
 
 restore_zshrc() {
@@ -193,14 +318,19 @@ restore_vscode() {
         backup=$(find_latest_backup "vscode")
     fi
 
-    if [[ -n "$backup" ]]; then
-        local vscode_dir="$HOME/.config/Code/User"
-        mkdir -p "$vscode_dir"
-        restore_file "$backup" "$vscode_dir/settings.json"
-    else
+    if [[ -z "$backup" ]]; then
         log_error "No VS Code settings backup found"
         return 1
     fi
+
+    local vscode_dir="$HOME/.config/Code/User"
+    # Dry-run: zero writes — plan the directory creation instead.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would create (if missing): $vscode_dir"
+    else
+        mkdir -p "$vscode_dir"
+    fi
+    restore_file "$backup" "$vscode_dir/settings.json"
 }
 
 restore_all() {
@@ -306,6 +436,12 @@ restore_from_point() {
 # Reset to Defaults
 # ============================================================================
 
+# Reset ~/.p10k.zsh to the factory theme under a transaction (P3-1): the
+# target is registered BEFORE mutation, the .emergency backups in
+# $BACKUP_DIR/emergency are preserved as belt-and-braces, the applied theme
+# is byte-verified against the factory source, and any failure rolls the
+# pre-reset state back byte-identically. The typed-RESET confirm gates
+# everything (including dry-run planning).
 reset_to_defaults() {
     echo
     log_warn "  This will reset ALL customizations!"
@@ -322,31 +458,91 @@ reset_to_defaults() {
         return 0
     fi
 
-    # Create emergency backup first
+    local factory="${_EMERGENCY_ROOT}/config/professional-dev-p10k.zsh"
+    if [[ ! -f "$factory" ]]; then
+        log_error "Default config not found: $factory"
+        return 1
+    fi
+
+    transaction_start "emergency_reset" || return 1
+
+    # Register BEFORE any mutation so a failure rolls back the pre-reset
+    # state byte-identically (or removes the file if the reset created it).
+    if ! transaction_add_file "$HOME/.p10k.zsh"; then
+        _er_rollback
+        return 1
+    fi
+
+    # Dry-run: plan only — zero writes (no transaction dir, no emergency
+    # backups, no factory copy).
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would reset $HOME/.p10k.zsh to factory default (source: $factory)"
+        log_info "[dry-run] would save emergency backups to $BACKUP_DIR/emergency/"
+        transaction_commit || return 1
+        return 0
+    fi
+
+    # Belt-and-braces emergency backups first (convention preserved).
     mkdir -p "$BACKUP_DIR/emergency"
     local timestamp
     timestamp=$(date +%Y%m%d%H%M%S)
 
     if [[ -f "$HOME/.p10k.zsh" ]]; then
-        cp "$HOME/.p10k.zsh" "$BACKUP_DIR/emergency/p10k-${timestamp}.zsh"
+        if ! cp "$HOME/.p10k.zsh" "$BACKUP_DIR/emergency/p10k-${timestamp}.zsh"; then
+            log_error "Cannot save emergency backup of $HOME/.p10k.zsh"
+            _er_rollback
+            return 1
+        fi
     fi
 
     if [[ -f "$HOME/.zshrc" ]]; then
-        cp "$HOME/.zshrc" "$BACKUP_DIR/emergency/zshrc-${timestamp}"
+        if ! cp "$HOME/.zshrc" "$BACKUP_DIR/emergency/zshrc-${timestamp}"; then
+            log_error "Cannot save emergency backup of $HOME/.zshrc"
+            _er_rollback
+            return 1
+        fi
     fi
 
     log_info "Emergency backups saved to $BACKUP_DIR/emergency/"
 
-    # Reset p10k to default
-    if [[ -f "$SCRIPT_DIR/config/professional-dev-p10k.zsh" ]]; then
-        cp "$SCRIPT_DIR/config/professional-dev-p10k.zsh" "$HOME/.p10k.zsh"
-        log_success "Reset ~/.p10k.zsh to factory default"
-    else
-        log_error "Default config not found"
+    # Reset p10k to default (atomic replace of the registered target).
+    local tmp mode
+    tmp=$(mktemp "$(dirname "$HOME/.p10k.zsh")/.vms-reset.XXXXXX") || {
+        log_error "Cannot stage reset in $HOME"
+        _er_rollback
+        return 1
+    }
+    if ! cp "$factory" "$tmp"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Cannot stage factory theme: $factory"
+        _er_rollback
+        return 1
     fi
+    mode=$(stat -f '%Lp' "$HOME/.p10k.zsh" 2>/dev/null || stat -c '%a' "$HOME/.p10k.zsh" 2>/dev/null || echo 644)
+    chmod "$mode" "$tmp" 2>/dev/null || true
+    if ! mv "$tmp" "$HOME/.p10k.zsh"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Reset FAILED for: $HOME/.p10k.zsh"
+        _er_rollback
+        return 1
+    fi
+
+    # Verify: the applied theme must match the factory source byte-for-byte.
+    if ! _er_files_identical "$factory" "$HOME/.p10k.zsh"; then
+        log_error "Post-reset verification FAILED: $HOME/.p10k.zsh differs from $factory"
+        _er_rollback
+        return 1
+    fi
+
+    if ! transaction_commit; then
+        log_error "Transaction commit failed for reset"
+        return 1
+    fi
+    log_success "Reset ~/.p10k.zsh to factory default"
 
     echo
     log_success "Reset complete. Restart your terminal to apply changes."
+    return 0
 }
 
 # ============================================================================
@@ -408,7 +604,20 @@ diagnose_state() {
 # ============================================================================
 
 main() {
+    local dry_run=0
+
+    if [[ "${1:-}" == "--dry-run" ]]; then
+        dry_run=1
+        export TRANSACTION_DRY_RUN=1
+        shift
+    fi
+
     show_header
+
+    if [[ "$dry_run" -eq 1 ]]; then
+        log_info "DRY-RUN MODE — plan only, zero writes to your configuration"
+        echo
+    fi
 
     while true; do
         show_menu
@@ -416,15 +625,15 @@ main() {
         echo
 
         case "$choice" in
-            1) restore_zshrc ;;
-            2) restore_p10k ;;
-            3) restore_vscode ;;
-            4) restore_all ;;
+            1) restore_zshrc || log_warn "Option $choice did not complete" ;;
+            2) restore_p10k || log_warn "Option $choice did not complete" ;;
+            3) restore_vscode || log_warn "Option $choice did not complete" ;;
+            4) restore_all || log_warn "Option $choice did not complete" ;;
             5) list_all_backups ;;
             6) list_restore_points ;;
-            7) restore_from_specific_backup ;;
-            8) restore_from_point "" ;;
-            9) reset_to_defaults ;;
+            7) restore_from_specific_backup || log_warn "Option $choice did not complete" ;;
+            8) restore_from_point "" || log_warn "Option $choice did not complete" ;;
+            9) reset_to_defaults || log_warn "Option $choice did not complete" ;;
             10) diagnose_state ;;
             0)
                 log_info "Exiting recovery system"
