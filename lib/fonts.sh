@@ -12,8 +12,8 @@
 readonly _FONTS_LOADED=1
 
 # Source dependencies
-SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
+_VMS_FONTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$_VMS_FONTS_DIR/lib/logger.sh" 2>/dev/null || {
     log_info() { echo "[INFO] $*"; }
     log_success() { echo "[SUCCESS] $*"; }
     log_warn() { echo "[WARN] $*"; }
@@ -156,7 +156,7 @@ font_bundled_exist() {
     local missing=0
 
     for font in "${BUNDLED_FONTS[@]}"; do
-        if [[ ! -f "$SCRIPT_DIR/$font" ]]; then
+        if [[ ! -f "$_VMS_FONTS_DIR/$font" ]]; then
             missing=$(( missing + 1 ))
         fi
     done
@@ -185,7 +185,7 @@ font_install_bundled() {
     local failed=0
 
     for font in "${BUNDLED_FONTS[@]}"; do
-        local src="$SCRIPT_DIR/$font"
+        local src="$_VMS_FONTS_DIR/$font"
 
         if [[ -f "$src" ]]; then
             if cp "$src" "$target_dir/"; then
@@ -358,7 +358,7 @@ font_status() {
     echo
     echo "Bundled Fonts:"
     for font in "${BUNDLED_FONTS[@]}"; do
-        if [[ -f "$SCRIPT_DIR/$font" ]]; then
+        if [[ -f "$_VMS_FONTS_DIR/$font" ]]; then
             echo "   $font"
         else
             echo "   $font (missing)"
@@ -378,7 +378,7 @@ font_generate_checksums() {
     echo
 
     for font in "${BUNDLED_FONTS[@]}"; do
-        local font_path="$SCRIPT_DIR/$font"
+        local font_path="$_VMS_FONTS_DIR/$font"
         if [[ -f "$font_path" ]]; then
             if command -v shasum >/dev/null 2>&1; then
                 shasum -a 256 "$font_path"

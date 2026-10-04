@@ -11,10 +11,10 @@
 readonly _FNM_SH_LOADED=1
 
 # Source foundational libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/env.sh"
-source "${SCRIPT_DIR}/cache.sh"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_FNM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_FNM_DIR}/env.sh"
+source "${_VMS_FNM_DIR}/cache.sh"
+source "${_VMS_FNM_DIR}/logger.sh"
 
 # FNM version management configuration
 FNM_CACHE_PREFIX="fnm"

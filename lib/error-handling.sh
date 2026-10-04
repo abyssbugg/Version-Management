@@ -9,9 +9,9 @@
 # ============================================================================
 
 # Source logger if available for consistent output
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/logger.sh" ]]; then
-    source "$SCRIPT_DIR/logger.sh"
+_VMS_ERROR_HANDLING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$_VMS_ERROR_HANDLING_DIR/logger.sh" ]]; then
+    source "$_VMS_ERROR_HANDLING_DIR/logger.sh"
 else
     # Fallback logging functions
     log_error() { echo "[ERROR] $*" >&2; }

@@ -11,8 +11,10 @@ _ENV_SH_LOADED=1
 # Provides environment detection and setup functions for cross-platform compatibility
 #
 # Functions:
-#   - detect_shell        : Detect current shell (bash/zsh)
-#   - detect_os           : Detect operating system platform
+#   - detect_shell        : Detect the RUNNING shell (bash/zsh)
+#   - detect_os           : Detect operating system platform (CANONICAL, P1-9)
+#   - get_os              : Canonical alias of detect_os (P1-9)
+#   - get_shell           : Login-shell name, basename of $SHELL (CANONICAL, P1-9)
 #   - validate_env_var    : Validate environment variable existence and value
 #   - detect_nvm          : Check if nvm is installed and available
 #   - detect_pyenv        : Check if pyenv is installed and available
@@ -90,9 +92,41 @@ detect_shell() {
     esac
 }
 
+# Canonical get_shell (P1-9): the login-shell name — basename of $SHELL with
+# a /bin/bash default. Deliberately DISTINCT from detect_shell(), which
+# probes the RUNNING shell (SHELL -> ps -> version variables). The value must
+# stay exactly this: utils.sh consumers and its is_zsh/is_bash helpers derive
+# from it. Owned here since P1-9; lib/utils.sh delegates to this file.
+get_shell() {
+    basename "${SHELL:-/bin/bash}"
+}
+
 # =============================================================================
-# Operating System Detection Functions
+# Operating System Detection Functions (CANONICAL — P1-9)
 # =============================================================================
+#
+# This file owns the platform API. lib/utils.sh historically carried a
+# duplicate `get_os` that disagreed with this file's `detect_os` under WSL
+# (MASTER_AUDIT P1-9): utils.sh reported "wsl", detect_os reported "linux".
+#
+# BINDING DECISION (P1-9): WSL is reported as "wsl", never "linux", by BOTH
+# get_os and detect_os. "wsl" is the more informative value — callers can
+# distinguish WSL from bare Linux — and the platform API has exactly ONE
+# semantic. Pinned by tests/unit/test_platform_contract.sh.
+#
+# Value set: macos | linux | wsl | windows | unknown
+
+# Private helper: is this kernel WSL? WSL1 and WSL2 both stamp "Microsoft"
+# into /proc/version. VMS_PROC_VERSION overrides the /proc/version path as a
+# detection input (test seam for the P1-9 contract test); production callers
+# never set it.
+_vms_is_wsl() {
+    local proc_version="${VMS_PROC_VERSION:-/proc/version}"
+    if [[ -f "$proc_version" ]] && grep -q Microsoft "$proc_version" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 # Detect the operating system platform
 detect_os() {
@@ -108,8 +142,14 @@ detect_os() {
                 log_debug "OS detected: macOS"
                 ;;
             Linux*)
-                os_type="linux"
-                log_debug "OS detected: Linux"
+                if _vms_is_wsl; then
+                    # BINDING DECISION (P1-9): WSL reports "wsl", not "linux".
+                    os_type="wsl"
+                    log_debug "OS detected: Linux (WSL)"
+                else
+                    os_type="linux"
+                    log_debug "OS detected: Linux"
+                fi
                 ;;
             CYGWIN*|MINGW*|MSYS*)
                 os_type="windows"
@@ -126,6 +166,13 @@ detect_os() {
     fi
 
     echo "$os_type"
+}
+
+# Canonical alias of detect_os (P1-9). Kept as a named entry point because
+# lib/utils.sh and adopters historically exposed this name; get_os and
+# detect_os must never disagree (ONE platform semantic).
+get_os() {
+    detect_os
 }
 
 # =============================================================================
@@ -362,6 +409,6 @@ show_env_summary() {
 }
 
 # Export functions for use in other scripts
-export -f detect_shell detect_os validate_env_var detect_nvm detect_pyenv
+export -f detect_shell detect_os get_os get_shell validate_env_var detect_nvm detect_pyenv
 export -f setup_path_mod setup_nvm_silent show_env_summary
 export -f check_nvm_installed check_pyenv_installed check_nvm_silent_configured

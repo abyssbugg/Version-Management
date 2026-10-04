@@ -7,10 +7,10 @@
 # Integrates with foundational libraries for caching, logging, and environment setup
 
 # Source foundational libraries
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/env.sh"
-source "${SCRIPT_DIR}/cache.sh"
-source "${SCRIPT_DIR}/logger.sh"
+_VMS_PYVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_VMS_PYVM_DIR}/env.sh"
+source "${_VMS_PYVM_DIR}/cache.sh"
+source "${_VMS_PYVM_DIR}/logger.sh"
 
 # Python version management configuration
 PYVM_CACHE_PREFIX="pyvm"
@@ -423,7 +423,7 @@ pyvm_auto_activate() {
 pyvm_setup_auto_activate() {
     # Source and delegate to the unified installer.
     # shellcheck source=lib/auto-activate.sh
-    source "${SCRIPT_DIR}/auto-activate.sh"
+    source "${_VMS_PYVM_DIR}/auto-activate.sh"
     auto_activate_setup
     return $?
 }
