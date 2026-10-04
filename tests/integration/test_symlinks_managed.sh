@@ -270,12 +270,15 @@ FAILSUDO
 test_preflight_failclosed_zero_sudo() {
     CASE_FAILED=0
     _setup
-    mkdir -p "$SBX/nowrite"
-    chmod 000 "$SBX/nowrite"
-    export TMPDIR="$SBX/nowrite"
+    # Root-proof injection: permission bits do not stop root (the hosted CI
+    # agents run as root — chmod 000 silently succeeded there, build #29).
+    # Making TMPDIR resolve THROUGH a regular file fails mkdir -p with
+    # ENOTDIR for every uid.
+    printf 'not a directory\n' > "$SBX/notadir"
+    export TMPDIR="$SBX/notadir/inner"
     bash "$TOOL" --confirm >/dev/null 2>&1
     local rc=$?
-    chmod 755 "$SBX/nowrite"
+    unset TMPDIR
     [[ $rc -ne 0 ]] \
         && chk assert_equals "loud" "loud" "unwritable backup location exits nonzero" \
         || chk assert_equals "loud" "silent-success" "unwritable backup location MUST exit nonzero"
