@@ -25,32 +25,33 @@ These files are optional and can be placed at the repository root for local inst
 
 ## License
 
-```text
-Apache License 2.0
+The font distribution described here is **mixed-license**; this document
+no longer states a single license for it. The Meslo LG base font is
+licensed under Apache License 2.0 (Meslo is a derivative of Apple's
+Menlo), but the patched Nerd Font bundles glyphs from icon sets with
+different licenses (CC-BY-4.0, SIL OFL 1.1, MIT, Apache 2.0).
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+**Authoritative licensing for every component — the `font-patcher`
+script and each bundled glyph set — lives in
+[FontPatcher/ATTRIBUTION.md](FontPatcher/ATTRIBUTION.md)**, which was
+verified against the license files shipped inside the vendored tree.
+Consult it before redistributing any font produced with this setup.
 
 ## Icon Coverage
 
-MesloLGS Nerd Font includes glyphs from:
+MesloLGS Nerd Font includes glyphs from the icon sets vendored under
+`FontPatcher/src/glyphs/`:
 
-- **Powerline** - Shell prompt symbols
+- **Powerline Symbols / Powerline Extra** - Shell prompt symbols
 - **Font Awesome** - General purpose icons
 - **Devicons** - Programming language logos
 - **Octicons** - GitHub-style icons
 - **Material Design** - Google's icon set
+- **VS Code Codicons** - Editor-style icons
+- **Pomicons** - Pomodoro timer symbols
 - **Weather Icons** - Weather symbols
+
+Licensing differs per set — see [FontPatcher/ATTRIBUTION.md](FontPatcher/ATTRIBUTION.md).
 
 ## Installation
 
