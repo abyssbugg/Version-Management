@@ -14,6 +14,12 @@
 #     target file to it so injected failures roll back byte-identically).
 #   - Writes are ATOMIC: temp file in the target directory + rename; the
 #     original file's mode is preserved.
+#   - SYMLINK TARGETS keep being symlinks (M2 semantics, B1.10-new): the
+#     atomic rename lands on the RESOLVED content file (temp file in the
+#     resolved file's directory, same-filesystem rename) — the link itself
+#     and its target string survive verbatim. Both the link (kind=symlink)
+#     and the resolved content file (kind=file/NEW) are transaction-registered
+#     so a rollback restores the user's bytes, not just the link.
 #   - IDEMPOTENT: writing the same block content twice leaves the file
 #     byte-identical (no timestamp churn, no duplicate blocks).
 #   - Dry-run: with TRANSACTION_DRY_RUN=1 the editor plans and reports
@@ -60,6 +66,47 @@ mutation_block_has() {
     grep -qF "$(mutation_begin_marker "$name")" "$file"
 }
 
+# B1.10-new: resolve the file whose CONTENT a managed-block write/remove must
+# replace. If $1 is (a chain of) symlink(s), the atomic rename must land on
+# the content file the link resolves to, so the link itself survives (M2
+# symlink semantics — "preserve the LINK itself", lib/backup.sh
+# transaction_add_file). Relative link targets are resolved against the
+# link's own directory via cd+pwd (portable; no realpath dependency), with a
+# bounded chain depth (ELOOP equivalent). On success sets
+# _MUTATION_RESOLVED_TARGET to the absolute path of the final content file;
+# the cwd is never changed (resolution runs in a command substitution).
+mutation_resolve_content_target() {
+    local path="$1" link hops=0
+    _MUTATION_RESOLVED_TARGET="$path"
+    while [[ -L "$_MUTATION_RESOLVED_TARGET" ]]; do
+        hops=$((hops + 1))
+        if [[ $hops -gt 40 ]]; then
+            log_error "mutation: symlink chain too deep (>40 hops): $path"
+            return 1
+        fi
+        link=$(readlink "$_MUTATION_RESOLVED_TARGET") || {
+            log_error "mutation: cannot read symlink target: $_MUTATION_RESOLVED_TARGET"
+            return 1
+        }
+        if [[ "$link" == /* ]]; then
+            _MUTATION_RESOLVED_TARGET="$link"
+        else
+            _MUTATION_RESOLVED_TARGET="$(dirname "$_MUTATION_RESOLVED_TARGET")/$link"
+        fi
+    done
+    # Canonical directory of the final hop (resolves '..' components and
+    # gives an absolute path for the same-directory mktemp + atomic rename).
+    # A missing/unreachable directory is a hard error: a dangling chain
+    # cannot be written through.
+    local resolved_dir
+    resolved_dir=$(cd "$(dirname "$_MUTATION_RESOLVED_TARGET")" 2>/dev/null && pwd) || {
+        log_error "mutation: symlink target directory missing or unreachable: $(dirname "$_MUTATION_RESOLVED_TARGET")"
+        return 1
+    }
+    _MUTATION_RESOLVED_TARGET="$resolved_dir/$(basename "$_MUTATION_RESOLVED_TARGET")"
+    return 0
+}
+
 mutation_block_get() {
     # Print the managed block's content (between the markers) to stdout.
     local file="$1" name="$2"
@@ -93,14 +140,38 @@ mutation_block_write() {
         return 1
     }
 
-    local dir
+    local dir write_target
     dir=$(dirname "$file")
     [[ -d "$dir" ]] || { log_error "mutation target directory missing: $dir"; return 1; }
 
+    # B1.10-new: if the target is a symlink, the atomic rename must land on
+    # the RESOLVED content file (same-directory temp + rename there) so the
+    # link survives. A dangling chain fails closed here, and a chain that
+    # resolves to a non-regular existing file (directory/fifo/...) is
+    # refused before anything is registered.
+    write_target="$file"
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        write_target="$_MUTATION_RESOLVED_TARGET"
+        if [[ -e "$write_target" && ! -f "$write_target" ]]; then
+            log_error "mutation: symlink resolves to a non-regular file, refusing: $file -> $write_target"
+            return 1
+        fi
+        dir=$(dirname "$write_target")
+    fi
+
     # Existing target (or its not-yet-created state) is registered with the
     # transaction BEFORE any mutation so rollback restores the pre-state.
+    # For a symlink target BOTH entries are registered: the link itself
+    # (kind=symlink — link preserved, M2) and the resolved content file
+    # (kind=file/NEW) — otherwise a rollback would recreate the link but
+    # leave the user's file mutated (breaks the byte-identical-restore
+    # contract, A3).
     if [[ "$_TRANSACTION_ACTIVE" != "dryrun" ]]; then
         transaction_add_file "$file" || return 1
+        if [[ "$write_target" != "$file" ]]; then
+            transaction_add_file "$write_target" || return 1
+        fi
     fi
 
     local begin end
@@ -158,10 +229,11 @@ PY
         return 0
     fi
 
-    # Atomic: same-directory rename.
-    if ! mv "$tmp" "$file"; then
+    # Atomic: same-directory rename — onto the RESOLVED content file for a
+    # symlink target, so the link itself is never touched (B1.10-new).
+    if ! mv "$tmp" "$write_target"; then
         rm -f "$tmp"
-        log_error "mutation_block_write: atomic rename failed: $file"
+        log_error "mutation_block_write: atomic rename failed: $write_target"
         return 1
     fi
 
@@ -171,7 +243,11 @@ PY
         return 1
     fi
 
-    _txn_journal "mutation_write" "file=$file block=$name"
+    if [[ "$write_target" != "$file" ]]; then
+        _txn_journal "mutation_write" "file=$file block=$name via=$write_target"
+    else
+        _txn_journal "mutation_write" "file=$file block=$name"
+    fi
     log_info "Managed block written: $file ($name)"
     return 0
 }
@@ -200,6 +276,22 @@ mutation_block_remove() {
         transaction_add_file "$file" || return 1
     fi
 
+    # B1.10-new (same defect class as the write path): a removal through a
+    # symlink must rename onto the RESOLVED content file, never over the
+    # link. Both pre-states are registered like in mutation_block_write.
+    local write_target="$file"
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        write_target="$_MUTATION_RESOLVED_TARGET"
+        if [[ -e "$write_target" && ! -f "$write_target" ]]; then
+            log_error "mutation_block_remove: symlink resolves to a non-regular file, refusing: $file -> $write_target"
+            return 1
+        fi
+        if [[ "$_TRANSACTION_ACTIVE" != "dryrun" ]]; then
+            transaction_add_file "$write_target" || return 1
+        fi
+    fi
+
     if ! mutation_block_has "$file" "$name"; then
         if [[ "${MUTATION_REMOVE_TOLERANT:-1}" == "1" ]]; then
             log_debug "mutation_block_remove: block absent, idempotent: $name"
@@ -214,7 +306,7 @@ mutation_block_remove() {
     end=$(mutation_end_marker "$name")
 
     local tmp
-    tmp=$(mktemp "$(dirname "$file")/.vms-mutation.XXXXXX") || return 1
+    tmp=$(mktemp "$(dirname "$write_target")/.vms-mutation.XXXXXX") || return 1
     awk -v b="$begin" -v e="$end" '
         $0 == b { inblock = 1; next }
         $0 == e { inblock = 0; next }
@@ -231,14 +323,18 @@ mutation_block_remove() {
     local mode
     mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
     chmod "$mode" "$tmp"
-    if ! mv "$tmp" "$file"; then
+    if ! mv "$tmp" "$write_target"; then
         rm -f "$tmp"
-        log_error "mutation_block_remove: atomic rename failed: $file"
+        log_error "mutation_block_remove: atomic rename failed: $write_target"
         return 1
     fi
     mutation_block_has "$file" "$name" && { log_error "remove verification failed"; return 1; }
 
-    _txn_journal "mutation_remove" "file=$file block=$name"
+    if [[ "$write_target" != "$file" ]]; then
+        _txn_journal "mutation_remove" "file=$file block=$name via=$write_target"
+    else
+        _txn_journal "mutation_remove" "file=$file block=$name"
+    fi
     log_info "Managed block removed: $file ($name)"
     return 0
 }

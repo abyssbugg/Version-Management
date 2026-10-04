@@ -102,6 +102,19 @@ source "$SCRIPT_DIR/lib/lock.sh"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
+# NVM release pin (P2-6): lib/nvm.sh is the SINGLE source of truth for the
+# pinned nvm release (NVM_VERSION, env-overridable). install_nvm below
+# consumes ${NVM_VERSION} as its positional default — the previously
+# duplicated pin literal that lived in install_nvm is gone. Same guarded,
+# SCRIPT_DIR-safe posture as the canonical platform source above.
+# Note: sourcing lib/nvm.sh pulls in lib/cache.sh, whose readonly CACHE_DIR
+# adopts this script's own CACHE_DIR — accepted (same posture as the other
+# lib/nvm.sh adopters; cache data is an optimization, never load-bearing).
+if [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
+    # shellcheck source=lib/nvm.sh
+    source "$SCRIPT_DIR/lib/nvm.sh"
+fi
+
 # Compatibility shim: allow callers that use log "LEVEL" "msg" directly
 log() {
     local level="$1"; shift
@@ -289,7 +302,12 @@ detect_version_managers() {
 install_nvm() {
     log_info "Installing NVM..."
 
-    local nvm_version="${1:-v0.39.7}"
+    # P2-6: positional override wins; the default is the single pin from
+    # lib/nvm.sh (sourced above). No literal here — if lib/nvm.sh is missing
+    # (guarded source above) the unmanaged pin is refused loudly instead of
+    # re-duplicated.
+    local nvm_version="${1:-${NVM_VERSION:-}}"
+    [[ -n "$nvm_version" ]] || { log_error "NVM_VERSION unset (lib/nvm.sh missing?) — refusing an unmanaged nvm pin"; return 1; }
     local install_dir="${NVM_DIR:-$HOME/.nvm}"
     export NVM_DIR="$install_dir"
     local repo_url="https://github.com/nvm-sh/nvm.git"
