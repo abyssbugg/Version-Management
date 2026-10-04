@@ -148,14 +148,17 @@ directive milestone mapping (M4).
 | B1.9 | fonts.sh double-zero on no-match (grep -c + `\|\| echo 0`); Bash 3.2 vs 4+ contract undefined | **FIXED** (`cdcba9e`) | `|| true` on grep -c (single count); Bash >= 4.0 contract documented (ENGINEERING_RULES §3.1) and enforced in test_runner |
 | B2.1 | `.zshrc` bare appends, no managed blocks, `NVM_SILENT` drift | OPEN — M4 | managed-block editor + canonical NVM block scheduled M4 with per-adopter canary gates |
 | B2.2 | `make clean` deletes unscoped `/tmp/test_*` | OPEN — M5 | scoped cleanup root scheduled M5 |
-| B2.4 | Logger contaminates stdout of value-returning functions | OPEN — M4 | theme_detect_current symptom tolerated in tests; contract fix lands with M4's mutation-surface rework (same call sites) |
+| A5-new | `lib/validation.sh:12` clobbers the global `SCRIPT_DIR` on source (M1 library-invariant spirit: sourcing must not disturb caller state); caught live by the M4 fonts adopter — every font source silently retargeted to `lib/` | OPEN — M5 | each adopter works around it privately (`_VMS_ROOT`/`_SCRIPT_FILE_DIR`); the durable fix is a SCRIPT_DIR-hygiene pass across `lib/*.sh` so adopters can rely on global state again |
+| B2.4 | Logger contaminates stdout of value-returning functions | **FIXED** (`520d533`, 2026-10-02) | all log levels → stderr (INFO/WARN/SUCCESS/DEBUG; ERROR already did); `tests/unit/test_logger_contract.sh` asserts the stream contract, gating, file logging, and M1 `$-` regression; `test_logger.sh` stdout-capture assertions updated to the stderr contract |
 
-**Directive execution state (2026-10-02):** M0 **GO**, M1 **GO**, M2 **GO**
-(builds #16–#19 7/7; 4-way manifest parity; seeded red observed), M3 **GO**
-(build #21 7/7; traversal/symlink-escape/untrusted-repo/passwordless-sudo all
-fail closed; sudo assertions via recording shim). New B1.3 row added 2026-10-02
-— it was folded into A4's entry at registration time.
-Remaining: M4 (managed-block adoption), M5 (delivery/compliance).
+**Directive execution state (2026-10-04):** M0 **GO**, M1 **GO**, M2 **GO**,
+M3 **GO**, M4 **GO for the directive-named adopter set** (all six: fix-nvm-issues,
+setup-versions, fix-terminal-issues, update-global-node-symlinks,
+setup-fonts-enhanced, emergency-recovery — each transaction-routed with
+red→green per-adopter matrices; registry published). Remaining: M5
+(delivery/compliance) and M4-continuation adoption of the broader registry
+(cache/state-writer class, lower risk).
+
 Test-infrastructure durability (B1.8, `e1a8c66`, 2026-10-04): hosted macOS
 test legs that hang now fail closed inside the run (watchdog, FAIL:124)
 instead of dying silently at the 4h job timeout; per-file progress makes any
