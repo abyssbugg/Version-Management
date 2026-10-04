@@ -57,12 +57,13 @@
 _VMS_AUTO_ACTIVATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_AUTO_ACTIVATE_DIR}/logger.sh"
 
-# Transactions (M2 primitives) back every rc mutation. Sourced lazily so a
-# caller that already loaded lib/backup.sh is not double-loaded.
-if ! declare -f transaction_start >/dev/null 2>&1; then
-    # shellcheck source=lib/backup.sh
-    source "${_VMS_AUTO_ACTIVATE_DIR}/backup.sh"
-fi
+# Transactions (M2 primitives) back every rc mutation. Sourced
+# UNCONDITIONALLY (B1.13-new): backup.sh export -f's its transaction
+# functions, so inherited copies in a child defeat this file's old
+# `declare -f` guard — the state globals would never be initialized and the
+# first transaction call dies under set -u. backup.sh is re-source-safe.
+# shellcheck source=lib/backup.sh
+source "${_VMS_AUTO_ACTIVATE_DIR}/backup.sh"
 
 # Hook block delimiters — must stay in sync with auto_activate_remove()
 readonly _AA_START="# >>> dev auto-activate hook <<<"

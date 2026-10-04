@@ -798,6 +798,48 @@ test_symlink_editor_idempotent() {
     echo "    [evidence] editor probe: write+rerun+remove link=$d user-sha=$(sha "$userf" | cut -c1-12) tsv-kind=$(_txn_tsv_kind b1_10_probe)"
 }
 
+# ── 4e. legacy-strip through a symlinked rc (Lane Y handoffs, B1.10-new
+# class): drift lines are seeded in the USER dotfiles file; the strip
+# helpers must operate on the RESOLVED content file. The pre-fix helpers
+# mktemp'd beside the link and renamed over the LINK path, destroying it.
+test_symlink_strip_fix_nvm() {
+    _setup
+    _sym_setup
+    _stub_nvm
+    local userf="$SBX/user-dotfiles/zshrc-real"
+    local rl log="$SBX/run-d5.log" rc ftype
+    printf '# user preamble\n# NVM Permanent Silence Configuration\nexport EDITOR=vim\n' > "$userf"
+    rl=$(readlink "$HOME/.zshrc")
+    _vrun "$log" "$RUN_LIMIT_S" "$REAL_NVM" --silent
+    rc=$?
+    _chk "zero" "$(_rc_state "$rc")" "fix-nvm apply with seeded drift over a symlinked rc exits 0"
+    if [[ -L "$HOME/.zshrc" ]]; then ftype="still-symlink"; else ftype="replaced"; fi
+    _chk "still-symlink" "$ftype" "legacy strip keeps the symlink (strip must resolve, not rename over the link, B1.10-new class)"
+    _chk "$rl" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "link target preserved through the strip"
+    _chk "absent" "$(_state_grep 'NVM Permanent Silence Configuration' "$userf")" "legacy drift line removed from the RESOLVED user file"
+    _chk "present" "$(_state_grep '# BEGIN version-management-setup:nvm' "$userf")" "managed block present in the resolved user file"
+    echo "    [evidence] strip fix-nvm: rc=$rc link=$ftype drift-gone user-sha=$(sha "$userf" | cut -c1-12)"
+}
+
+test_symlink_strip_setup_versions() {
+    _setup
+    _sym_setup
+    _stub_nvm
+    local userf="$SBX/user-dotfiles/zshrc-real"
+    local rl log="$SBX/run-d6.log" rc ftype
+    printf '# user preamble\nexport NVM_SILENT=true\nexport EDITOR=vim\n' > "$userf"
+    rl=$(readlink "$HOME/.zshrc")
+    _vrun "$log" "$RUN_LIMIT_S" "$REAL_SETUP" configure-nvm
+    rc=$?
+    _chk "zero" "$(_rc_state "$rc")" "configure-nvm apply with seeded drift over a symlinked rc exits 0"
+    if [[ -L "$HOME/.zshrc" ]]; then ftype="still-symlink"; else ftype="replaced"; fi
+    _chk "still-symlink" "$ftype" "legacy strip keeps the symlink (setup-versions strip, B1.10-new class)"
+    _chk "$rl" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "link target preserved through the strip"
+    _chk "absent" "$(_state_grep 'export NVM_SILENT=true' "$userf")" "legacy exported NVM_SILENT removed from the RESOLVED user file"
+    _chk "present" "$(_state_grep '# BEGIN version-management-setup:nvm' "$userf")" "managed block present in the resolved user file"
+    echo "    [evidence] strip setup-versions: rc=$rc link=$ftype drift-gone user-sha=$(sha "$userf" | cut -c1-12)"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # NEGATIVE CONTROLS (directive Rule 5) — property-violating stubs fed through
 # the SAME assertion helpers must trip them; a non-tripping control fails.
@@ -972,6 +1014,8 @@ run_case symlink-nvm-silent             test_symlink_nvm_silent                 
 run_case symlink-rollback-restores-link test_symlink_rollback_restores_link      || failures=$((failures + 1))
 run_case symlink-setup-versions         test_symlink_setup_versions              || failures=$((failures + 1))
 run_case symlink-editor-idempotent      test_symlink_editor_idempotent           || failures=$((failures + 1))
+run_case symlink-strip-fix-nvm          test_symlink_strip_fix_nvm               || failures=$((failures + 1))
+run_case symlink-strip-setup-versions   test_symlink_strip_setup_versions        || failures=$((failures + 1))
 
 # NEGATIVE CONTROLS (red-then-green per directive Rule 5)
 run_control_case control-clean-home     test_control_clean_home                  || controls=$((controls + 1))
@@ -981,7 +1025,7 @@ run_control_case control-symlink        test_control_symlink                    
 
 echo ""
 echo "====== Adverse-Condition Summary ======"
-echo "scenario cases: 17 (failed: $failures, marked-skips: $SKIPPED_CASES)"
+echo "scenario cases: 19 (failed: $failures, marked-skips: $SKIPPED_CASES)"
 echo "negative controls: 4 (untripped: $controls — 0 required)"
 echo "======================================"
 

@@ -9,8 +9,10 @@
 _CACHE_SH_LOADED=1
 
 # Source logger for consistent output
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$script_dir/logger.sh"
+# A5-new class (Lane Y handoff): never clobber caller globals on source —
+# the lib's own directory is namespaced like every other lib (668f7a1).
+_VMS_CACHE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_VMS_CACHE_DIR/logger.sh"
 
 # Configuration
 readonly CACHE_DIR="${CACHE_DIR:-$HOME/.cache/version-management-setup}"

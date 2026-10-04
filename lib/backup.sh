@@ -43,15 +43,24 @@ fi
 # =============================================================================
 # Configuration and Constants
 # =============================================================================
+# Re-source safety (B1.13-new): the transaction functions below are
+# export -f'd, so a child process can inherit function copies WITHOUT this
+# file having been sourced there. Re-sourcing must therefore be safe and is
+# in fact required (mutation.sh sources this file unconditionally — inherited
+# copies defeat declare -f guards). readonly declarations would fail on a
+# second source, so config is declared once; functions re-define cleanly.
+if [[ -z "${_VMS_BACKUP_SH_LOADED:-}" ]]; then
+    # Default backup directory
+    readonly DEFAULT_BACKUP_DIR="$HOME/.config-backups"
 
-# Default backup directory
-readonly DEFAULT_BACKUP_DIR="$HOME/.config-backups"
+    # Maximum number of backups to keep per file
+    readonly MAX_BACKUPS_PER_FILE="${BACKUP_MAX_FILES:-10}"
 
-# Maximum number of backups to keep per file
-readonly MAX_BACKUPS_PER_FILE="${BACKUP_MAX_FILES:-10}"
+    # Maximum age of backups in days
+    readonly MAX_BACKUP_AGE_DAYS="${BACKUP_MAX_AGE:-30}"
 
-# Maximum age of backups in days
-readonly MAX_BACKUP_AGE_DAYS="${BACKUP_MAX_AGE:-30}"
+    _VMS_BACKUP_SH_LOADED=1
+fi
 
 # =============================================================================
 # Core Backup Functions

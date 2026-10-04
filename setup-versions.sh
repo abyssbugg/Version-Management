@@ -493,19 +493,30 @@ _setup_versions_strip_legacy_nvm() {
         log_info "[dry-run] would strip legacy NVM drift lines: $file"
         return 0
     fi
+    # B1.10-new class (Lane Y handoff): a symlinked rc is stripped through its
+    # RESOLVED content file — renaming over the link path would destroy the
+    # link. The resolved file gets its own transaction registration
+    # (idempotent; mutation_block_write may already have registered it) so
+    # rollback restores the user's bytes, not just the link (A3).
+    local resolved="$file"
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        resolved="$_MUTATION_RESOLVED_TARGET"
+        transaction_add_file "$resolved" || return 1
+    fi
     local tmp
-    tmp=$(mktemp "$(dirname "$file")/.vms-legacy.XXXXXX") || return 1
+    tmp=$(mktemp "$(dirname "$resolved")/.vms-legacy.XXXXXX") || return 1
     grep -vFx -e 'export NVM_SILENT=1' \
               -e 'export NVM_SILENT=true' \
               -e '# Professional terminal setup - silence nvm output' \
               -e '# Silence NVM verbose messages' \
               -e '# NVM Permanent Silence Configuration' \
-        "$file" > "$tmp" || true
-    if ! cmp -s "$tmp" "$file"; then
+        "$resolved" > "$tmp" || true
+    if ! cmp -s "$tmp" "$resolved"; then
         local mode
-        mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
+        mode=$(stat -f '%Lp' "$resolved" 2>/dev/null || stat -c '%a' "$resolved" 2>/dev/null || echo 644)
         chmod "$mode" "$tmp"
-        mv "$tmp" "$file"
+        mv "$tmp" "$resolved"
         log_info "Legacy NVM drift lines removed"
     else
         rm -f "$tmp"

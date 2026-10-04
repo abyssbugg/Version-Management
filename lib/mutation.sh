@@ -33,12 +33,15 @@
 
 _MUTATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if ! declare -f transaction_start >/dev/null 2>&1; then
-    source "$_MUTATION_DIR/backup.sh"
-fi
-if ! declare -f validate_identifier >/dev/null 2>&1; then
-    source "$_MUTATION_DIR/validation.sh"
-fi
+# B1.13-new: source UNCONDITIONALLY. The old `declare -f` guards are defeated
+# across process boundaries — backup.sh/validation.sh export -f their
+# functions, so a child can inherit copies without the state globals
+# (_TRANSACTION_ACTIVE et al. never initialized → set -u death on the first
+# transaction call; reproduced by the adverse-condition suite). Both libs are
+# re-source-safe (backup.sh guards its readonly block; validation.sh has no
+# readonly state).
+source "$_MUTATION_DIR/backup.sh"
+source "$_MUTATION_DIR/validation.sh"
 
 # Portable byte-identical check (M4 lesson): the Buildkite hosted Linux
 # agent image does NOT ship `cmp` (diffutils) — a missing cmp made every
