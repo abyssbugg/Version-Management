@@ -44,18 +44,29 @@
 # Control stubs are generated inside the mktemp sandbox at runtime; no repo
 # script is modified by this file.
 #
-# Scope note (honest gaps, handoffs): (1) the M5 lane brief expected the
-# commit path to preserve the symlink ("content written through to the
-# target"). Empirically lib/mutation.sh mutation_block_write atomically
-# renames OVER the link, so a committed managed write leaves a REGULAR file
-# (user content + managed block). The M2 guarantees that DO hold — link
-# pre-state registration, user-content survival, dry-run link purity — are
-# asserted here, and the final on-disk type is printed in [evidence] lines
-# rather than papered over. (2) transaction_rollback's symlink branch runs a
-# bare `rm -f` (lib/backup.sh); under an adopter's set -e an EACCES unlink
-# aborts the rollback mid-way, skipping the rollback journal/metadata record
-# (observed and asserted-around in the symlink rollback case). Both items are
-# out-of-scope handoffs (lib/ is not owned by this lane).
+# Scope note (M5 lane Y remediation, [B1.10-new][B1.11-new][B1.12-new]): the
+# two defects this file previously reported as out-of-scope handoffs are now
+# fixed in lib/ and pinned HERE:
+#   (1) B1.10-new — mutation_block_write's commit path used to atomically
+#       rename OVER a symlinked rc, destroying the link (final-type used to
+#       print regular-file). The write now replaces the RESOLVED content file
+#       (temp file in the resolved file's directory) and the link survives.
+#       Assertions: still-symlink + link-target-verbatim + block-in-resolved
+#       (groups 4a/4c) and the editor-level byte-identical rerun probe (4d).
+#   (2) B1.11-new — transaction_rollback's symlink branch used to run a bare
+#       `rm -f`; an EACCES unlink aborted the rollback under an adopter's
+#       set -e BEFORE the rollback journal/metadata record. 4b now injects
+#       the failure via a 555 resolved-dir (write fails after registration)
+#       + 555 HOME (hostile unlink) and asserts the rollback record survives.
+#   (3) B1.12-new — lib/cache.sh used to run an unredirected batch mkdir at
+#       SOURCE TIME; a 555 HOME killed any strict caller at load. Case 3d
+#       proves the sourcing executable now degrades and survives.
+# Residual handoff (NOT fixed by this lane — adopter scripts are out of
+# scope): scripts/fix-nvm-issues.sh _fix_nvm_strip_legacy and
+# setup-versions.sh _setup_versions_strip_legacy_nvm still do their own
+# mktemp+mv over the rc path; when legacy drift lines exist, that mv replaces
+# a symlinked rc with a regular file (same defect class as B1.10-new). These
+# cases avoid legacy drift lines, so the link-preserving assertions hold.
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -191,13 +202,14 @@ _stub_nvm() {
 }
 
 # Pre-create the transaction/journal/lock infrastructure so the PERMISSION
-# group's 555 chmod lands after registration (mkdir -p on an existing dir is
-# a no-op, so transaction_start still succeeds under the read-only HOME).
-# The cache tree is pre-created for setup-versions.sh specifically: it sources
-# lib/nvm.sh -> lib/cache.sh, whose cache_init runs AT SOURCE TIME (cache.sh
-# bottom) with an unredirected batch mkdir — under the executable's set -e a
-# 555 HOME kills the child at load, before any mutation path. With the tree
-# present, configure-nvm reaches lock + transaction + rollback as designed.
+# group's 555 chmod lands after registration (mkdir -p is idempotent
+# on existing dirs), so transaction_start still succeeds under the read-only
+# HOME. The cache tree is pre-created for setup-versions.sh specifically:
+# it sources lib/nvm.sh -> lib/cache.sh, whose cache_init runs AT SOURCE TIME
+# (cache.sh bottom). Since B1.12-new the source-time init degrades instead of
+# aborting, so the pre-creation is no longer load-bearing for cache.sh — it
+# is kept for the transaction/journal/lock infra, which still must exist
+# before the 555 chmod lands.
 _precreate_txn_infra() {
     mkdir -p "$HOME/.config-backups/transactions" \
              "$HOME/.config/version-manager" \
@@ -589,6 +601,46 @@ test_permission_setup_versions_readonly() {
     echo "    [evidence] permission configure-nvm dry-run: rc=$rc bytes-hash-stable"
 }
 
+# ── 3d. source-time cache init under a read-only HOME (B1.12-new) ────────────
+# lib/cache.sh runs cache_init AT SOURCE TIME. It used to run an unredirected
+# batch mkdir there, so ANY strict caller sourcing the chain (e.g.
+# setup-versions.sh -> lib/nvm.sh -> lib/cache.sh) died at load under a 555
+# HOME. Proven here at the source posture directly: (a) writable HOME keeps
+# the cache fully functional (unchanged behavior), (b) a 555 HOME must let
+# the sourcing executable survive with a stderr-only degradation warning and
+# stdout that carries the caller's output exactly (B2.4 stream contract).
+test_cache_source_survives_readonly_home() {
+    if [[ "$(id -u)" == "0" ]]; then
+        _mark_skip "cache source case is meaningless as root (chmod cannot restrict root)"
+        return 0
+    fi
+    _setup
+    local out err rc_w rc_ro
+    out=$(mktemp "${TMPDIR:-/tmp}/vms-adverse-cache.XXXXXX")
+    err=$(mktemp "${TMPDIR:-/tmp}/vms-adverse-cache.XXXXXX")
+    # (a) writable HOME: sourcing + cache set/get unchanged
+    env -u CACHE_DIR -u CACHE_ENABLED HOME="$SBX/home" \
+        bash -c "set -euo pipefail; source '$ROOT_DIR/lib/cache.sh'; cache_set probe v-probe; printf 'GOT:%s\n' \"\$(cache_get probe 2>/dev/null)\"" >"$out" 2>"$err"
+    rc_w=$?
+    _chk "zero" "$(_rc_state "$rc_w")" "writable HOME: source-time cache init + set/get unchanged (rc=$rc_w)"
+    _chk "GOT:v-probe" "$(tr -d '[:space:]' < "$out")" "writable HOME: cache roundtrip returns the stored value"
+    # (b) read-only HOME: source survives, degrades loudly on stderr only
+    local ro="$SBX/home-ro"
+    mkdir "$ro"
+    chmod 555 "$ro"
+    : > "$out"; : > "$err"
+    env -u CACHE_DIR -u CACHE_ENABLED HOME="$ro" \
+        bash -c "set -euo pipefail; source '$ROOT_DIR/lib/cache.sh'; echo SURVIVED" >"$out" 2>"$err"
+    rc_ro=$?
+    _chk "zero" "$(_rc_state "$rc_ro")" "read-only HOME: sourcing lib/cache.sh does not abort a strict caller (B1.12-new, rc=$rc_ro)"
+    _chk "SURVIVED" "$(tr -d '[:space:]' < "$out")" "read-only HOME: stdout carries the caller's output exactly (no cache noise)"
+    _chk "present" "$(_state_grep 'degrading' "$err")" "read-only HOME: degradation is warned on stderr (never stdout)"
+    local warn_state
+    warn_state=$(_state_grep 'degrading' "$err")
+    rm -f "$out" "$err"
+    echo "    [evidence] cache source probe: writable-rc=$rc_w read-only-rc=$rc_ro survived=yes stderr-warn=$warn_state"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # GROUP 4 — SYMLINK: ~/.zshrc -> $SBX/user-dotfiles/zshrc-real (outside HOME)
 # ═════════════════════════════════════════════════════════════════════════════
@@ -618,18 +670,21 @@ test_symlink_nvm_silent() {
     assert_symlink_apply "$rc" "$log" "$HOME/.zshrc" "export EDITOR=vim"
     assert_txn_committed fix_nvm_silent
     if [[ -L "$HOME/.zshrc" ]]; then ftype="symlink"; else ftype="regular-file"; fi
+    _chk "symlink" "$ftype" "commit path preserves the symlink itself (M2 link semantics, B1.10-new)"
+    _chk "$rl" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "link target preserved verbatim through the managed write"
+    _chk "present" "$(_state_grep '# BEGIN version-management-setup:nvm' "$userf")" "managed block landed in the RESOLVED user dotfiles file"
     echo "    [evidence] symlink commit path: rc=$rc final-type=$ftype user-sha=$(sha "$userf" | cut -c1-12) tsv-kind=$(_txn_tsv_kind fix_nvm_silent)"
 }
 
-# ── 4b. failure path: link intact, user file untouched, no partial block ─────
-# Mechanism: 555 HOME after infra pre-creation makes the managed write fail
-# AFTER the link was registered, exercising the registered kind=symlink entry
-# under rollback. EMPIRICAL BEHAVIOR (handoff): transaction_rollback's symlink
-# branch runs a bare `rm -f "$path"` (lib/backup.sh); under the adopter's
-# set -e an EACCES unlink aborts the rollback mid-way (after the [WARN],
-# before the rollback journal/metadata record). The safety-relevant outcome
-# is asserted here — link intact, user content intact, no managed content
-# written — and the mid-rollback abort is reported as an out-of-scope handoff.
+# ── 4b. failure path: link intact, user file untouched, rollback RECORDED ───
+# Mechanism (B1.10-new/B1.11-new): the managed write's surface is now the
+# RESOLVED file's directory, so the read-only injection lands there (555
+# user-dotfiles) — the write fails AFTER the link AND the resolved content
+# file were registered. The 555 HOME additionally makes the rollback's
+# unlink of the registered symlink EACCES — the hostile-unlink condition.
+# The rollback branch must guard it (B1.11-new): complete the run, record
+# the partial restore (journal + metadata), surface nonzero — never abort
+# mid-way under the adopter's set -e losing the record.
 test_symlink_rollback_restores_link() {
     if [[ "$(id -u)" == "0" ]]; then
         _mark_skip "rollback-injection needs a user-restricted surface (chmod is a no-op for root)"
@@ -642,16 +697,19 @@ test_symlink_rollback_restores_link() {
     local pre log="$SBX/run-d2.log" rc
     pre=$(sha "$userf")
     chmod 555 "$SBX/home"
+    chmod 555 "$SBX/user-dotfiles"   # B1.10-new: the write surface is the resolved file's dir
     _vrun "$log" "$RUN_LIMIT_S" "$REAL_NVM" --silent
     rc=$?
     chmod u+rwx "$SBX/home"
+    chmod u+rwx "$SBX/user-dotfiles"
     assert_loud_fail_preserved "$rc" "$log" "$userf" "$pre"
     if [[ -L "$HOME/.zshrc" ]]; then lstate="still-symlink"; else lstate="destroyed"; fi
     _chk "still-symlink" "$lstate" "failed run keeps the ~/.zshrc symlink (M2 link semantics)"
     _chk "$SBX/user-dotfiles/zshrc-real" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "link still points at the user dotfiles file"
     _chk "absent" "$(_state_grep '# BEGIN version-management-setup:nvm' "$userf")" "no managed content written into the user file (no partial write)"
     _chk "present" "$(_journal_state start fix_nvm_silent)" "failed run's link pre-state was registered in the audit journal"
-    echo "    [evidence] symlink rollback: rc=$rc link=$lstate user-sha=${pre:0:12} block-in-userfile=$(_state_grep '# BEGIN version-management-setup:nvm' "$userf") journal-start=$(_journal_state start fix_nvm_silent)"
+    _chk "present" "$(_journal_state rollback fix_nvm_silent)" "symlink rollback record journaled despite the hostile unlink (B1.11-new)"
+    echo "    [evidence] symlink rollback: rc=$rc link=$lstate user-sha=${pre:0:12} block-in-userfile=$(_state_grep '# BEGIN version-management-setup:nvm' "$userf") journal-start=$(_journal_state start fix_nvm_silent) journal-rollback=$(_journal_state rollback fix_nvm_silent)"
 }
 
 # ── 4c. second rc adopter (configure-nvm): same symlink semantics ────────────
@@ -660,8 +718,9 @@ test_symlink_setup_versions() {
     _sym_setup
     _stub_nvm
     local userf="$SBX/user-dotfiles/zshrc-real"
-    local pre log="$SBX/run-d3.log" dry_log="$SBX/run-d3d.log" rc
+    local pre log="$SBX/run-d3.log" dry_log="$SBX/run-d3d.log" rc rl
     pre=$(sha "$userf")
+    rl=$(readlink "$HOME/.zshrc")
     # dry-run purity first (pristine link)
     _vrun_env "$dry_log" "$RUN_LIMIT_S" TRANSACTION_DRY_RUN=1 bash "$REAL_SETUP" configure-nvm
     rc=$?
@@ -676,6 +735,9 @@ test_symlink_setup_versions() {
     assert_symlink_setup "$rc" "$log" "$HOME/.zshrc" "export EDITOR=vim"
     assert_txn_committed setup_versions_nvm
     if [[ -L "$HOME/.zshrc" ]]; then ftype="symlink"; else ftype="regular-file"; fi
+    _chk "symlink" "$ftype" "configure-nvm commit preserves the symlink itself (M2 link semantics, B1.10-new)"
+    _chk "$rl" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "link target preserved verbatim through the managed write"
+    _chk "present" "$(_state_grep '# BEGIN version-management-setup:nvm' "$userf")" "managed block landed in the RESOLVED user dotfiles file"
     echo "    [evidence] configure-nvm symlink commit: rc=$rc final-type=$ftype user-sha=$(sha "$userf" | cut -c1-12) tsv-kind=$(_txn_tsv_kind setup_versions_nvm)"
 }
 
@@ -685,6 +747,55 @@ assert_symlink_setup() {  # $1 rc, $2 log, $3 zshrc, $4 user content line
     _chk "present" "$(_state_grep "$4" "$3")" "user dotfiles content survives the managed write"
     _chk "symlink" "$(_txn_tsv_kind setup_versions_nvm)" "transaction registered the pre-state as kind=symlink (M2)"
     _chk "absent" "$(_state_grep 'unbound variable' "$2")" "no unset-variable crash trace"
+}
+
+# ── 4d. editor-level pin (B1.10-new): RELATIVE link target, byte-identical
+# rerun, link survives write AND remove ───────────────────────────────────────
+# Runs the lib/mutation.sh primitives directly (caller-owned transaction) so
+# the contract is pinned at the primitive, not only through the adopters:
+# relative link targets must resolve (no realpath dependency — cd+pwd), the
+# second write must be a byte-identical no-op, and mutation_block_remove must
+# keep the link a link too (same rename-over-target defect class).
+test_symlink_editor_idempotent() {
+    _setup
+    mkdir -p "$SBX/user-dotfiles"
+    printf '# user dotfiles preamble\nexport EDITOR=vim\n' > "$SBX/user-dotfiles/zshrc-real"
+    # RELATIVE link target ON PURPOSE — and via '..' so it still points at the
+    # user dotfiles file OUTSIDE the sandbox HOME (exercises the resolver's
+    # '..' handling; a dangling link would fail closed by design).
+    ln -s ../user-dotfiles/zshrc-real "$HOME/.zshrc"
+    local userf="$SBX/user-dotfiles/zshrc-real"
+    local blk="$SBX/probe-block"
+    printf 'PROBE-CONTENT-v1\n' > "$blk"
+    source "$ROOT_DIR/lib/mutation.sh"
+    local rl_pre ok d
+    rl_pre=$(readlink "$HOME/.zshrc")
+    transaction_start b1_10_probe >/dev/null 2>&1
+    if mutation_block_write "$HOME/.zshrc" b1_10_probe "$blk" >/dev/null 2>&1; then ok="written"; else ok="failed"; fi
+    _chk "written" "$ok" "editor-level managed write over a symlinked rc exits 0"
+    if [[ -L "$HOME/.zshrc" ]]; then d="still-symlink"; else d="replaced"; fi
+    _chk "still-symlink" "$d" "editor commit keeps the link a link (B1.10-new)"
+    _chk "$rl_pre" "$(readlink "$HOME/.zshrc" 2>/dev/null)" "RELATIVE link target preserved verbatim"
+    _chk "present" "$(_state_grep 'PROBE-CONTENT-v1' "$userf")" "content written into the resolved dotfiles file"
+    transaction_commit >/dev/null 2>&1
+    local h1 h2
+    h1=$(sha "$userf")
+    transaction_start b1_10_probe >/dev/null 2>&1
+    mutation_block_write "$HOME/.zshrc" b1_10_probe "$blk" >/dev/null 2>&1
+    transaction_commit >/dev/null 2>&1
+    h2=$(sha "$userf")
+    _chk "$h1" "$h2" "byte-identical rerun is a no-op (idempotency over a symlink)"
+    if [[ -L "$HOME/.zshrc" ]]; then d="still-symlink"; else d="replaced"; fi
+    _chk "still-symlink" "$d" "rerun leaves the link intact"
+    # remove path (same M2 semantics): block gone from the resolved file, link survives
+    transaction_start b1_10_probe >/dev/null 2>&1
+    mutation_block_remove "$HOME/.zshrc" b1_10_probe >/dev/null 2>&1
+    transaction_commit >/dev/null 2>&1
+    _chk "absent" "$(_state_grep 'PROBE-CONTENT-v1' "$userf")" "block removed from the resolved file"
+    if [[ -L "$HOME/.zshrc" ]]; then d="still-symlink"; else d="replaced"; fi
+    _chk "still-symlink" "$d" "remove keeps the link a link (B1.10-new, same-class)"
+    _chk "symlink" "$(_txn_tsv_kind b1_10_probe)" "first registered pre-state is the link itself (kind=symlink)"
+    echo "    [evidence] editor probe: write+rerun+remove link=$d user-sha=$(sha "$userf" | cut -c1-12) tsv-kind=$(_txn_tsv_kind b1_10_probe)"
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -854,11 +965,13 @@ run_case no-network-terminal-p10k       test_no_network_terminal_p10k           
 run_case permission-fonts-readonly-dir  test_permission_fonts_readonly           || failures=$((failures + 1))
 run_case permission-nvm-readonly-home   test_permission_nvm_readonly_home        || failures=$((failures + 1))
 run_case permission-setup-versions      test_permission_setup_versions_readonly  || failures=$((failures + 1))
+run_case cache-source-readonly-home     test_cache_source_survives_readonly_home || failures=$((failures + 1))
 
 # GROUP 4: symlink
 run_case symlink-nvm-silent             test_symlink_nvm_silent                  || failures=$((failures + 1))
 run_case symlink-rollback-restores-link test_symlink_rollback_restores_link      || failures=$((failures + 1))
 run_case symlink-setup-versions         test_symlink_setup_versions              || failures=$((failures + 1))
+run_case symlink-editor-idempotent      test_symlink_editor_idempotent           || failures=$((failures + 1))
 
 # NEGATIVE CONTROLS (red-then-green per directive Rule 5)
 run_control_case control-clean-home     test_control_clean_home                  || controls=$((controls + 1))
@@ -868,7 +981,7 @@ run_control_case control-symlink        test_control_symlink                    
 
 echo ""
 echo "====== Adverse-Condition Summary ======"
-echo "scenario cases: 15 (failed: $failures, marked-skips: $SKIPPED_CASES)"
+echo "scenario cases: 17 (failed: $failures, marked-skips: $SKIPPED_CASES)"
 echo "negative controls: 4 (untripped: $controls — 0 required)"
 echo "======================================"
 

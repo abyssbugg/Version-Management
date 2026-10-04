@@ -28,8 +28,26 @@ readonly TTL_THEME_CHECK="${TTL_THEME_CHECK:-1800}"       # 30 minutes for theme
 : "${CACHE_MAX_SIZE:=$MAX_CACHE_SIZE}"
 : "${CACHE_ASYNC_CLEANUP:=true}"  # Enable background cleanup
 
+# Degradation state (B1.12-new): set to 0 when the cache tree cannot be
+# created or maintained. Every cache function then PASS-THROUGHS (sets are
+# silent no-op successes, gets are misses) instead of failing — a sourced
+# library must never abort the executable that sourced it under ANY caller
+# posture (M1 contract; this file runs cache_init AT SOURCE TIME, and an
+# unguarded failure there killed strict callers at load under a read-only
+# HOME). Exported so bash -c children that re-use the exported functions
+# inherit the degraded posture too.
+_CACHE_OPERATIONAL=1
+_cache_operational() { [ "${_CACHE_OPERATIONAL:-1}" = "1" ]; }
+_cache_degrade() {
+    _CACHE_OPERATIONAL=0
+    export _CACHE_OPERATIONAL
+}
+
 # Initialize cache directory
 init_cache_dir() {
+    if ! _cache_operational; then
+        return 0
+    fi
     if [ ! -d "$CACHE_DIR" ]; then
         log_debug "Creating cache directory: $CACHE_DIR"
         mkdir -p "$CACHE_DIR" || {
@@ -100,6 +118,12 @@ cache_set() {
     local key="$1"
     local value="$2"
     local ttl="${3:-$DEFAULT_TTL}"
+
+    # B1.12-new: degraded mode is a pass-through — never fail the caller.
+    if ! _cache_operational; then
+        log_debug "cache degraded, pass-through set (key not stored): $key"
+        return 0
+    fi
 
     init_cache_dir || return 1
 
@@ -287,20 +311,39 @@ export -f cache_user_preference get_cached_user_preference cache_setup_state
 export -f get_cached_setup_state setup_cache_cleanup
 
 # Initialize cache system
+# B1.12-new: this runs AT SOURCE TIME (file bottom). It must never fail the
+# sourcing executable: the batch mkdir result is captured, failures are
+# warned to stderr only (B2.4 stream contract) and the library degrades to
+# pass-through (no-cache) mode instead of aborting under any caller posture.
 cache_init() {
     if [ "$CACHE_ENABLED" != "1" ]; then
         return 0
     fi
 
-    # Create cache directory structure
-    mkdir -p "$CACHE_DIR"/{version-managers,files,commands,themes,metadata}
+    if ! _cache_operational; then
+        return 0
+    fi
 
-    # Create cache metadata file if it doesn't exist
+    # Create cache directory structure (result captured — no unguarded failure)
+    local mkdir_err
+    if ! mkdir_err=$(mkdir -p "$CACHE_DIR"/{version-managers,files,commands,themes,metadata} 2>&1); then
+        _cache_degrade
+        log_warn "cache: cannot create $CACHE_DIR (${mkdir_err##*mkdir: }) — degrading to pass-through (no-cache mode)"
+        return 0
+    fi
+
+    # Create cache metadata file if it doesn't exist (guarded the same way)
     local metadata_file="$CACHE_DIR/metadata/cache.meta"
     if [ ! -f "$metadata_file" ]; then
-        echo "# Cache metadata - DO NOT EDIT MANUALLY" > "$metadata_file"
-        echo "cache_version=1.0" >> "$metadata_file"
-        echo "created=$(date +%s)" >> "$metadata_file"
+        if ! {
+            echo "# Cache metadata - DO NOT EDIT MANUALLY"
+            echo "cache_version=1.0"
+            echo "created=$(date +%s)"
+        } > "$metadata_file" 2>/dev/null; then
+            _cache_degrade
+            log_warn "cache: cannot write $metadata_file — degrading to pass-through (no-cache mode)"
+            return 0
+        fi
     fi
 
     # Clean up old cache entries on init
@@ -394,7 +437,7 @@ cache_namespace_get() {
 
     _cache_validate_namespace "$namespace" || return 1
 
-    if [ "$CACHE_ENABLED" != "1" ]; then
+    if [ "$CACHE_ENABLED" != "1" ] || ! _cache_operational; then
         return 1
     fi
 
@@ -420,7 +463,8 @@ cache_namespace_set() {
 
     _cache_validate_namespace "$namespace" || return 1
 
-    if [ "$CACHE_ENABLED" != "1" ]; then
+    # B1.12-new: degraded mode is a pass-through — never fail the caller.
+    if [ "$CACHE_ENABLED" != "1" ] || ! _cache_operational; then
         return 0
     fi
 
@@ -447,6 +491,12 @@ cache_namespace_clear() {
     local context="${3:-}"
 
     _cache_validate_namespace "$namespace" || return 1
+
+    # B1.12-new: degraded mode pass-through — the recreate-mkdir below would
+    # fail (and abort a strict caller) against a cache tree that cannot exist.
+    if ! _cache_operational; then
+        return 0
+    fi
 
     if [ -z "$identifier" ]; then
         # Clear entire namespace
@@ -755,6 +805,13 @@ cache_stats() {
 
     if [ "$CACHE_ENABLED" != "1" ]; then
         echo -e "${yellow}Cache is disabled${reset}"
+        return 0
+    fi
+
+    # B1.12-new: report the degraded (pass-through) posture instead of
+    # pretending the cache tree exists.
+    if ! _cache_operational; then
+        echo -e "${yellow}Cache is degraded (unavailable — no-cache pass-through mode)${reset}"
         return 0
     fi
 

@@ -720,8 +720,13 @@ transaction_rollback() {
                 continue
             fi
             if [[ "$kind" == "symlink" ]]; then
-                rm -f "$path" 2>/dev/null
-                if ln -s "$(cat "$data")" "$path" 2>/dev/null; then
+                # B1.11-new: guard the destructive steps exactly like the
+                # file branch. A bare `rm -f` here aborted the whole rollback
+                # under an adopter's `set -e` (EACCES unlink) — after the
+                # [WARN], BEFORE the journal/metadata record — silently
+                # losing the rollback record. Count the failure and keep
+                # going; the rolled_back_with_errors path surfaces it loudly.
+                if rm -f "$path" 2>/dev/null && ln -s "$(cat "$data")" "$path" 2>/dev/null; then
                     log_debug "Restored symlink: $path"
                 else
                     log_error "Failed to restore symlink: $path"
@@ -743,13 +748,19 @@ transaction_rollback() {
         done < "$_TRANSACTION_DIR/files.tsv"
     fi
 
-    # Remove newly created files
+    # Remove newly created files (guarded like the restore branch — B1.11-new:
+    # a failed rm under an adopter's set -e must count, not abort the rollback
+    # before its record is written).
     if [[ -s "$_TRANSACTION_DIR/new_files.txt" ]]; then
         while IFS= read -r new_file; do
             [[ -z "$new_file" ]] && continue
             if [[ -e "$new_file" || -L "$new_file" ]]; then
-                rm -f "$new_file"
-                log_debug "Removed new file: $new_file"
+                if rm -f "$new_file" 2>/dev/null; then
+                    log_debug "Removed new file: $new_file"
+                else
+                    log_error "Failed to remove new file during rollback: $new_file"
+                    rollback_errors=$((rollback_errors + 1))
+                fi
             fi
         done < "$_TRANSACTION_DIR/new_files.txt"
     fi
