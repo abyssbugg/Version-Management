@@ -12,6 +12,14 @@ source "${SCRIPT_DIR}/lib/logger.sh"
 source "${SCRIPT_DIR}/lib/env.sh"
 source "${SCRIPT_DIR}/lib/theme-ops.sh"
 source "${SCRIPT_DIR}/lib/backup.sh"
+# P2-2: wire the standard error handling. NOTE: error-handling.sh re-derives
+# SCRIPT_DIR from its own location (-> lib/), clobbering ours, so re-assert
+# the repo-root SCRIPT_DIR immediately after sourcing.
+source "${SCRIPT_DIR}/lib/error-handling.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Register the standard ERR/EXIT traps per lib/error-handling.sh conventions
+# (call at the beginning of the script, after sourcing).
+setup_error_trap
 
 # Display banner
 show_banner() {

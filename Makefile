@@ -1,7 +1,7 @@
 # Makefile for testing
 # Professional Development Environment Automation Suite
 
-.PHONY: test test-unit test-integration test-all coverage lint help
+.PHONY: test test-unit test-integration test-all coverage lint help clean
 .PHONY: test-env test-logger test-cache test-backup
 .PHONY: test-gvm test-jenv test-rustup test-theme test-advanced
 
@@ -117,9 +117,14 @@ test-watch:
 	@echo "Example: fswatch -o tests/ | xargs -n1 -I{} make test"
 
 clean:
-	@echo "=== Cleaning temporary files ==="
+	@echo "=== Cleaning temporary files (scoped: project temp root + test-results/) ==="
 	@rm -f .coverage
-	@rm -rf /tmp/test_*
+	# B2.2: no global wildcards. Clean ONLY this project's temp root
+	# ($${TMPDIR:-/tmp}/version-management-setup/ — $$ makes the *shell*
+	# expand TMPDIR; make would see an undefined variable) and the
+	# repo-local test-results/ directory. Unrelated /tmp/test_* files
+	# belonging to other software are never touched.
+	@rm -rf "$${TMPDIR:-/tmp}/version-management-setup/" test-results/
 
 # ============================================================================
 # Help
@@ -159,5 +164,5 @@ help:
 	@echo "  coverage          - Generate coverage report"
 	@echo ""
 	@echo "Utilities:"
-	@echo "  clean             - Remove temporary test files"
+	@echo "  clean             - Remove this project's temp files (scoped, B2.2)"
 	@echo "  help              - Show this help message"

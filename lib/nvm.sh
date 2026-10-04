@@ -16,6 +16,13 @@ source "${SCRIPT_DIR}/logger.sh"
 NVM_CACHE_PREFIX="nvm"
 NVM_CACHE_TTL=300  # 5 minutes cache for version lists
 
+# NVM release pin (P2-6): lib/nvm.sh is the SINGLE source of truth for the
+# nvm release this suite installs. Env-overridable for local testing/control;
+# the default is the one hardcoded version below. Follow-up for another lane:
+# setup-versions.sh:104 duplicates the pin in its install guidance and must
+# consume $NVM_VERSION from this library instead of hard-coding it.
+NVM_VERSION="${NVM_VERSION:-v0.39.7}"
+
 # ============================================================================
 # NVM DETECTION AND INSTALLATION
 # ============================================================================
@@ -86,7 +93,7 @@ nvm_install() {
 
     local repo_url="https://github.com/nvm-sh/nvm.git"
     local target_dir="${NVM_DIR:-$HOME/.nvm}"
-    local version="v0.39.7"
+    local version="$NVM_VERSION"  # P2-6: consume the single env-overridable pin
 
     if [[ -d "$target_dir" ]]; then
         log_warn "Existing nvm installation detected. Creating backup..."

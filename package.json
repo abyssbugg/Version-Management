@@ -32,8 +32,5 @@
     "type": "git",
     "url": "https://github.com/user/version-management-setup.git"
   },
-  "license": "MIT",
-  "devDependencies": {
-    "shellcheck": "^3.0.0"
-  }
+  "license": "MIT"
 }

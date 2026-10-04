@@ -501,14 +501,22 @@ show_fix_suggestions() {
 
     if [[ ! -d "${NVM_DIR:-$HOME/.nvm}" ]]; then
         echo -e "${CYAN}→${NC} Install NVM:"
-        echo "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash"
+        echo "    Preferred: ./setup-versions.sh (pinned git clone of a verified release tag)"
+        echo "    Manual:    git clone https://github.com/nvm-sh/nvm.git \"\${NVM_DIR:-\$HOME/.nvm}\""
+        echo "               git -C \"\${NVM_DIR:-\$HOME/.nvm}\" checkout <verified-tag>"
+        echo "    Policy (ENGINEERING_RULES §2): never pipe remote scripts into a shell."
+        echo "    Allowed: a platform package manager, a pinned git clone, or"
+        echo "             download -> checksum-verify -> execute."
         echo
     fi
 
     if ! command -v pyenv >/dev/null 2>&1; then
         echo -e "${CYAN}→${NC} Install pyenv:"
         echo "    brew install pyenv  # macOS"
-        echo "    curl https://pyenv.run | bash  # Linux"
+        echo "    git clone https://github.com/pyenv/pyenv.git \"\$HOME/.pyenv\"  # Linux, checkout a verified release tag"
+        echo "    Policy (ENGINEERING_RULES §2): never pipe remote scripts into a shell."
+        echo "    Allowed: a platform package manager, a pinned git clone, or"
+        echo "             download -> checksum-verify -> execute."
         echo
     fi
 

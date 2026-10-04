@@ -161,23 +161,24 @@ jobs:
         rust-version: [1.80.0, 1.81.0]
         java-version: [17, 21]
 
-    # Template note: pin third-party actions by commit SHA in production workflows.
+    # B1.8: all actions are SHA-pinned with version comments (ENGINEERING_RULES;
+    # supply-chain hardening). SHAs verified against the upstream release tags.
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
 
     - name: Setup Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Setup Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5.6.0
       with:
         go-version: ${{ matrix.go-version }}
 
@@ -187,7 +188,7 @@ jobs:
         rustup default "${{ matrix.rust-version }}"
 
     - name: Setup Java
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
       with:
         distribution: 'temurin'
         java-version: ${{ matrix.java-version }}
@@ -413,14 +414,15 @@ jobs:
           - name: java
             dockerfile: Dockerfile.java
 
+    # B1.8: all actions are SHA-pinned with version comments.
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
     - name: Build and push Docker images
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
       with:
         context: .
         file: ${{ matrix.dockerfile }}
@@ -747,7 +749,6 @@ ${BOLD}Commands:${RESET}
   ${GREEN}register${RESET} [path]          Registers a project directory
   ${GREEN}auto-switch${RESET}              Installs shell hook scripts for version managers
   ${GREEN}lazy-load${RESET}                Configures deferred initialization for faster shells
-  ${GREEN}sync${RESET}                     Aligns global defaults with project-specific version files
   ${GREEN}github-actions${RESET}           Generates GitHub Actions workflow
   ${GREEN}gitlab-ci${RESET}                Generates GitLab CI configuration
   ${GREEN}circleci${RESET}                 Generates CircleCI configuration
@@ -848,10 +849,6 @@ EOF
             ;;
         lazy-load)
             configure_lazy_load
-            ;;
-        sync)
-            log_info "Syncing global defaults with project-specific versions..."
-            # Implementation would go here
             ;;
         github-actions)
             generate_github_actions
