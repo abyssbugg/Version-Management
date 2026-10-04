@@ -220,7 +220,7 @@ test_meta_watchdog_red() {
     # file behind a green "no test files found".
     local start end
     start=$(date +%s)
-    ( cd "$clone" && VMS_TEST_FILE_TIMEOUT=3 TEST_FILTER= bash tests/test_runner.sh unit ) \
+    ( cd "$clone" && VMS_TEST_FILE_TIMEOUT=3 TEST_FILTER='' bash tests/test_runner.sh unit ) \
         > "$clone/.watchdog.out" 2>&1
     rc=$?
     end=$(date +%s)
