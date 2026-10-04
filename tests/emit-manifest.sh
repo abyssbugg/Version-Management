@@ -69,11 +69,17 @@ passed=0
 failed=0
 skipped=0
 errored=0
+progress=0
 json_records=()
 
 for f in "${files[@]}"; do
     name="$(basename "$f" .sh)"
     if [[ "$f" == */unit/* ]]; then rsuite="unit"; else rsuite="integration"; fi
+
+    # B1.8: per-file progress before each invocation — without this line a
+    # hung file is invisible in CI logs (the runner buffers per-file output).
+    progress=$((progress + 1))
+    echo "emit-manifest: [${progress}/${#files[@]}] running ${name}"
 
     # Per-file execution + duration: the runner filters by substring, and the
     # file basenames are unique per suite, so one filtered invocation per file

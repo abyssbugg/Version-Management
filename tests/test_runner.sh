@@ -62,7 +62,13 @@ _log_fail()   { echo -e "  ${RED}✗ $*${NC}"; }
 _log_skip()   { echo -e "  ${YELLOW}⊘ $*${NC}"; }
 _log_info()   { echo -e "  ${CYAN}ℹ $*${NC}"; }
 
-# Run a single test file and record pass/fail in a result file
+# Run a single test file and record pass/fail in a result file.
+# Bounded two ways (directive finding B1.8): output is redirected to a temp
+# file so the runner waits only on the DIRECT child (a command substitution
+# here waited on every descendant holding the inherited pipe — how hosted
+# macOS legs died silently at the job timeout, builds #22/#24/#25/#26), and a
+# poll watchdog kills a genuinely hung file after VMS_TEST_FILE_TIMEOUT
+# seconds (default 300), recording FAIL:124 instead of hanging.
 _run_test_file() {
     local test_file="$1"
     local result_file="$2"
@@ -80,13 +86,46 @@ _run_test_file() {
     mkdir -p "$sandbox/.config" "$sandbox/.cache"
     touch "$sandbox/.zshrc"
 
-    output=$(
+    local out_file timed_out=0
+    local limit_ms=$(( (${VMS_TEST_FILE_TIMEOUT:-300}) * 1000 ))
+    local waited_ms=0 pid
+    out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
+    (
         cd "$test_dir" && \
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            bash "./$test_name" 2>&1
-    ) || exit_code=$?
+            bash "./$test_name"
+    ) >"$out_file" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( waited_ms >= limit_ms )); then
+            timed_out=1
+            kill "$pid" 2>/dev/null
+            break
+        fi
+        sleep 0.1
+        waited_ms=$((waited_ms + 100))
+    done
+    if (( timed_out )); then
+        # Grace period for SIGTERM, then SIGKILL; reap either way.
+        local grace=0
+        while kill -0 "$pid" 2>/dev/null && (( grace < 20 )); do
+            sleep 0.1
+            grace=$((grace + 1))
+        done
+        kill -9 "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        exit_code=124
+        printf '%s\n' \
+            "watchdog: ${test_name} exceeded $((limit_ms / 1000))s — killed (VMS_TEST_FILE_TIMEOUT to adjust)" \
+            >> "$out_file"
+    else
+        wait "$pid" 2>/dev/null || exit_code=$?
+    fi
+
+    output=$(cat "$out_file")
+    rm -f "$out_file"
 
     if [[ "$sandbox" == */vms-test-home.* ]]; then
         rm -rf "$sandbox"

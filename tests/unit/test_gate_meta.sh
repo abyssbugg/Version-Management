@@ -27,6 +27,8 @@
 #   5. Comparator  — identical manifests pass; a mismatched or malformed
 #                    manifest fails the parity check (the comparator itself
 #                    must be able to fail)
+#   6. B1.8        — a hung test file is killed by the runner's per-file
+#                    watchdog: gate red, bounded runtime, exit 124 recorded
 # =============================================================================
 
 source ../helpers.sh
@@ -200,11 +202,50 @@ PY
 
 # ── Run — explicit failure accumulation (A5) ─────────────────────────────────
 failures=0
+# ── 6. B1.8: hung test file is killed by the runner watchdog, gate red ──────
+test_meta_watchdog_red() {
+    local f=0
+    local clone rc
+    clone="$(_new_clone)" || { assert_equals "clone" "ok" "meta: clone for watchdog case (git source unavailable)"; return 1; }
+    # Isolate like case 1: only the seeded file may run, so "red" is
+    # attributable to the watchdog kill and not to unrelated clone failures.
+    rm -f "$clone"/tests/unit/test_*.sh
+    printf '#!/usr/bin/env bash\nsleep 600\n' > "$clone/tests/unit/test_aa_meta_hang.sh"
+
+    # Without the watchdog this case IS the production hang: the runner waits
+    # on the sleep for its full duration (600s) — builds #22/#24/#25/#26 died
+    # at the 4h CI job timeout exactly this way.
+    # TEST_FILTER= clears the outer emit-manifest filter, which would
+    # otherwise be inherited by the raw runner invocation and hide the seeded
+    # file behind a green "no test files found".
+    local start end
+    start=$(date +%s)
+    ( cd "$clone" && VMS_TEST_FILE_TIMEOUT=3 TEST_FILTER= bash tests/test_runner.sh unit ) \
+        > "$clone/.watchdog.out" 2>&1
+    rc=$?
+    end=$(date +%s)
+
+    _assert_red "$rc" "B1.8: test gate red on a hung test file" || f=$((f + 1))
+    if (( end - start < 60 )); then
+        assert_equals "bounded" "bounded" "B1.8: hung file killed inside the watchdog bound ($((end - start))s elapsed)" || f=$((f + 1))
+    else
+        assert_equals "bounded" "unbounded" "B1.8: hung file killed inside the watchdog bound ($((end - start))s elapsed)" || f=$((f + 1))
+    fi
+    if grep -q 'exit 124' "$clone/.watchdog.out"; then
+        assert_equals "exit-124" "exit-124" "B1.8: watchdog records the kill as exit 124" || f=$((f + 1))
+    else
+        assert_equals "exit-124" "absent" "B1.8: watchdog records the kill as exit 124" || f=$((f + 1))
+    fi
+    rm -rf "$clone"
+    return "$f"
+}
+
 test_meta_routing_red || failures=$((failures + 1))
 test_meta_syntax_bash_red || failures=$((failures + 1))
 test_meta_syntax_zsh_red || failures=$((failures + 1))
 test_meta_quality_red || failures=$((failures + 1))
 test_meta_comparator || failures=$((failures + 1))
+test_meta_watchdog_red || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_gate_meta.sh: $failures meta-test(s) failed"
