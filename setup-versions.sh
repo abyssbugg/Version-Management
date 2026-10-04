@@ -117,7 +117,9 @@ show_pro_status() {
         fi
     else
         log_error "   NVM not installed"
-        log_info "   Install with: git clone https://github.com/nvm-sh/nvm.git ~/.nvm && cd ~/.nvm && git checkout v0.39.7"
+        # P2-6: consume the single env-overridable pin from lib/nvm.sh
+        # (sourced above) instead of duplicating the version literal here.
+        log_info "   Install with: git clone https://github.com/nvm-sh/nvm.git ~/.nvm && cd ~/.nvm && git checkout ${NVM_VERSION}"
     fi
 
     echo

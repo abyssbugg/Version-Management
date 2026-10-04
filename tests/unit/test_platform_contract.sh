@@ -216,6 +216,94 @@ test_script_dir_hygiene_a5new() {
 }
 
 # =============================================================================
+# 7. Root-script wrapper parity (P1-9 remainder): the standalone root
+#    executables must expose get_os/get_shell values IDENTICAL to the
+#    env.sh canonical — no local duplicate platform detection may survive.
+#
+#    Both scripts execute top-level code on source (set -euo pipefail,
+#    config exports, lib sourcing; main() is guarded by BASH_SOURCE[0] == $0).
+#    Per the remediation directive, each probe SOURCES the script inside a
+#    disposable child bash under a mktemp -d HOME sandbox — never in this
+#    test shell, never without a sandbox. Sourcing defines functions and
+#    exports config only (no filesystem mutation); stderr is discarded.
+# =============================================================================
+
+_ROOT_SANDBOX_HOME="$(mktemp -d "${TMPDIR:-/tmp}/vms-wrappers-home.XXXXXX")"
+
+_with_root_script() {
+    local script="$1" code="$2"
+    shift 2
+    env HOME="$_ROOT_SANDBOX_HOME" "$@" bash -c \
+        "source '$script' >/dev/null 2>&1; $code" 2>/dev/null
+}
+
+_ROOT_SCRIPTS=("$ROOT_DIR/version-manager.sh" "$ROOT_DIR/version-advanced.sh")
+
+# WSL seam (same detection-input override as section 4): a PATH-shimmed
+# `uname` plus a VMS_PROC_VERSION fixture stamped "Microsoft". The canonical
+# answer is "wsl"; the pre-fix duplicate bodies answered "linux" — RED by
+# construction against the pre-fix state.
+test_root_scripts_get_os_wsl_seam() {
+    local tmpbin fixture out script
+    tmpbin="$(mktemp -d)"
+    printf '#!/bin/sh\necho Linux\n' > "$tmpbin/uname"
+    chmod +x "$tmpbin/uname"
+    fixture="$tmpbin/proc_version"
+    printf 'Linux version 5.15.90.1-microsoft-standard-WSL2 (mock@mock) #1 SMP Microsoft\n' > "$fixture"
+    for script in "${_ROOT_SCRIPTS[@]}"; do
+        out="$(_with_root_script "$script" "get_os" \
+            PATH="$tmpbin:$PATH" VMS_PROC_VERSION="$fixture")"
+        assert "wsl" "$out" \
+            "P1-9: $(basename "$script") get_os reports wsl under the WSL seam"
+    done
+    rm -rf "$tmpbin"
+}
+
+# Non-WSL seam: the same uname shim with a non-Microsoft fixture must still
+# answer "linux" — parity, not drift, is the contract. (Regression guard:
+# passes in both pre- and post-fix states; the seam tests above discriminate.)
+test_root_scripts_get_os_linux_seam() {
+    local tmpbin fixture out script
+    tmpbin="$(mktemp -d)"
+    printf '#!/bin/sh\necho Linux\n' > "$tmpbin/uname"
+    chmod +x "$tmpbin/uname"
+    fixture="$tmpbin/proc_version"
+    printf 'Linux version 6.1.0-vanilla (mock@mock) #1 SMP\n' > "$fixture"
+    for script in "${_ROOT_SCRIPTS[@]}"; do
+        out="$(_with_root_script "$script" "get_os" \
+            PATH="$tmpbin:$PATH" VMS_PROC_VERSION="$fixture")"
+        assert "linux" "$out" \
+            "P1-9: $(basename "$script") get_os reports linux for non-WSL Linux"
+    done
+    rm -rf "$tmpbin"
+}
+
+# get_shell parity: SHELL says zsh while the probe runs under bash. The
+# canonical get_shell is the login-shell name ("zsh"); the pre-fix
+# version-manager.sh body probed the running shell ("bash"), and
+# version-advanced.sh exposed no get_shell at all — RED by construction.
+test_root_scripts_get_shell_login_shell_parity() {
+    local out script
+    for script in "${_ROOT_SCRIPTS[@]}"; do
+        out="$(_with_root_script "$script" "get_shell" SHELL=/bin/zsh)"
+        assert "zsh" "$out" \
+            "P1-9: $(basename "$script") get_shell is the login shell (env.sh parity)"
+    done
+}
+
+# Host parity: each script's get_os equals env.sh's canonical on this host.
+# (Non-discriminating on a non-WSL host; kept as a cheap standing guard.)
+test_root_scripts_host_get_os_parity() {
+    local canonical out script
+    canonical="$(_with_lib "$LIB_DIR/env.sh" "get_os")"
+    for script in "${_ROOT_SCRIPTS[@]}"; do
+        out="$(_with_root_script "$script" "get_os")"
+        assert "$canonical" "$out" \
+            "P1-9: $(basename "$script") get_os == env.sh canonical on this host"
+    done
+}
+
+# =============================================================================
 # Run
 # =============================================================================
 
@@ -228,6 +316,12 @@ test_wsl_reports_wsl_not_linux
 test_plain_linux_still_linux
 test_get_shell_contract
 test_script_dir_hygiene_a5new
+test_root_scripts_get_os_wsl_seam
+test_root_scripts_get_os_linux_seam
+test_root_scripts_get_shell_login_shell_parity
+test_root_scripts_host_get_os_parity
+
+rm -rf "$_ROOT_SANDBOX_HOME"
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_platform_contract.sh: $failures contract violation(s)"

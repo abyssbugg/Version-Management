@@ -72,6 +72,12 @@ export SILENT_MODE
 # shellcheck source=lib/logger.sh
 source "$SCRIPT_DIR/lib/logger.sh"
 
+# Canonical platform API (P1-9): lib/env.sh is the single owner of get_os.
+# This script's duplicated get_os body (reported "linux" under WSL) is
+# deleted below — the sourced canonical implementation serves.
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
 # Compatibility shim: allow callers that use log "LEVEL" "msg" directly
 log() {
     local level="$1"; shift
@@ -105,15 +111,9 @@ command_exists() {
     command -v "$1" &>/dev/null
 }
 
-# Get OS type
-get_os() {
-    case "$(uname -s)" in
-        Linux*)  echo "linux" ;;
-        Darwin*) echo "macos" ;;
-        CYGWIN*|MINGW*|MSYS*) echo "windows" ;;
-        *)       echo "unknown" ;;
-    esac
-}
+# get_os: canonical implementation lives in lib/env.sh (sourced above, P1-9).
+# WSL is reported as "wsl". This script has no get_os consumers today — the
+# canonical function is exposed for any future caller.
 
 # Validate project directory
 validate_project_dir() {
