@@ -100,12 +100,58 @@ jobs:
         run: make test
 
   # ========================================
+  # Secret Scan (gitleaks) — release-path gate (M5)
+  # ========================================
+  # M5 clause "gitleaks+pre-commit in release path": a tagged push must not
+  # bypass the CI gates. Invocation mirrors .github/workflows/test.yml
+  # (same commands, same SHA-pinned actions). This job gates build/release
+  # via build.needs — no artifact is built or published if it fails.
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ========================================
+  # Pre-commit Hooks — release-path gate (M5)
+  # ========================================
+  pre-commit:
+    name: Pre-commit Hooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck shfmt
+          pip install pre-commit
+
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  # ========================================
   # Build Release
   # ========================================
   build:
     name: Build Release
     runs-on: ubuntu-latest
-    needs: [validate, test]
+    # Gating (ENGINEERING_RULES 6.1): the secret-scan and pre-commit jobs
+    # above must pass BEFORE any artifact is built or published.
+    needs: [validate, test, secret-scan, pre-commit]
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -118,6 +164,12 @@ jobs:
 
           # Create distribution directory
           mkdir -p dist
+
+          # Attribution and security policy ship with every release (P1-10
+          # remainder; ENGINEERING_RULES 7.2). FontPatcher/ATTRIBUTION.md is
+          # the authoritative per-component license table.
+          cp FontPatcher/ATTRIBUTION.md dist/ATTRIBUTION.md
+          cp docs/SECURITY.md dist/SECURITY.md
 
           # Create tarball (excluding dev files)
           tar -czf "dist/version-manager-suite-${VERSION}.tar.gz" \
@@ -144,9 +196,27 @@ jobs:
             -x '.codacy/*' \
             -x '.vscode/*'
 
-          # Create checksums
+      - name: Generate SBOM
+        # M5 "SBOM/signing" clause. Deterministic SPDX-lite SBOM (no
+        # timestamps — two runs must be byte-identical); font glyph-set
+        # licenses are mapped mechanically from FontPatcher/ATTRIBUTION.md.
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          ./scripts/release-sbom.sh --version "$VERSION" --output dist/sbom.spdx.txt
+          cat dist/sbom.spdx.txt
+
+      - name: Create checksums
+        run: |
+          # Checksum-verified release (M5): checksums.txt covers EVERY
+          # artifact published next to it — the tarball, the zip, the
+          # attribution copy, the security policy, and the SBOM — so a
+          # consumer can verify the whole set with one `sha256sum -c`
+          # (procedure documented in docs/MAINTENANCE.md). checksums.txt
+          # itself is excluded: it cannot self-checksum.
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          find . -maxdepth 1 -type f ! -name 'checksums.txt' -printf '%P\n' \
+            | LC_ALL=C sort | xargs -r sha256sum > checksums.txt
+          cat checksums.txt
 
           echo "Created release artifacts:"
           ls -la
@@ -171,7 +241,10 @@ jobs:
           fetch-depth: 0
 
       - name: Download artifacts
-        uses: actions/download-artifact@cc203385981b70fc5b5a049660dfcf82b0d4277c  # v4.1.9
+        # Pin re-verified against upstream (git ls-remote, 2026-10-04, lane R):
+        # the previous SHA cc203385981b70fc5b5a049660dfcf82b0d4277c does not
+        # exist in the repo's history; this is the true v4.1.9 peeled commit.
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806  # v4.1.9
         with:
           name: release-artifacts
           path: dist/
@@ -225,7 +298,10 @@ jobs:
           echo "Release notes generated"
 
       - name: Create release
-        uses: softprops/action-gh-release@da05d552573bd3b6bfc93ebc9fccf1c9dc5bf54e  # v2.2.2
+        # Pin re-verified against upstream (git ls-remote, 2026-10-04, lane R):
+        # the previous SHA da05d552573bd3b6bfc93ebc9fccf1c9dc5bf54e does not
+        # exist in the repo's history; this is the true v2.2.2 peeled commit.
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631  # v2.2.2
         with:
           tag_name: v${{ needs.validate.outputs.version }}
           name: v${{ needs.validate.outputs.version }}
@@ -236,6 +312,9 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
+            dist/sbom.spdx.txt
+            dist/ATTRIBUTION.md
+            dist/SECURITY.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
