@@ -449,31 +449,39 @@ generate_all_ci() {
 # ============================================================================
 
 # Generate Dockerfile for Node.js projects
+# P2-7: multi-stage (builder + distro-slim runtime), non-root USER,
+# HEALTHCHECK, artifacts-only copies into the runtime stage.
 # shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_node() {
     local dockerfile="Dockerfile.node"
     local node_version="${1:-$(cat .nvmrc 2>/dev/null || echo '20.19.2')}"
 
     cat > "$dockerfile" << EOF
-# Use Node.js version from .nvmrc or default
-FROM node:$node_version
+# syntax=docker/dockerfile:1
+# Node.js multi-stage image (P2-7): full-toolchain builder, distro-slim
+# runtime, non-root USER, HEALTHCHECK, artifacts-only runtime copies.
+# Adjust build/artifact paths to the project; pin base-image digests for
+# stricter supply-chain control.
 
-# Set working directory
-WORKDIR /app
-
-# Copy package files
+# ---- Stage 1: builder (full Node toolchain) ----
+FROM node:$node_version AS builder
+WORKDIR /build
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
-
-# Copy application code
 COPY . .
+RUN npm run build
 
-# Expose port (adjust as needed)
+# ---- Stage 2: runtime (distro-slim, artifacts only) ----
+FROM node:$node_version-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /build/package*.json ./
+COPY --from=builder /build/node_modules ./node_modules
+COPY --from=builder /build/dist ./dist
+# P2-7: never run as root (node images ship a uid-1000 'node' user)
+USER node
 EXPOSE 3000
-
-# Start command
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "require('http').get('http://127.0.0.1:3000/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" || exit 1
 CMD ["npm", "start"]
 EOF
 
@@ -481,36 +489,42 @@ EOF
 }
 
 # Generate Dockerfile for Python projects
+# P2-7: multi-stage (builder venv + distro-slim runtime), non-root USER,
+# HEALTHCHECK, artifacts-only copies into the runtime stage.
 # shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_python() {
     local dockerfile="Dockerfile.python"
     local python_version="${1:-$(cat .python-version 2>/dev/null || echo '3.12.11')}"
 
     cat > "$dockerfile" << EOF
-# Use Python version from .python-version or default
-FROM python:$python_version
+# syntax=docker/dockerfile:1
+# Python multi-stage image (P2-7): dependencies resolve into a virtualenv
+# in the builder, distro-slim runtime, non-root USER, HEALTHCHECK,
+# artifacts-only runtime copies. Pin base-image digests for stricter
+# supply-chain control.
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements
-COPY requirements.txt .
-
-# Install Python dependencies
+# ---- Stage 1: builder (dependency resolution + app assembly) ----
+FROM python:$python_version AS builder
+WORKDIR /build
+RUN python -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:\$PATH"
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
 COPY . .
 
-# Expose port (adjust as needed)
+# ---- Stage 2: runtime (distro-slim, artifacts only) ----
+FROM python:$python_version-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /build/app.py ./app.py
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:\$PATH"
+USER appuser
 EXPOSE 8000
-
-# Start command
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 CMD ["python", "app.py"]
 EOF
 
@@ -588,97 +602,109 @@ EOF
 }
 
 # Generate Dockerfile for Go projects
+# P2-7: multi-stage (static build in the toolchain builder + distro-slim
+# runtime), non-root USER, HEALTHCHECK, binary-only copy.
 # shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_go() {
     local dockerfile="Dockerfile.go"
     local go_version="${1:-$(cat .go-version 2>/dev/null || echo '1.23.4')}"
 
     cat > "$dockerfile" << EOF
-# Use Go version from .go-version or default
-FROM golang:$go_version
+# syntax=docker/dockerfile:1
+# Go multi-stage image (P2-7): static build in the Go toolchain builder,
+# distro-slim runtime, non-root USER, HEALTHCHECK, binary-only copy.
+# Pin base-image digests for stricter supply-chain control.
 
-# Set working directory
-WORKDIR /app
-
-# Copy go mod and sum files
+# ---- Stage 1: builder (Go toolchain) ----
+FROM golang:$go_version AS builder
+WORKDIR /build
 COPY go.mod go.sum ./
-
-# Download all dependencies
 RUN go mod download
-
-# Copy source code
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
 
-# Build the application
-RUN go build -o main .
-
-# Expose port (adjust as needed)
+# ---- Stage 2: runtime (distro-slim, artifacts only) ----
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
+WORKDIR /app
+COPY --from=builder /out/server /app/server
+USER appuser
 EXPOSE 8080
-
-# Run the application
-CMD ["./main"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
+CMD ["/app/server"]
 EOF
 
     log_success "Go Dockerfile generated at $dockerfile"
 }
 
 # Generate Dockerfile for Rust projects
+# P2-7: multi-stage (release build in the toolchain builder + distro-slim
+# runtime), non-root USER, HEALTHCHECK, binary-only copy.
 # shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_rust() {
     local dockerfile="Dockerfile.rust"
     local rust_version="${1:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
 
     cat > "$dockerfile" << EOF
-# Use Rust version from rust-toolchain or default
-FROM rust:$rust_version
+# syntax=docker/dockerfile:1
+# Rust multi-stage image (P2-7): release build in the Rust toolchain
+# builder, distro-slim runtime, non-root USER, HEALTHCHECK, binary-only
+# copy. Adjust the release binary path to your crate; pin base-image
+# digests for stricter supply-chain control.
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    cmake \
-    pkg-config \
-    libfreetype6-dev \
-    libfontconfig1-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy source code
-COPY . .
-
-# Build the application
+# ---- Stage 1: builder (Rust toolchain) ----
+FROM rust:$rust_version AS builder
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
 RUN cargo build --release
 
-# Expose port (adjust as needed)
+# ---- Stage 2: runtime (distro-slim, artifacts only) ----
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
+WORKDIR /app
+COPY --from=builder /build/target/release/app /app/server
+USER appuser
 EXPOSE 8000
-
-# Run the application
-CMD ["cargo", "run", "--release"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+CMD ["/app/server"]
 EOF
 
     log_success "Rust Dockerfile generated at $dockerfile"
 }
 
 # Generate Dockerfile for Java projects
+# P2-7: multi-stage (JDK builder + JRE runtime), non-root USER, HEALTHCHECK,
+# jar-only copy. Builder assumes a committed Maven wrapper (./mvnw).
 # shellcheck disable=SC2120  # optional args: callers may omit them (defaults apply)
 generate_dockerfile_java() {
     local dockerfile="Dockerfile.java"
     local java_version="${1:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
 
     cat > "$dockerfile" << EOF
-# Use Java version from .java-version or default
-FROM openjdk:$java_version
+# syntax=docker/dockerfile:1
+# Java multi-stage image (P2-7): package in the JDK builder (assumes a
+# committed Maven wrapper ./mvnw), JRE runtime, non-root USER, HEALTHCHECK,
+# jar-only copy. Adjust for Gradle; pin base-image digests for stricter
+# supply-chain control.
 
-# Set working directory
+# ---- Stage 1: builder (JDK + Maven wrapper) ----
+FROM eclipse-temurin:$java_version-jdk AS builder
+WORKDIR /build
+COPY . .
+RUN ./mvnw -q -DskipTests package
+
+# ---- Stage 2: runtime (JRE, artifacts only) ----
+FROM eclipse-temurin:$java_version-jre AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
 WORKDIR /app
-
-# Copy JAR file (adjust filename as needed)
-COPY target/*.jar app.jar
-
-# Expose port (adjust as needed)
+COPY --from=builder /build/target/*.jar app.jar
+USER appuser
 EXPOSE 8080
-
-# Run the application
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/actuator/health || exit 1
 CMD ["java", "-jar", "app.jar"]
 EOF
 

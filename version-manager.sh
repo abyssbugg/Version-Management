@@ -102,6 +102,15 @@ source "$SCRIPT_DIR/lib/lock.sh"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
+# P2-4 (partial, M5 lane C2): canonical validators now guard public install
+# entry points. Guarded source; if the lib is missing, validate_node_version
+# is undefined and the install_node_version guard below fails CLOSED
+# (rejection) rather than passing unvalidated input to an installer.
+# shellcheck source=lib/validation.sh
+if [[ -f "$SCRIPT_DIR/lib/validation.sh" ]]; then
+    source "$SCRIPT_DIR/lib/validation.sh"
+fi
+
 # NVM release pin (P2-6): lib/nvm.sh is the SINGLE source of truth for the
 # pinned nvm release (NVM_VERSION, env-overridable). install_nvm below
 # consumes ${NVM_VERSION} as its positional default — the previously
@@ -800,6 +809,17 @@ EOF
 
 install_node_version() {
     local version="${1:-lts}"
+
+    # P2-4 (partial, M5 lane C2): user-supplied version is validated BEFORE
+    # any side effect (no NVM bootstrap, no network, no sourcing). Semver
+    # shapes go through the canonical lib/validation.sh validator; nvm's
+    # tag aliases (lts, lts/<codename>, node, stable) are explicitly
+    # allowed. Everything else is rejected here.
+    if ! validate_node_version "$version" 2>/dev/null \
+        && ! [[ "$version" == "lts" || "$version" == lts/* || "$version" == "node" || "$version" == "stable" ]]; then
+        log_error "install_node_version: refusing invalid version '$version' (expected semver like 20.19.2 or v20, or an nvm alias like lts/lts/iron)"
+        return 1
+    fi
 
     log_info "Installing Node.js version: $version"
 
