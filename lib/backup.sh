@@ -887,7 +887,24 @@ EOF
 }
 
 # Restore from a named restore point
+#
+# Modes (P3-1, lane C2 — lane-R NO-GO follow-up):
+#   default (RESTORE_ALL_OR_NOTHING unset or 0): file-by-file restore with a
+#     per-file "<original>.pre-restore" snapshot. Historical behavior — a
+#     mid-restore failure leaves earlier files restored (partial apply) and
+#     returns nonzero. Preserved unchanged for backward compatibility.
+#   RESTORE_ALL_OR_NOTHING=1: ONE transaction registers the pre-restore
+#     state of EVERY point file BEFORE the first restore runs. If any single
+#     restore fails, the transaction rolls back — every file returns
+#     byte-identical to its pre-restore state (hash-verified by
+#     transaction_rollback) — and this function exits nonzero. Symlinked
+#     originals are refused (cp would write through the link to an
+#     unregistered target, which the rollback cannot guarantee).
+#   TRANSACTION_DRY_RUN=1 (with the mode on): plan-only — reports the file
+#     count, performs zero writes.
+#
 # Usage: restore_from_point "before_theme_change"
+#        RESTORE_ALL_OR_NOTHING=1 restore_from_point "before_theme_change"
 restore_from_point() {
     local name="$1"
 
@@ -909,6 +926,11 @@ restore_from_point() {
     fi
 
     log_info "Restoring from: $name"
+
+    if [[ "${RESTORE_ALL_OR_NOTHING:-0}" == "1" ]]; then
+        _restore_from_point_atomic "$name" "$restore_dir"
+        return $?
+    fi
 
     local restore_count=0
     local restore_errors=0
@@ -936,6 +958,100 @@ restore_from_point() {
     fi
 
     log_success "Restored $restore_count files from: $name"
+    return 0
+}
+
+# All-or-nothing restore core (P3-1). One transaction covers the whole
+# point: every original is registered BEFORE the first restore, so the
+# pre-restore bytes of all files are on disk before anything is touched.
+_restore_from_point_atomic() {
+    local name="$1"
+    local restore_dir="$2"
+
+    # Transaction names reject '.' (grammar: letters/digits/_/-); restore
+    # point names allow it. Transliterate and clamp to the 63-char grammar.
+    local txn_name="restore-${name//./_}"
+    txn_name="${txn_name:0:63}"
+
+    # Collect the restorable mappings first. Both the dry-run plan and the
+    # real transaction read the same file; missing backups are skipped in
+    # both modes (a point file that lost its backup cannot be restored).
+    local -a originals=() backups=()
+    local original backup
+    while IFS='|' read -r original backup; do
+        [[ -z "${original:-}" && -z "${backup:-}" ]] && continue
+        if [[ ! -f "$backup" ]]; then
+            log_warn "Skipping missing backup file: $backup"
+            continue
+        fi
+        # Fail closed BEFORE any write: a symlinked original would make
+        # cp write through the link into an unregistered target — rollback
+        # restores the link, not the target's bytes, so byte-identical
+        # guarantees would be void.
+        if [[ -L "${original:-}" ]]; then
+            log_error "All-or-nothing restore refuses symlinked original: $original"
+            return 1
+        fi
+        originals+=("$original")
+        backups+=("$backup")
+    done < "$restore_dir/mappings.txt"
+
+    # Dry-run (mutation invariant): plan-only, zero filesystem writes.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would restore ${#originals[@]} file(s) from restore point '$name' (all-or-nothing)"
+        return 0
+    fi
+
+    # ONE transaction for the whole point. If it cannot start (e.g. another
+    # transaction is active), nothing has been written yet — fail closed.
+    if ! transaction_start "$txn_name"; then
+        log_error "Cannot start all-or-nothing restore transaction for '$name'"
+        return 1
+    fi
+
+    # Registration phase: capture every original's pre-state. Any failure
+    # here aborts before the FIRST restore (nothing to roll back, but the
+    # transaction is closed cleanly).
+    local i
+    for ((i = 0; i < ${#originals[@]}; i++)); do
+        if ! transaction_add_file "${originals[$i]}"; then
+            log_error "Registration failed for '${originals[$i]}' — aborting before any restore"
+            transaction_rollback
+            return 1
+        fi
+    done
+
+    # Restore phase: the FIRST failure stops the loop; the transaction rolls
+    # back everything restored so far, byte-identical (hash-verified).
+    local restore_count=0
+    local restore_errors=0
+    for ((i = 0; i < ${#originals[@]}; i++)); do
+        if cp "${backups[$i]}" "${originals[$i]}"; then
+            log_debug "Restored: ${originals[$i]}"
+            restore_count=$((restore_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
+        else
+            log_error "Failed to restore: ${originals[$i]} — rolling back the whole point"
+            restore_errors=$((restore_errors + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
+            break
+        fi
+    done
+
+    if [[ $restore_errors -gt 0 ]]; then
+        # Byte-identical rollback is hash-verified by transaction_rollback.
+        # Its own status is surfaced; the restore failure decides the exit.
+        if ! transaction_rollback; then
+            log_error "All-or-nothing rollback reported errors for restore point '$name' (see transaction metadata)"
+        fi
+        log_error "Restore point '$name' NOT applied (all-or-nothing): pre-restore state restored"
+        return 1
+    fi
+
+    if ! transaction_commit; then
+        log_error "Transaction commit failed after restoring '$name'"
+        return 1
+    fi
+
+    log_success "Restored $restore_count files from: $name (all-or-nothing)"
     return 0
 }
 
