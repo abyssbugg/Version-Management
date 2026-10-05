@@ -139,12 +139,28 @@ grep -c "rollback" ~/.config/version-manager/audit.log
 ## Release path
 
 1. Release gates run first: lint is **gating** (no `|| true`), and the
-   release job fails on a `package.json` ↔ git-tag version mismatch.
-2. Trigger: push a tag `v*.*.*` (`.github/workflows/release.yml`), or run
-   the workflow manually with an explicit version input.
-3. Artifacts ship with SHA-256 checksums. Signing, SBOM, and attribution
-   packaging are ROADMAP Phase 5 items (5.1, 5.2) — not yet present.
-4. A release freeze is in effect whenever a remediation milestone gate is
+   release job fails on a `package.json` ↔ git-tag version mismatch. An
+   `attest-guard` job runs before everything and fails the release closed
+   unless the release SHA is attested: a tag-push release must carry a
+   committed `.release-attested-<sha>` marker in the tag's tree, or a
+   manual dispatch must supply an `attested_sha` input equal to the
+   release tag's commit. Procedure:
+   [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+2. Trigger: push a tag `v*.*.*` (`.github/workflows/release.yml`), or
+   dispatch the workflow manually with an explicit `version` input plus
+   the `attested_sha` attestation input (see the checklist fallback).
+3. Artifacts ship with SHA-256 checksums covering every published asset,
+   and with two SBOMs: `sbom.spdx.txt` (deterministic source SBOM via
+   `scripts/release-sbom.sh`) and `sbom-syft.spdx.json` (Syft SPDX SBOM
+   of the built artifacts, pinned + checksum-verified install). Signing
+   remains an owner decision: `release.yml` carries the disabled
+   `signing` job structure (P1-6) with prerequisites in
+   [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+4. Post-publish, verify release ↔ SHA continuity with the dormant
+   `release-attest` Buildkite step (manual build with `RELEASE_ATTEST_SHA`
+   and `RELEASE_ATTEST_TAG`): it asserts the full gate set ran green on
+   the SHA and that the release tag's commit equals it.
+5. A release freeze is in effect whenever a remediation milestone gate is
    open (remediation directive rule 1); check
    [governance/ROADMAP.md](governance/ROADMAP.md) before tagging.
 

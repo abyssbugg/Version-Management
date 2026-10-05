@@ -103,3 +103,94 @@ steps:
           - "test-results/manifest.tsv"
         agents:
           queue: "macos-medium"
+
+  # -----------------------------------------------------------------------------
+  # Release attestation (B2.3) — ADDITIVE, dormant by default
+  # -----------------------------------------------------------------------------
+  # This group only runs when the operator triggers a manual build with
+  # RELEASE_ATTEST_SHA set (Buildkite "New Build" -> Environment Variables,
+  # plus RELEASE_ATTEST_TAG after the GitHub release has published). It
+  # verifies release <-> CI continuity:
+  #   (a) records the exact attested release SHA as a build artifact;
+  #   (b) asserts the full gate set (lint, syntax, pre-commit, secret-scan,
+  #       test-linux, test-macos) ran GREEN on that SHA in this pipeline;
+  #   (c) after the GitHub release publishes, asserts the release tag's
+  #       commit on origin equals the attested SHA.
+  # Procedure (and the pre-release half of this flow): docs/RELEASE_CHECKLIST.md
+  # -----------------------------------------------------------------------------
+  - group: ":receipt: Release attestation (release-attest)"
+    key: "release-attest-group"
+    if: build.env("RELEASE_ATTEST_SHA") != null
+    steps:
+      - label: ":receipt: Verify release attestation"
+        key: "release-attest"
+        command: |
+          set -euo pipefail
+          fail() { echo "+++ ATTESTATION FAILED: $1"; exit 1; }
+
+          SHA="${RELEASE_ATTEST_SHA:-}"
+          TAG="${RELEASE_ATTEST_TAG:-}"
+
+          # (a) Record the attested release SHA (fail-closed on malformed input).
+          printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$' \
+            || fail "RELEASE_ATTEST_SHA must be a full 40-hex commit SHA (got: '$SHA')."
+          mkdir -p release-attestation
+          printf '%s\n' "$SHA" > release-attestation/attested-sha.txt
+          [ -n "$TAG" ] && printf '%s\n' "$TAG" > release-attestation/attested-tag.txt || true
+          echo "Attesting release SHA: $SHA (tag: ${TAG:-<not supplied — gate check only>})"
+
+          # (b) Assert the full gate set ran green on this SHA in Buildkite.
+          #     Requires BUILDKITE_ACCESS_TOKEN (present on Buildkite agents
+          #     during builds). Without it the check fails closed — run the
+          #     documented `bk build list` procedure locally instead
+          #     (docs/RELEASE_CHECKLIST.md).
+          if [ -z "${BUILDKITE_ACCESS_TOKEN:-}" ]; then
+            fail "BUILDKITE_ACCESS_TOKEN not available in this build environment; perform the manual gate assertion with 'bk build list --pipeline ${BUILDKITE_PIPELINE_SLUG:-version-management}' per docs/RELEASE_CHECKLIST.md and re-run with the token present."
+          fi
+          curl -sSf -H "Authorization: Bearer $BUILDKITE_ACCESS_TOKEN" \
+            "https://api.buildkite.com/v2/organizations/${BUILDKITE_ORGANIZATION_SLUG}/pipelines/${BUILDKITE_PIPELINE_SLUG}/builds?commit=${SHA}&per_page=100" \
+            -o /tmp/bk-builds.json
+          BUILD_URL="$(python3 - <<'PY'
+          import json, os, sys
+          builds = json.load(open("/tmp/bk-builds.json"))
+          sha = os.environ["RELEASE_ATTEST_SHA"]
+          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos"}
+          for b in builds:
+              if b.get("commit") != sha or b.get("state") != "passed":
+                  continue
+              passed = {j.get("step_key") for j in b.get("jobs", [])
+                        if j.get("state") == "passed" and j.get("step_key")}
+              if required <= passed:
+                  print(b["web_url"])
+                  sys.exit(0)
+          sys.exit(1)
+          PY
+          )" || fail "No passed Buildkite build with the full gate set (lint/syntax/pre-commit/secret-scan/test-linux/test-macos) found for SHA $SHA."
+          echo "$BUILD_URL" > release-attestation/gate-build-url.txt
+          echo "Full gate set green on $SHA: $BUILD_URL"
+
+          # (c) After the GitHub release publishes: the release tag's commit
+          #     on origin must equal the attested SHA (fail-closed when no
+          #     tag was supplied).
+          if [ -z "$TAG" ]; then
+            fail "RELEASE_ATTEST_TAG not supplied; post-publish tag continuity check could not run. Re-run after publishing with RELEASE_ATTEST_TAG set."
+          fi
+          PEELED="$(git ls-remote origin "refs/tags/${TAG}^{}" | awk 'NR==1{print $1}')"
+          DIRECT="$(git ls-remote origin "refs/tags/${TAG}" | awk 'NR==1{print $1}')"
+          TARGET="${PEELED:-$DIRECT}"
+          [ -n "$TARGET" ] || fail "Tag ${TAG} not found on origin."
+          if [ "$TARGET" != "$SHA" ]; then
+            fail "Release tag ${TAG} points at ${TARGET}, expected attested SHA ${SHA}."
+          fi
+          echo "Release tag ${TAG} commit == attested SHA: OK"
+          {
+            echo "attested_sha=$SHA"
+            echo "attested_tag=$TAG"
+            echo "gate_build=$BUILD_URL"
+            echo "tag_commit=$TARGET"
+          } > release-attestation/report.txt
+          cat release-attestation/report.txt
+        artifact_paths:
+          - "release-attestation/*"
+        agents:
+          queue: "linux-small"
