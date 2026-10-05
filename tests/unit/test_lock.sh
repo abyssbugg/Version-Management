@@ -77,6 +77,16 @@ test_concurrent_acquire_serializes_critical_section() {
   done
 
   wait
+  # Self-classify on CI: emit the diagnostic files into the test's own output
+  # so a failure names its cause (emit-manifest surfaces failing-file tails).
+  if [[ -s "$timeout_file" ]]; then
+    echo "TIMEOUTS (serialization under load, not overlap):" >&2
+    cat "$timeout_file" >&2
+  fi
+  if [[ -s "$violation_file" ]]; then
+    echo "VIOLATIONS (true overlap):" >&2
+    cat "$violation_file" >&2
+  fi
   assert_equals "0" "$(wc -l < "$violation_file" | tr -d ' ')" "Concurrent lock holders do not overlap"
 
   teardown_lock_test

@@ -120,10 +120,12 @@ steps:
   # -----------------------------------------------------------------------------
   - group: ":receipt: Release attestation (release-attest)"
     key: "release-attest-group"
-    if: build.env("RELEASE_ATTEST_SHA") != null
+    # Group-level `if:` is unsupported by this schema (build #34: group marked
+    # "broken" with no log) — the condition lives on the STEP below.
     steps:
       - label: ":receipt: Verify release attestation"
         key: "release-attest"
+        if: build.env("RELEASE_ATTEST_SHA") != null
         command: |
           set -euo pipefail
           fail() { echo "+++ ATTESTATION FAILED: $1"; exit 1; }
