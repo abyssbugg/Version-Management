@@ -103,3 +103,25 @@ steps:
           - "test-results/manifest.tsv"
         agents:
           queue: "macos-medium"
+
+      # B2.6/P1-11 remainder: REAL line coverage (kcov) replacing the
+      # pseudo-coverage signal. The unit suite runs under kcov with
+      # --include-path=lib into coverage/, which is uploaded as an artifact
+      # (matching-no-files fails the step, keeping this evidence fail-closed
+      # like the manifest artifacts). Linux-only: apt kcov is the canonical
+      # lane; `make coverage-kcov` fails closed locally without kcov.
+      - label: ":chart_with_upwards_trend: Coverage (kcov, unit suite)"
+        key: "coverage-kcov"
+        depends_on: ["lint", "syntax"]
+        command: |
+          # Provision the hosted Linux agent (idempotent), mirroring the
+          # other steps' provisioning pattern.
+          command -v kcov >/dev/null 2>&1 || {
+            apt-get update -qq
+            apt-get install -y -qq kcov
+          }
+          make coverage-kcov
+        artifact_paths:
+          - "coverage/**"
+        agents:
+          queue: "linux-small"
