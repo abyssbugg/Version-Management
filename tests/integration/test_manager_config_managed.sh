@@ -84,7 +84,7 @@ check test -z "$(find "$preview" -mindepth 1 -print)"
 check bash -c '! grep -Eq "^[[:space:]]*nvm install" "$1"' _ "$SANDBOX/home/nvm/target"
 # Configuration-only CLI must preview before eager main initialization.
 cli_home="$SANDBOX/cli-home"; mkdir "$cli_home"
-cli_env=(env HOME="$cli_home" SHELL=/bin/zsh ZDOTDIR="$cli_home"
+cli_env=(env HOME="$cli_home" SHELL=/bin/zsh ZDOTDIR="$cli_home" TMPDIR="$cli_home"
     XDG_CONFIG_HOME="$cli_home/.config" XDG_CACHE_HOME="$cli_home/.cache"
     XDG_DATA_HOME="$cli_home/.local/share" XDG_STATE_HOME="$cli_home/.local/state"
     CONFIG_DIR="$cli_home/config" CACHE_DIR="$cli_home/cache" STATE_DIR="$cli_home/state"
