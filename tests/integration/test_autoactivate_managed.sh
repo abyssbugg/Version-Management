@@ -1,155 +1,73 @@
 #!/usr/bin/env bash
-# P3-1 / P3-2: auto_activate_setup/remove must use managed-block semantics
-# (mutation_block_write/remove) instead of raw append/awk.
-
+# P3-1/P3-2: executable safety contracts for rc setup and removal.
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/tmp_rovodev_autoactivate.XXXXXX")"
-SANDBOX=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$SANDBOX")
+SANDBOX=$(mktemp -d "$ROOT/tmp_rovodev_autoactivate.XXXXXX")
 trap 'rm -rf -- "$SANDBOX"' EXIT
-
-export HOME="$SANDBOX/home" ZDOTDIR="$SANDBOX/home"
-export XDG_CONFIG_HOME="$SANDBOX/home/.config" XDG_CACHE_HOME="$SANDBOX/home/.cache"
-export XDG_DATA_HOME="$SANDBOX/home/.local/share" XDG_STATE_HOME="$SANDBOX/home/.local/state"
+export HOME="$SANDBOX/home" ZDOTDIR="$SANDBOX/home" SHELL=/bin/zsh TMPDIR="$SANDBOX"
+export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
+export XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state"
 unset LOG_FILE BACKUP_DIR TRANSACTION_DRY_RUN NVM_DIR
-
 mkdir -p "$HOME"
-
+# shellcheck source=lib/auto-activate.sh
 source "$ROOT/lib/auto-activate.sh"
-
-failures=0
-zshrc="$HOME/.zshrc"
-
-# Test 1: idempotent apply
-printf 'test_1_apply_idempotent: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-EOF
-hash1=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (setup)"; failures=$((failures+1)); }
-hash2=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-if [[ "$hash1" != "$hash2" ]]; then
-    auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (rerun)"; failures=$((failures+1)); }
-    hash3=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-    if [[ "$hash2" == "$hash3" ]]; then
-        echo "PASS"
-    else
-        echo "FAIL (not idempotent)"
-        failures=$((failures+1))
-    fi
-else
-    echo "FAIL (first apply did nothing)"
-    failures=$((failures+1))
-fi
-
-# Test 2: remove idempotent
-printf 'test_2_remove_idempotent: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-EOF
-auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (setup)"; failures=$((failures+1)); }
-auto_activate_remove >/dev/null 2>&1 || { echo "FAIL (remove)"; failures=$((failures+1)); }
-hash1=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-auto_activate_remove >/dev/null 2>&1 || { echo "FAIL (remove 2)"; failures=$((failures+1)); }
-hash2=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-if [[ "$hash1" == "$hash2" ]]; then
-    echo "PASS"
-else
-    echo "FAIL (not idempotent)"
-    failures=$((failures+1))
-fi
-
-# Test 3: dry-run zero writes
-printf 'test_3_dryrun_zero_writes: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-EOF
-hash_before=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-TRANSACTION_DRY_RUN=1 auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (dryrun)"; failures=$((failures+1)); }
-hash_after=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-if [[ "$hash_before" == "$hash_after" ]]; then
-    echo "PASS"
-else
-    echo "FAIL (dry-run wrote to file)"
-    failures=$((failures+1))
-fi
-
-# Test 4: preserve unrelated lines
-printf 'test_4_preserve_unrelated_lines: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-alias myalias='echo hello'
-# footer
-EOF
-hash_original=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (setup)"; failures=$((failures+1)); }
-grep -q "export SHELL=/bin/zsh" "$zshrc" || { echo "FAIL (SHELL lost)"; failures=$((failures+1)); }
-grep -q "alias myalias" "$zshrc" || { echo "FAIL (alias lost)"; failures=$((failures+1)); }
-auto_activate_remove >/dev/null 2>&1 || { echo "FAIL (remove)"; failures=$((failures+1)); }
-hash_restored=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-if [[ "$hash_original" == "$hash_restored" ]]; then
-    echo "PASS"
-else
-    echo "FAIL (not restored)"
-    failures=$((failures+1))
-fi
-
-# Test 5: roundtrip
-printf 'test_5_roundtrip: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-EOF
-hash_original=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (setup)"; failures=$((failures+1)); }
-hash_with_hook=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-if [[ "$hash_original" == "$hash_with_hook" ]]; then
-    echo "FAIL (setup did nothing)"
-    failures=$((failures+1))
-else
-    auto_activate_remove >/dev/null 2>&1 || { echo "FAIL (remove)"; failures=$((failures+1)); }
-    hash_after_remove=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-    if [[ "$hash_original" != "$hash_after_remove" ]]; then
-        echo "FAIL (remove did not restore)"
-        failures=$((failures+1))
-    else
-        auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (reapply)"; failures=$((failures+1)); }
-        hash_reapply=$(sha256sum < "$zshrc" | cut -d' ' -f1)
-        if [[ "$hash_with_hook" == "$hash_reapply" ]]; then
-            echo "PASS"
-        else
-            echo "FAIL (reapply not byte-equal)"
-            failures=$((failures+1))
-        fi
-    fi
-fi
-
-# Test 6: markers present
-printf 'test_6_markers_present: '
-cat > "$zshrc" <<'EOF'
-# header
-export SHELL=/bin/zsh
-EOF
-auto_activate_setup >/dev/null 2>&1 || { echo "FAIL (setup)"; failures=$((failures+1)); }
-if grep -q "^# BEGIN version-management-setup:dev-auto-activate-hook\$" "$zshrc" && \
-   grep -q "^# END version-management-setup:dev-auto-activate-hook\$" "$zshrc"; then
-    echo "PASS"
-else
-    echo "FAIL (markers missing or malformed)"
-    failures=$((failures+1))
-fi
-
-if [[ $failures -eq 0 ]]; then
-    echo ""
-    echo "test_autoactivate_managed.sh: all 6 passed"
-    exit 0
-else
-    echo ""
-    echo "test_autoactivate_managed.sh: $failures case(s) failed"
-    exit 1
-fi
+failures=0; checks=0
+check() { checks=$((checks+1)); if ! "$@"; then echo "FAIL: $*" >&2; failures=$((failures+1)); fi; }
+reject() { ! "$@"; }
+rc="$HOME/.zshrc"
+printf '# canary\nexport KEEP_ME=yes\n' > "$rc"
+cp "$rc" "$SANDBOX/original"
+check auto_activate_setup
+check zsh -n "$rc"
+check grep -q '^# BEGIN version-management-setup:dev-auto-activate-hook$' "$rc"
+cp "$rc" "$SANDBOX/applied"
+check auto_activate_setup
+check cmp -s "$rc" "$SANDBOX/applied"
+check auto_activate_remove
+check cmp -s "$rc" "$SANDBOX/original"
+check auto_activate_remove
+# Link identity and permission preservation through both operations.
+mv "$rc" "$HOME/target"; chmod 600 "$HOME/target"; ln -s target "$rc"
+check auto_activate_setup
+check test -L "$rc"
+check test "$(stat -f '%Lp' "$HOME/target" 2>/dev/null || stat -c '%a' "$HOME/target")" = 600
+check auto_activate_remove
+check test -L "$rc"
+check test "$(stat -f '%Lp' "$HOME/target" 2>/dev/null || stat -c '%a' "$HOME/target")" = 600
+check cmp -s "$HOME/target" "$SANDBOX/original"
+# Pre-register the destination before delegating: partial publication must roll back.
+check reject bash -c 'source "$1/lib/auto-activate.sh"; mutation_block_write() { printf "BROKEN\n" >> "$1"; return 1; }; auto_activate_setup' _ "$ROOT"
+check cmp -s "$HOME/target" "$SANDBOX/original"
+check auto_activate_setup
+cp "$HOME/target" "$SANDBOX/before-remove"
+check reject bash -c 'source "$1/lib/auto-activate.sh"; mutation_block_remove() { printf "BROKEN\n" >> "$1"; return 1; }; auto_activate_remove' _ "$ROOT"
+check cmp -s "$HOME/target" "$SANDBOX/before-remove"
+# No malformed/duplicate/legacy marker may consume unrelated user content.
+for content in '# BEGIN version-management-setup:dev-auto-activate-hook' '# END version-management-setup:dev-auto-activate-hook' '# >>> dev auto-activate hook <<<' ; do
+    printf '%s\n# CANARY AFTER MARKER\n' "$content" > "$HOME/target"
+    cp "$HOME/target" "$SANDBOX/bad"
+    check reject auto_activate_setup
+    check cmp -s "$HOME/target" "$SANDBOX/bad"
+    check reject auto_activate_remove
+    check cmp -s "$HOME/target" "$SANDBOX/bad"
+done
+# Duplicate complete blocks are also refused, not silently coalesced.
+printf '# BEGIN version-management-setup:dev-auto-activate-hook\n# END version-management-setup:dev-auto-activate-hook\n# BEGIN version-management-setup:dev-auto-activate-hook\n# END version-management-setup:dev-auto-activate-hook\n' > "$HOME/target"
+cp "$HOME/target" "$SANDBOX/duplicate"
+check reject auto_activate_setup
+check reject auto_activate_remove
+check cmp -s "$HOME/target" "$SANDBOX/duplicate"
+# Failed syntax verification after publication rolls back the complete pre-state.
+cp "$SANDBOX/original" "$HOME/target"
+check reject bash -c 'source "$1/lib/auto-activate.sh"; mutation_block_write() { printf "if then\n" >> "$1"; }; auto_activate_setup' _ "$ROOT"
+check cmp -s "$HOME/target" "$SANDBOX/original"
+# Dry run cannot create even temporary, cache, journal or log files.
+check bash -c 'set -eu; export HOME="$2" ZDOTDIR="$2" TMPDIR="$2" SHELL=/bin/zsh XDG_CONFIG_HOME="$2/config" LOG_FILE="$2/log" TRANSACTION_DRY_RUN=1; source "$1/lib/auto-activate.sh"; mktemp() { return 99; }; auto_activate_setup; auto_activate_remove; test -z "$(find "$2" -mindepth 1 -print)"' _ "$ROOT" "$(mktemp -d "$SANDBOX/preview.XXXXXX")"
+# Refuse lock denial and nesting; preserve the caller's traps.
+cp "$SANDBOX/original" "$HOME/target"
+check reject bash -c 'source "$1/lib/auto-activate.sh"; lock_acquire() { return 1; }; auto_activate_setup' _ "$ROOT"
+check cmp -s "$HOME/target" "$SANDBOX/original"
+check reject bash -c 'source "$1/lib/auto-activate.sh"; _TRANSACTION_ACTIVE=outer; auto_activate_setup' _ "$ROOT"
+check bash -c 'source "$1/lib/auto-activate.sh"; trap : RETURN; before=$(trap -p RETURN); auto_activate_setup; test "$before" = "$(trap -p RETURN)"' _ "$ROOT"
+printf 'autoactivate safety: %s checks, %s failures\n' "$checks" "$failures"
+[[ "$failures" == 0 ]]

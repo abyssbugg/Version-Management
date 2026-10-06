@@ -561,7 +561,8 @@ test_rc_transactions() {
     # Emitted block parses as zsh (the emitted functions must be zsh-safe)
     if command -v zsh >/dev/null 2>&1; then
         local blk; blk="$(mktemp "${TMPDIR:-/tmp}/vms-block.XXXXXX")"
-        awk "/^# >>> dev auto-activate hook <<<\$/,/^# <<< dev auto-activate hook <<<\$/" "$shell_rc" > "$blk"
+        mutation_block_get "$shell_rc" "$_AA_BLOCK_NAME" > "$blk"
+        [[ -s "$blk" ]] || { echo "FAIL: empty emitted hook"; return 1; }
         if zsh -n "$blk" 2>/dev/null; then
             assert_equals "parses" "parses" "emitted hook block parses under zsh -n"
         else

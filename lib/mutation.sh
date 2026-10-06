@@ -220,9 +220,9 @@ PY
         return 0
     fi
 
-    # Preserve the original mode (new files: 644)
+    # Preserve the resolved content-file mode, not a symlink's unrelated mode.
     local mode
-    mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
+    mode=$(stat -f '%Lp' "$write_target" 2>/dev/null || stat -c '%a' "$write_target" 2>/dev/null || echo 644)
     chmod "$mode" "$tmp"
 
     # Idempotency: if the composed result equals the current file, skip.
@@ -324,7 +324,7 @@ mutation_block_remove() {
     fi
 
     local mode
-    mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
+    mode=$(stat -f '%Lp' "$write_target" 2>/dev/null || stat -c '%a' "$write_target" 2>/dev/null || echo 644)
     chmod "$mode" "$tmp"
     if ! mv "$tmp" "$write_target"; then
         rm -f "$tmp"

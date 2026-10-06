@@ -72,6 +72,10 @@ source "${_VMS_AUTO_ACTIVATE_DIR}/mutation.sh"
 # Hook block name — used with mutation_block_write/remove (P3-1, P3-2)
 # Marker format is standardized: "# BEGIN version-management-setup:NAME"
 readonly _AA_BLOCK_NAME="dev-auto-activate-hook"
+readonly _AA_START="# BEGIN version-management-setup:$_AA_BLOCK_NAME"
+readonly _AA_END="# END version-management-setup:$_AA_BLOCK_NAME"
+# shellcheck source=lib/lock.sh
+source "${_VMS_AUTO_ACTIVATE_DIR}/lock.sh"
 
 # Capabilities (exact strings) granted through the trust registry.
 readonly _AA_CAPABILITIES="venv_source node_install symlink_sync"
@@ -547,25 +551,7 @@ auto_activate_on_cd() {
 # Safe to call multiple times — idempotent.
 # The rc mutation is transactional (M2): pre-state backed up, rollback on
 # any emission failure (B1.2).
-auto_activate_setup() {
-    local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
-
-    if [[ "${SHELL##*/}" != "zsh" ]]; then
-        log_error "auto_activate_setup requires zsh (current shell: ${SHELL##*/})"
-        return 1
-    fi
-
-    if mutation_block_has "$shell_rc" "$_AA_BLOCK_NAME"; then
-        log_info "dev auto-activate hook already installed in $shell_rc"
-        return 0
-    fi
-
-    # P3-1: Generate hook content to a temp file, then use mutation_block_write()
-    # for atomic managed-block adoption (not raw append).
-    local content_file
-    content_file="$(mktemp)" || return 1
-    trap "rm -f '$content_file'" RETURN
-
+_aa_emit_hook() {
     {
         cat <<'ZSHOOK'
 # Unified runtime auto-activation — capability-gated (B1.2).
@@ -630,69 +616,85 @@ if typeset -f nvm >/dev/null 2>&1; then
     }
 fi
 ZSHOOK
-    } > "$content_file" || return 1
+    }
+}
 
-    # Start transaction (P3-2: audit-journaled)
-    transaction_start "auto_activate_setup" || return 1
-
-    # Use managed-block write (not raw append)
-    if ! mutation_block_write "$shell_rc" "$_AA_BLOCK_NAME" "$content_file"; then
-        transaction_rollback >/dev/null 2>&1
-        return 1
+# A subshell keeps cleanup traps, transaction state and preview logging local.
+_aa_mutate_hook() (
+    local action="$1" shell_rc="${ZDOTDIR:-$HOME}/.zshrc" target
+    local content_file="" active=0 locked=0 rc=0
+    # Preview is an inspection-free plan: no locks, logging, temporary files
+    # or backup initialization. Full validation remains mandatory before apply.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        printf '[dry-run] auto-activate %s: %s\n' "$action" "$shell_rc" >&2
+        return 0
     fi
-
-    # Fail closed: every emitted function must actually be present (typeset -f
-    # silently skips undefined names). Skip this check in dry-run mode since
-    # the block was never written (mutation_block_write returned early).
-    if [[ "${TRANSACTION_DRY_RUN:-0}" != "1" ]]; then
-        local fn missing=""
+    [[ -z "${_TRANSACTION_ACTIVE:-}" ]] || { log_error "Nested rc mutation refused"; return 1; }
+    if [[ "$action" == setup && "${SHELL:-}" != */zsh ]]; then
+        log_error "auto_activate_setup requires zsh"; return 1
+    fi
+    validate_safe_path "$shell_rc" || return 1
+    trap 'rc=$?; trap - EXIT; if [[ "$active" == 1 ]]; then transaction_rollback || rc=1; fi; [[ -z "$content_file" ]] || rm -f -- "$content_file"; if [[ "$locked" == 1 ]]; then lock_release workstation-config || rc=1; fi; exit "$rc"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-config 30 || return 1
+    locked=1
+    target="$shell_rc"
+    if [[ -L "$shell_rc" ]]; then
+        mutation_resolve_content_target "$shell_rc" || return 1
+        target="$_MUTATION_RESOLVED_TARGET"
+    fi
+    [[ ! -e "$target" || -f "$target" ]] || { log_error "Rc target is not a regular file"; return 1; }
+    if [[ -f "$target" ]]; then
+        # Never silently migrate old/unmanaged blocks or truncate unmatched markers.
+        if grep -Eq '^# (>>>|<<<) dev auto-activate hook <<<' "$target"; then
+            log_error "Legacy auto-activation hook requires explicit migration; unchanged"; return 1
+        fi
+        awk -v b="$(mutation_begin_marker "$_AA_BLOCK_NAME")" -v e="$(mutation_end_marker "$_AA_BLOCK_NAME")" '
+            $0==b { if (opened || seen++) bad=1; opened=1 }
+            $0==e { if (!opened) bad=1; opened=0 }
+            END { exit (bad || opened) }
+        ' "$target" || { log_error "Malformed auto-activation markers; unchanged"; return 1; }
+    fi
+    command -v zsh >/dev/null 2>&1 || { log_error "zsh is required to verify rc changes"; return 1; }
+    if [[ "$action" == setup ]] && mutation_block_has "$target" "$_AA_BLOCK_NAME"; then
+        zsh -n "$target"; return $?
+    fi
+    if [[ "$action" == remove ]] && ! mutation_block_has "$target" "$_AA_BLOCK_NAME"; then
+        return 0
+    fi
+    if [[ "$action" == setup ]]; then
+        content_file=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_autoactivate_content.XXXXXX") || return 1
+        _aa_emit_hook > "$content_file" || return 1
+        local fn
         for fn in _aa_trust_registry _aa_canonical_dir _aa_sha256_str auto_is_trusted \
                   _aa_find_up aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby \
                   aa_java aa_php aa_rust aa_asdf _nvm_sync_symlinks auto_activate_on_cd; do
-            grep -q "^${fn} ()" "$shell_rc" || missing="$missing $fn"
+            grep -q "^${fn} ()" "$content_file" || { log_error "Missing emitted function: $fn"; return 1; }
         done
-        if [[ -n "$missing" ]]; then
-            log_error "auto_activate_setup: emission incomplete — missing:$missing"
-            transaction_rollback >/dev/null 2>&1
-            return 1
-        fi
+        zsh -n "$content_file" || return 1
     fi
-
-    transaction_commit
-    log_success "dev auto-activate hook installed in $shell_rc"
-    log_info "Applies to: Python venv/pyenv, Node (nvm/fnm), Bun, Go (goenv), Ruby (rbenv), Java (jenv), PHP (phpenv)"
-    log_info "Trust-gated capabilities: venv_source, node_install, symlink_sync (see auto_trust)"
-    log_info "Optional symlink sync env: set DEV_AUTO_SYNC_NODE_SYMLINKS=true AND trust the project for symlink_sync"
-    log_info "Restart your terminal or run: source $shell_rc"
-    return 0
-}
-
-# Remove the hook from ~/.zshrc (transactional — pre-state backed up, B1.2)
-auto_activate_remove() {
-    local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
-
-    if ! mutation_block_has "$shell_rc" "$_AA_BLOCK_NAME"; then
-        log_info "dev auto-activate hook not found in $shell_rc"
-        return 0
+    transaction_start "auto_activate_$action" || return 1
+    active=1
+    transaction_add_file "$shell_rc" || return 1
+    [[ "$target" == "$shell_rc" ]] || transaction_add_file "$target" || return 1
+    if [[ "$action" == setup ]]; then
+        mutation_block_write "$shell_rc" "$_AA_BLOCK_NAME" "$content_file" || return 1
+    else
+        mutation_block_remove "$shell_rc" "$_AA_BLOCK_NAME" || return 1
     fi
+    zsh -n "$target" || return 1
+    transaction_commit || return 1
+    active=0
+    log_success "auto-activate $action committed: $shell_rc"
+)
 
-    # P3-1: Use mutation_block_remove() instead of raw awk + mv.
-    # This ensures transactional, idempotent, audit-journaled removal
-    # with automatic backup and rollback on failure.
-    transaction_start "auto_activate_remove" || return 1
-
-    if ! mutation_block_remove "$shell_rc" "$_AA_BLOCK_NAME"; then
-        transaction_rollback >/dev/null 2>&1
-        return 1
-    fi
-
-    transaction_commit
-    log_success "dev auto-activate hook removed from $shell_rc"
-    return 0
-}
+auto_activate_setup() { _aa_mutate_hook setup; }
+auto_activate_remove() { _aa_mutate_hook remove; }
 
 # Export public API
 export -f auto_activate_all auto_activate_on_cd auto_activate_setup auto_activate_remove
+export -f _aa_mutate_hook _aa_emit_hook
 export -f auto_trust auto_untrust auto_is_trusted
 export -f aa_python aa_pyenv aa_node aa_fnm aa_bun aa_go aa_ruby aa_java aa_php aa_rust aa_asdf
 export -f _aa_find_up _nvm_sync_symlinks
