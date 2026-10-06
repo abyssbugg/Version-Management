@@ -189,9 +189,12 @@ is not evidence that every test leaks.
 Two-HOME canary regressions reproduce 13 library failures and 9 editor-isolation
 failures. The repair resolves defaults at call time, preserves positional
 backup destinations and pins active transaction storage, with all editor
-fixtures created under an outer sandbox before library sourcing. Validation is
-in progress. No real HOME was inspected, restored or cleaned; the reported
-`.zshrc` loss and attribution to any external tool remain unverified.
+fixtures created under an outer sandbox before library sourcing. Fixed in
+`a16e8a0` plus test lane `e8a16b7`: local lint/syntax pass, full manifest is
+50 passed / 0 failed / 0 skipped / 0 errors, and all pre-commit hooks pass.
+Independent review reported no project-code finding (one disposable wrapper
+finding, removed with the wrapper). No real HOME was inspected, restored or
+cleaned; the reported `.zshrc` loss and attribution remain unverified.
 
 ### Terminal safety fixes (2026-10-06, locally integrated)
 

@@ -19,7 +19,7 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 - [x] **1.5** Add pre-commit job and gitleaks secret-scan job to `test.yml`. *(P1-5, P2-10 fast wins — done in `8f6d269`; both actions SHA-pinned and verified against GitHub API)*
 - [x] **1.6** Make `tools/validate-quality.sh` exit non-zero on mandatory failures; add `--advisory`. *(P1-7 — done in `78369bf`)*
 
-- [~] **1.1 follow-up — P0-3-runtime-home:** resolve backup defaults at operation time and contain direct editor-test fixtures. The runner already sets HOME before launching tests, but direct/source-before-sandbox use can retain an old HOME. New two-HOME regressions reproduce 13 library failures and 9 editor-isolation failures without touching the real HOME. Repair under validation; no attribution for the reported real `.zshrc` loss is established.
+- [x] **1.1 follow-up — P0-3-runtime-home:** runtime backup roots (`a16e8a0`) and direct editor-test isolation (`e8a16b7`, integrated via `fix/terminal-mutation-safety`). The runner already sets HOME before launching tests, but direct/source-before-sandbox use could retain an old HOME. Two-HOME regressions reproduced 13 library failures and 9 editor-isolation failures; repaired suites pass. Local full gate: 50/50 files, lint/syntax and all pre-commit hooks pass. No real HOME was inspected or changed, and attribution for the reported real `.zshrc` loss is not established.
 
 **Phase gate:** CI red on any of: lint failure in release, version mismatch, secret detected, test writing outside sandbox HOME.
 
