@@ -13,7 +13,15 @@
 #     metadata corruption).
 # =============================================================================
 
-source ../helpers.sh
+ROOT_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+_TEST_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/tmp_rovodev_txnhardening.XXXXXX")
+trap 'rm -rf -- "$_TEST_SANDBOX"' EXIT
+export HOME="$_TEST_SANDBOX/home" TMPDIR="$_TEST_SANDBOX/tmp"
+export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache"
+export XDG_DATA_HOME="$HOME/.local/share" XDG_STATE_HOME="$HOME/.local/state"
+mkdir -p "$HOME" "$TMPDIR"
+unset LOG_FILE TXN_AUDIT_LOG TRANSACTION_DRY_RUN
+source "$ROOT_TEST_DIR/tests/helpers.sh"
 
 set +e
 

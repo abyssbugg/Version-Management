@@ -50,8 +50,8 @@ fi
 # copies defeat declare -f guards). readonly declarations would fail on a
 # second source, so config is declared once; functions re-define cleanly.
 if [[ -z "${_VMS_BACKUP_SH_LOADED:-}" ]]; then
-    # Default backup directory
-    readonly DEFAULT_BACKUP_DIR="$HOME/.config-backups"
+    # Compatibility snapshot only; operations resolve HOME at call time.
+    readonly DEFAULT_BACKUP_DIR="${HOME:-}/.config-backups"
 
     # Maximum number of backups to keep per file
     readonly MAX_BACKUPS_PER_FILE="${BACKUP_MAX_FILES:-10}"
@@ -66,10 +66,22 @@ fi
 # Core Backup Functions
 # =============================================================================
 
+# Resolve the default only when needed; never write relative to an empty HOME.
+# Explicit positional directory arguments remain authoritative. BACKUP_DIR is
+# owned by legacy entry points and is deliberately not a global library option.
+_backup_default_dir() {
+    if [[ -z "${HOME:-}" || "$HOME" != /* ]]; then
+        LOG_FILE='' log_error "An absolute HOME is required for default backup storage"
+        return 1
+    fi
+    printf '%s/.config-backups\n' "${HOME%/}"
+}
+
 # Create timestamped backup of a file
 create_backup() {
     local source_file="$1"
-    local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${2:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
     local backup_name="${3:-}"
     local timestamp
 
@@ -134,7 +146,8 @@ create_backup() {
 # Backup .zshrc configuration
 create_zshrc_backup() {
     local zshrc_file="${1:-$HOME/.zshrc}"
-    local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${2:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
 
     log_info "Creating .zshrc backup..."
 
@@ -149,7 +162,8 @@ create_zshrc_backup() {
 # Backup .p10k.zsh configuration
 create_p10k_backup() {
     local p10k_file="${1:-$HOME/.p10k.zsh}"
-    local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${2:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
 
     log_info "Creating PowerLevel10k configuration backup..."
 
@@ -163,7 +177,8 @@ create_p10k_backup() {
 
 # Backup VS Code settings
 create_vscode_backup() {
-    local backup_dir="${1:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${1:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
     local vscode_settings_dir
     local os_type
 
@@ -237,7 +252,8 @@ create_vscode_backup() {
 restore_backup() {
     local target_file="$1"
     local backup_identifier="$2"  # Can be timestamp or full backup path
-    local backup_dir="${3:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${3:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
     local backup_file=""
 
     # Validate input parameters
@@ -311,7 +327,8 @@ restore_backup() {
 
 # List available backups
 list_backups() {
-    local backup_dir="${1:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${1:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
     local file_pattern="${2:-*}"
 
     if [[ ! -d "$backup_dir" ]]; then
@@ -362,7 +379,8 @@ list_backups() {
 
 # Cleanup old backups
 cleanup_old_backups() {
-    local backup_dir="${1:-$DEFAULT_BACKUP_DIR}"
+    local backup_dir="${1:-}"
+    [[ -n "$backup_dir" ]] || backup_dir=$(_backup_default_dir) || return 1
     local max_age_days="${2:-$MAX_BACKUP_AGE_DAYS}"
     local max_files_per_type="${3:-$MAX_BACKUPS_PER_FILE}"
 
@@ -554,19 +572,20 @@ transaction_start() {
         return 0
     fi
 
+    local backup_dir
+    backup_dir=$(_backup_default_dir) || return 1
     _TRANSACTION_NAME="$name"
     _TRANSACTION_FILES=()
     _TRANSACTION_ACTIVE="true"
 
-    # A3: exclusive, collision-resistant directory. mktemp guarantees that no
-    # two transactions — concurrent or same-named — ever share a directory or
-    # backup namespace (asserted from the filesystem by the M2 test matrix).
-    if ! mkdir -p "$DEFAULT_BACKUP_DIR/transactions" 2>/dev/null; then
-        log_error "Cannot create transactions directory: $DEFAULT_BACKUP_DIR/transactions"
+    # Resolve once at start; _TRANSACTION_DIR pins this transaction's pre-state
+    # even when the caller subsequently changes HOME.
+    if ! mkdir -p "$backup_dir/transactions" 2>/dev/null; then
+        log_error "Cannot create transactions directory: $backup_dir/transactions"
         _TRANSACTION_ACTIVE=""
         return 1
     fi
-    _TRANSACTION_DIR=$(mktemp -d "${DEFAULT_BACKUP_DIR}/transactions/${name}.XXXXXX") || {
+    _TRANSACTION_DIR=$(mktemp -d "${backup_dir}/transactions/${name}.XXXXXX") || {
         log_error "Cannot create transaction directory"
         _TRANSACTION_ACTIVE=""
         return 1
@@ -865,7 +884,9 @@ create_restore_point() {
         return 1
     fi
 
-    local restore_dir="$DEFAULT_BACKUP_DIR/restore_points/$name"
+    local backup_dir restore_dir
+    backup_dir=$(_backup_default_dir) || return 1
+    restore_dir="$backup_dir/restore_points/$name"
 
     # Remove existing restore point with same name
     if [[ -d "$restore_dir" ]]; then
@@ -929,7 +950,9 @@ restore_from_point() {
         return 1
     fi
 
-    local restore_dir="$DEFAULT_BACKUP_DIR/restore_points/$name"
+    local backup_dir restore_dir
+    backup_dir=$(_backup_default_dir) || return 1
+    restore_dir="$backup_dir/restore_points/$name"
 
     if [[ ! -d "$restore_dir" ]]; then
         log_error "Restore point not found: $name"
@@ -1074,7 +1097,9 @@ _restore_from_point_atomic() {
 # List available restore points
 # Usage: list_restore_points
 list_restore_points() {
-    local restore_base="$DEFAULT_BACKUP_DIR/restore_points"
+    local backup_dir restore_base
+    backup_dir=$(_backup_default_dir) || return 1
+    restore_base="$backup_dir/restore_points"
 
     if [[ ! -d "$restore_base" ]]; then
         log_info "No restore points found"
@@ -1111,7 +1136,9 @@ delete_restore_point() {
         return 1
     fi
 
-    local restore_dir="$DEFAULT_BACKUP_DIR/restore_points/$name"
+    local backup_dir restore_dir
+    backup_dir=$(_backup_default_dir) || return 1
+    restore_dir="$backup_dir/restore_points/$name"
 
     if [[ ! -d "$restore_dir" ]]; then
         log_error "Restore point not found: $name"
@@ -1124,6 +1151,7 @@ delete_restore_point() {
 }
 
 # Export functions for use in other scripts
+export -f _backup_default_dir
 export -f create_backup create_zshrc_backup create_p10k_backup create_vscode_backup
 export -f restore_backup list_backups cleanup_old_backups validate_backup
 export -f transaction_start transaction_add_file transaction_commit transaction_rollback

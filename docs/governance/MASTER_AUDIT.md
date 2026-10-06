@@ -176,6 +176,23 @@ test legs that hang now fail closed inside the run (watchdog, FAIL:124)
 instead of dying silently at the 4h job timeout; per-file progress makes any
 residual hang name its file in CI logs.
 
+### P0-3-runtime-home — backup/test isolation follow-up (2026-10-06)
+
+Confirmed in repository-only reproduction: `lib/backup.sh` freezes its default
+root when sourced; changing HOME afterward leaves backup, transaction,
+retention and restore-point operations targeting the previous HOME. A same-name
+restore point in that prior root can be replaced. `test_mutation_editor.sh`
+also sourced before sandboxing and used shared `/tmp` fixture names. The main
+runner and current plugin-security test already sandbox before sourcing; this
+is not evidence that every test leaks.
+
+Two-HOME canary regressions reproduce 13 library failures and 9 editor-isolation
+failures. The repair resolves defaults at call time, preserves positional
+backup destinations and pins active transaction storage, with all editor
+fixtures created under an outer sandbox before library sourcing. Validation is
+in progress. No real HOME was inspected, restored or cleaned; the reported
+`.zshrc` loss and attribution to any external tool remain unverified.
+
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
 - **P3-1-vscode:** `scripts/generate-vscode-settings.sh` used raw

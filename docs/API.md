@@ -74,6 +74,15 @@ commit and rollback emit console diagnostics without appending to `LOG_FILE`
 or the audit journal. Apply transactions retain their normal audit trail.
 Callers remain responsible for not performing their own writes in preview mode.
 
+Default backup and restore-point storage is resolved from the current absolute
+`HOME` when the operation starts (`$HOME/.config-backups`), not when the library
+is sourced. An active transaction retains its original directory through commit
+or rollback if `HOME` changes. Explicit positional backup-directory arguments
+still take precedence. `DEFAULT_BACKUP_DIR` remains a source-time compatibility
+snapshot, not an operational override; entry-point-specific `BACKUP_DIR` variables
+are not interpreted by this library. Empty or relative HOME fails closed when a
+default storage path is required.
+
 ### Functions
 
 | Function | Description | Usage |
