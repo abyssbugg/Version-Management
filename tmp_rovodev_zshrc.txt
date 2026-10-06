@@ -1,0 +1,105 @@
+# REDACTED startup-file evidence — collected 2026-10-06T11:21:38-05:00 by the local-home agent
+# ZDOTDIR: unset (all files resolve under $HOME). Redaction: no secret VALUES present; the line sourcing $HOME/.config/shell/secrets.zsh is a path reference only and is retained (values never read).
+
+## ~/.zshrc  (1491 bytes, mtime 2026-10-06 06:34 — ENTIRE CURRENT CONTENT, nothing omitted):
+```zsh
+# ASCII BOAT SHELL INTEGRATION START boat
+case ":$PATH:" in
+  *":/Users/datamatics/.ascii/bin:"*) ;;
+  *) PATH="/Users/datamatics/.ascii/bin:$PATH" ;;
+esac
+export PATH
+# ASCII BOAT SHELL INTEGRATION END boat
+
+export EDITOR=vi
+
+# ASCII BOAT SHELL INTEGRATION START boat
+boat() {
+  current_file=$(mktemp)
+  convo_file=$(mktemp)
+  old_current_file=${BOAT_CURRENT_ID_FILE-}
+  old_convo_file=${BOAT_CURRENT_CONVO_FILE-}
+  export BOAT_CURRENT_ID_FILE="$current_file"
+  export BOAT_CURRENT_CONVO_FILE="$convo_file"
+  command "/Users/datamatics/.ascii/bin/boat" "$@"
+  boat_status=$?
+  if [ "$boat_status" -eq 0 ]; then
+    case "${1:-}" in
+      new|start|fork)
+        if [ -s "$current_file" ]; then
+          current_id=$(tr -d '[:space:]' < "$current_file")
+          if [ -n "$current_id" ]; then export BOAT_CURRENT_ID="$current_id"; fi
+        fi
+        ;;
+    esac
+    case "${1:-}" in
+      prompt)
+        if [ -s "$convo_file" ]; then
+          IFS= read -r current_convo < "$convo_file" || current_convo=""
+          if [ -n "$current_convo" ]; then export BOAT_CURRENT_CONVO="$current_convo"; fi
+        fi
+        ;;
+    esac
+  fi
+  if [ -n "$old_current_file" ]; then export BOAT_CURRENT_ID_FILE="$old_current_file"; else unset BOAT_CURRENT_ID_FILE; fi
+  if [ -n "$old_convo_file" ]; then export BOAT_CURRENT_CONVO_FILE="$old_convo_file"; else unset BOAT_CURRENT_CONVO_FILE; fi
+  rm -f "$current_file" "$convo_file"
+  return "$boat_status"
+}
+# ASCII BOAT SHELL INTEGRATION END boat
+```
+
+## ~/.zshenv  (947 bytes, mtime 2026-10-06 06:34 — ENTIRE CURRENT CONTENT):
+```zsh
+. "$HOME/.cargo/env"
+
+# Ensure user-local CLIs (e.g. flowdeck) work for non-interactive agents
+# (Rovo Dev / acli, Codex, etc.) that may not load .zshrc/.zprofile.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
+# pnpm: needed by non-interactive shells too (e.g. topgrade runs `pnpm update -g`
+# and errors if the global bin dir is not in PATH). Mirrors the block in .zshrc.
+export PNPM_HOME="$HOME/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME/bin:"*) ;;
+  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+esac
+
+# Private shell secrets for non-interactive shells too (guarded; env values take precedence).
+[[ -r "$HOME/.config/shell/secrets.zsh" ]] && source "$HOME/.config/shell/secrets.zsh"
+
+# ASCII BOAT SHELL INTEGRATION START boat
+case ":$PATH:" in
+  *":/Users/datamatics/.ascii/bin:"*) ;;
+  *) PATH="/Users/datamatics/.ascii/bin:$PATH" ;;
+esac
+export PATH
+# ASCII BOAT SHELL INTEGRATION END boat
+```
+
+## ~/.zprofile  (1004 bytes, mtime 2026-08-11 — NOT touched by the 06:34 event; excerpts):
+```zsh
+# Kiro CLI pre block. Keep at the top of this file.
+[[ -f "${HOME}/Library/Application Support/kiro-cli/shell/zprofile.pre.zsh" ]] && builtin source "${HOME}/Library/Application Support/kiro-cli/shell/zprofile.pre.zsh"
+eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+# Hermes Agent — ensure ~/.local/bin is on PATH
+export PATH="$HOME/.local/bin:$PATH"
+# Added by Antigravity CLI installer
+export PATH="/Users/datamatics/.local/bin:$PATH"
+# Kiro CLI post block. Keep at the bottom of this file.
+[[ -f "${HOME}/Library/Application Support/kiro-cli/shell/zprofile.post.zsh" ]] && builtin source "${HOME}/Library/Application Support/kiro-cli/shell/zprofile.post.zsh"
+# Setting PATH for Python 3.13
+# The original version is saved in .zprofile.pysave
+PATH="/Library/Frameworks/Python.framework/Versions/3.13/bin:${PATH}"
+export PATH
+# Setting PATH for Python 3.13
+```
+
+## Divergence facts (local vs remote):
+- remote origin/main: 40562ee (other agent's check CONFIRMED)
+- local main: 9e8765b (concurrent session lineage — PR #1 head)
+- orphaned-by-reset commits include: cbeccdd (attest step-level fix), 343afa7 (M5 lane C2 merge), 3968abe (M5 lane C1 merge: plugin conformance + coverage tests; kcov pipeline job confirmed NOT in either lineage)
+- recoverable via reflog; re-merge or cherry-pick pending coordinator decision

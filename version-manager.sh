@@ -114,6 +114,25 @@ if [[ -f "$SCRIPT_DIR/lib/validation.sh" ]]; then
     source "$SCRIPT_DIR/lib/validation.sh"
 fi
 
+# Read-only status mode detection (P3 review, direction b): resolved from
+# argv BEFORE lib sourcing, mirroring parse_args' flag handling (the same
+# four flags are skipped; the first non-flag word is the command). When set,
+# lib/nvm.sh below is NOT sourced: it pulls in lib/cache.sh, which runs
+# cache_init AT SOURCE TIME and creates cache directories — a write. The
+# status surface is contractually zero-write and needs none of nvm.sh's
+# install-path functions.
+_VMS_STATUS_MODE=false
+for _vms_arg in "$@"; do
+    case "$_vms_arg" in
+        --silent|--debug|--no-color|--auto-install) continue ;;
+        *) break ;;
+    esac
+done
+if [[ "${_vms_arg:-}" == "status" || "${_vms_arg:-}" == "status-json" ]]; then
+    _VMS_STATUS_MODE=true
+fi
+unset _vms_arg
+
 # NVM release pin (P2-6): lib/nvm.sh is the SINGLE source of truth for the
 # pinned nvm release (NVM_VERSION, env-overridable). install_nvm below
 # consumes ${NVM_VERSION} as its positional default — the previously
@@ -122,7 +141,9 @@ fi
 # Note: sourcing lib/nvm.sh pulls in lib/cache.sh, whose readonly CACHE_DIR
 # adopts this script's own CACHE_DIR — accepted (same posture as the other
 # lib/nvm.sh adopters; cache data is an optimization, never load-bearing).
-if [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
+if [[ "$_VMS_STATUS_MODE" == "true" ]]; then
+    : # Read-only status needs neither NVM definitions nor cache initialization.
+elif [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
     if [[ "${BASH_SOURCE[0]}" == "$0" && ( "${1:-}" == configure || "${1:-}" == lazy-load ) ]]; then
         # Configuration-only commands need definitions, not source-time cache writes.
         # The temporary assignment leaves the caller's cache preference unchanged.
@@ -1137,6 +1158,306 @@ EOF
 }
 
 # ============================================================================
+# Read-Only Project Status API (P3 review, direction b)
+# ============================================================================
+# vm_status_json / vm_status report the expected-vs-active runtime version
+# state of the CURRENT directory for the prompt/display layer.
+#
+# Contract:
+#   - ZERO writes, ZERO installs: the status CLI commands bypass
+#     init_directories (which would create XDG directories) and the mutation
+#     lock; nothing is logged (the lib loggers write files and are
+#     deliberately not called here); no version is ever installed or
+#     switched from this surface. The display layer reads — it never
+#     manages versions.
+#   - Fail-open: a missing pin file, an absent runtime, or a failing
+#     --version probe degrades exactly one field; the command still exits 0.
+#   - Data sources: expected = first field of the pin file (.nvmrc,
+#     .python-version, .go-version, .rust-toolchain, .php-version); active =
+#     the installed runtime's own --version probe.
+#   - JSON assembly uses python3 when available (repo precedent, proper
+#     escaping); otherwise a printf fallback emits valid JSON with the
+#     documented limitation that quote/backslash/control characters degrade
+#     to null.
+#
+# NOTE on validator reuse: the canonical lib/validation.sh validators log
+# through lib/logger.sh, which writes a log file — invoking them would
+# violate the zero-write contract above. The private screens below are
+# display-only length/grammar caps, not security validators.
+# ============================================================================
+
+_VM_STATUS_NAMES=()
+_VM_STATUS_EXPECTED=()
+_VM_STATUS_ACTIVE=()
+_VM_STATUS_MATCH=()
+
+# private: first whitespace-delimited field of a pin file, length-capped.
+# Prints nothing when the file is absent, empty, or oversized (fail-open).
+_vm_status_read_pin() {
+    local file="$1"
+    local pin=""
+    if [[ -f "$file" ]]; then
+        read -r pin _rest < "$file" 2>/dev/null || true
+        pin="${pin:-}"
+        if (( ${#pin} > 64 )); then
+            pin=""
+        fi
+    fi
+    printf '%s' "$pin"
+    return 0
+}
+
+# private: normalize a version token for equality — strip one leading 'v'
+# (node) or 'go' (go toolchain) prefix. Comparison after normalization is a
+# literal string equality; channel pins (lts/iron, stable) therefore never
+# "match" a concrete installed version.
+_vm_status_normalize() {
+    local v="${1:-}"
+    v="${v#v}"
+    v="${v#go}"
+    printf '%s' "$v"
+    return 0
+}
+
+# private: probe the active version of one runtime. Fail-open: prints
+# nothing and returns 1 when the runtime is absent or errors out.
+_vm_status_active_version() {
+    local runtime="$1"
+    local raw=""
+    local _tc=""
+    case "$runtime" in
+        node)
+            command -v node >/dev/null 2>&1 || return 1
+            raw="$(node --version 2>/dev/null || true)"
+            raw="${raw%%[[:space:]]*}"
+            ;;
+        python)
+            command -v python3 >/dev/null 2>&1 || return 1
+            raw="$(python3 --version 2>&1 | head -n 1 || true)"
+            raw="${raw#*[[:space:]]}"        # drop "Python "
+            raw="${raw%%[[:space:]]*}"
+            ;;
+        go)
+            command -v go >/dev/null 2>&1 || return 1
+            raw="$(go version 2>/dev/null | head -n 1 || true)"
+            raw="${raw#go version }"         # -> "go1.22.0 darwin/arm64"
+            raw="${raw%%[[:space:]]*}"       # -> "go1.22.0"
+            ;;
+        rust)
+            # rustup-managed rustc resolves the project's rust-toolchain pin
+            # from the CURRENT directory and AUTO-INSTALLS a missing
+            # toolchain (slow, networked — and the status API is
+            # contractually install-free). Resolve the DEFAULT toolchain
+            # explicitly instead; `rustup run` on a missing toolchain fails
+            # fast and locally, with no directory-override resolution.
+            raw=""
+            if command -v rustup >/dev/null 2>&1; then
+                _tc="$(rustup default 2>/dev/null || true)"
+                _tc="${_tc%%[[:space:]]*}"
+                if [[ -n "$_tc" ]]; then
+                    raw="$(rustup run "$_tc" rustc --version 2>/dev/null | head -n 1 || true)"
+                fi
+            elif command -v rustc >/dev/null 2>&1; then
+                raw="$(rustc --version 2>/dev/null | head -n 1 || true)"
+            else
+                return 1
+            fi
+            raw="${raw#*[[:space:]]}"        # drop "rustc "
+            raw="${raw%%[[:space:]]*}"
+            ;;
+        php)
+            command -v php >/dev/null 2>&1 || return 1
+            raw="$(php --version 2>/dev/null | head -n 1 || true)"
+            raw="${raw#*[[:space:]]}"        # drop "PHP "
+            raw="${raw%%[[:space:]]*}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    [[ -n "$raw" ]] || return 1
+    printf '%s' "$raw"
+    return 0
+}
+
+# private: collect the status snapshot into the _VM_STATUS_* arrays.
+# A runtime appears iff a pin file OR an active runtime is detectable;
+# match is strictly boolean (true iff both sides present and equal after
+# normalization).
+_vm_status_collect() {
+    _VM_STATUS_NAMES=()
+    _VM_STATUS_EXPECTED=()
+    _VM_STATUS_ACTIVE=()
+    _VM_STATUS_MATCH=()
+
+    local runtime pin_file expected active match
+    local -A pin_map=(
+        [node]=".nvmrc"
+        [python]=".python-version"
+        [go]=".go-version"
+        [rust]=".rust-toolchain"
+        [php]=".php-version"
+    )
+
+    for runtime in node python go rust php; do
+        pin_file="${pin_map[$runtime]}"
+        expected="$(_vm_status_read_pin "$pin_file")"
+        active="$(_vm_status_active_version "$runtime" 2>/dev/null || true)"
+
+        if [[ -z "$expected" && -z "$active" ]]; then
+            continue
+        fi
+
+        match=false
+        if [[ -n "$expected" && -n "$active" ]]; then
+            if [[ "$(_vm_status_normalize "$expected")" == "$(_vm_status_normalize "$active")" ]]; then
+                match=true
+            fi
+        fi
+
+        _VM_STATUS_NAMES+=("$runtime")
+        _VM_STATUS_EXPECTED+=("$expected")
+        _VM_STATUS_ACTIVE+=("$active")
+        _VM_STATUS_MATCH+=("$match")
+    done
+    return 0
+}
+
+# private: render a value as a JSON string literal for the printf fallback
+# (double quotes included). Control characters, quotes, and backslashes
+# degrade to null (documented fallback limitation; the python3 path escapes
+# properly instead).
+_vm_status_json_escape() {
+    local s="${1:-}"
+    local badpat='[[:cntrl:]"\\]'
+    if [[ -z "$s" || "$s" =~ $badpat ]]; then
+        printf 'null'
+        return 0
+    fi
+    printf '"%s"' "$s"
+    return 0
+}
+
+# private: printf fallback JSON assembler (no python3 dependency).
+_vm_status_json_fallback() {
+    local project="$1"
+    local pjson
+    pjson="$(_vm_status_json_escape "$project")"
+
+    local out="{\"project\":${pjson},\"runtime\":{"
+    local i name exp act m seg first=1
+    for ((i = 0; i < ${#_VM_STATUS_NAMES[@]}; i++)); do
+        name="$(_vm_status_json_escape "${_VM_STATUS_NAMES[i]}")"
+        exp="$(_vm_status_json_escape "${_VM_STATUS_EXPECTED[i]}")"
+        act="$(_vm_status_json_escape "${_VM_STATUS_ACTIVE[i]}")"
+        m=false
+        if [[ "${_VM_STATUS_MATCH[i]}" == "true" ]]; then
+            m=true
+        fi
+        seg="${name}:{\"expected\":${exp},\"active\":${act},\"match\":${m}}"
+        if (( first )); then
+            out+="$seg"
+            first=0
+        else
+            out+=",$seg"
+        fi
+    done
+    out+='}}'
+    printf '%s\n' "$out"
+    return 0
+}
+
+# Public: emit one JSON object describing the project's runtime status:
+#   {"project": "<cwd>",
+#    "runtime": {"node": {"expected": str|null, "active": str|null,
+#                         "match": bool}, ...}}
+# expected/active are null when the pin file / runtime is absent.
+vm_status_json() {
+    local project
+    project="$(pwd -P 2>/dev/null)" || project=""
+
+    _vm_status_collect
+
+    local -a argv=("$project")
+    local i
+    for ((i = 0; i < ${#_VM_STATUS_NAMES[@]}; i++)); do
+        argv+=("${_VM_STATUS_NAMES[i]}")
+        argv+=("${_VM_STATUS_EXPECTED[i]}")
+        argv+=("${_VM_STATUS_ACTIVE[i]}")
+        if [[ "${_VM_STATUS_MATCH[i]}" == "true" ]]; then
+            argv+=("1")
+        else
+            argv+=("0")
+        fi
+    done
+
+    # Preferred assembly path: python3 (repo precedent — proper escaping).
+    if command_exists python3; then
+        if python3 - "${argv[@]}" 2>/dev/null <<'PYEOF'
+import json
+import sys
+
+argv = sys.argv[1:]
+project = argv[0] if argv else ""
+runtime = {}
+for i in range(1, len(argv), 4):
+    name = argv[i]
+    expected = argv[i + 1] if i + 1 < len(argv) and argv[i + 1] != "" else None
+    active = argv[i + 2] if i + 2 < len(argv) and argv[i + 2] != "" else None
+    flag = argv[i + 3] == "1" if i + 3 < len(argv) else False
+    runtime[name] = {
+        "expected": expected,
+        "active": active,
+        "match": bool(expected) and bool(active) and flag,
+    }
+print(json.dumps({"project": project, "runtime": runtime}))
+PYEOF
+        then
+            return 0
+        fi
+    fi
+
+    # Documented fallback: printf assembly. Still valid JSON; values holding
+    # quote/backslash/control characters degrade to null.
+    _vm_status_json_fallback "$project"
+    return 0
+}
+
+# Public: human-readable variant of vm_status_json (same data, no JSON).
+vm_status() {
+    local project
+    project="$(pwd -P 2>/dev/null)" || project=""
+
+    _vm_status_collect
+
+    printf 'project: %s\n' "$project"
+
+    if (( ${#_VM_STATUS_NAMES[@]} == 0 )); then
+        printf 'runtime: (no pin files or active runtimes detected)\n'
+        return 0
+    fi
+
+    local i name exp act state
+    for ((i = 0; i < ${#_VM_STATUS_NAMES[@]}; i++)); do
+        name="${_VM_STATUS_NAMES[i]}"
+        exp="${_VM_STATUS_EXPECTED[i]}"
+        act="${_VM_STATUS_ACTIVE[i]}"
+        state="MISMATCH"
+        if [[ "${_VM_STATUS_MATCH[i]}" == "true" ]]; then
+            state="match"
+        fi
+        if [[ -z "$exp" ]]; then
+            exp="(no pin)"
+        fi
+        if [[ -z "$act" ]]; then
+            act="(not installed)"
+        fi
+        printf '  %-6s expected: %-18s active: %-18s %s\n' "$name" "$exp" "$act" "$state"
+    done
+    return 0
+}
+
+# ============================================================================
 # Main Command Handler
 # ============================================================================
 
@@ -1163,6 +1484,8 @@ ${BOLD}Commands:${RESET}
   ${GREEN}configure${RESET} <manager>       Configure existing manager rc block (no installation)
                               nvm|fnm|pyenv|rbenv|phpenv|lazy-load; accepts --dry-run
   ${GREEN}create-versions${RESET}          Create version files for current project
+  ${GREEN}status${RESET}                   Show expected-vs-active runtime versions (read-only)
+  ${GREEN}status-json${RESET}              Same status as one JSON object (read-only, machine)
   ${GREEN}auto-switch${RESET}              Install unified auto-activation hook
   ${GREEN}lazy-load${RESET}                Add lazy-load bootstrap block to shell config
   ${GREEN}health-check${RESET}             Run comprehensive health check
@@ -1186,6 +1509,10 @@ ${BOLD}Examples:${RESET}
 
   # Create version files for project
   $SCRIPT_NAME create-versions
+
+  # Show project runtime status (human / JSON, read-only)
+  $SCRIPT_NAME status
+  $SCRIPT_NAME status-json
 
   # Enable project auto-switch hook
   $SCRIPT_NAME auto-switch
@@ -1255,13 +1582,27 @@ main() {
         else "configure_$manager"; fi
         return $?
     fi
-    # Initialize
-    init_directories
-
     # Parse arguments
     local args
     mapfile -t args < <(parse_args "$@")
     local command="${args[0]:-help}"
+
+    # Read-only status surface (P3 review, direction b): bypass
+    # init_directories (which creates XDG directories — a write) and the
+    # mutation lock. vm_status_json / vm_status perform ZERO writes.
+    case "$command" in
+        status-json)
+            vm_status_json
+            return 0
+            ;;
+        status)
+            vm_status
+            return 0
+            ;;
+    esac
+
+    # Initialize
+    init_directories
 
     # Acquire lock for write operations
     case "$command" in

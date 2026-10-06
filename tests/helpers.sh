@@ -201,6 +201,13 @@ teardown_test() {
 # =============================================================================
 # Coverage Tracking
 # =============================================================================
+# INTENT TRACKING, NOT LINE COVERAGE (P1-11): this section records which
+# functions a test file manually marked as exercised (.coverage marker file).
+# The numbers are test-intent signals only — they are not produced by a
+# coverage engine and must not be read as line/path coverage. Real line
+# coverage: `make coverage-kcov` (kcov over the unit suite, --include-path=lib)
+# or the coverage-kcov Buildkite job.
+#
 # Usage:
 #   At the top of a test file:       coverage_init "my_module"
 #   Before each tested function:     track_coverage "function_name"
@@ -236,7 +243,8 @@ generate_coverage_report() {
   local called
   called=$(grep -vc '^#' "$COVERAGE_FILE" 2>/dev/null || echo "0")
   echo ""
-  echo "====== Coverage Report ======"
+  echo "====== Coverage Report (intent tracking, not line coverage) ======"
+  echo "Engine: none — manual function markers only; real line coverage is make coverage-kcov (kcov)"
   echo "Functions exercised: $called"
   if [[ "$_COVERAGE_TOTAL" -gt 0 ]]; then
     local pct=$(( called * 100 / _COVERAGE_TOTAL ))

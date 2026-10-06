@@ -1,7 +1,7 @@
 # Makefile for testing
 # Professional Development Environment Automation Suite
 
-.PHONY: test test-unit test-integration test-all coverage lint help clean
+.PHONY: test test-unit test-integration test-all coverage coverage-kcov lint help clean
 .PHONY: test-env test-logger test-cache test-backup
 .PHONY: test-gvm test-jenv test-rustup test-theme test-advanced
 
@@ -92,6 +92,21 @@ coverage: test
 	@echo "=== Coverage Report ==="
 	@if [ -f .coverage ]; then sort .coverage | uniq -c | sort -nr; else echo "No coverage data"; fi
 
+# Real line coverage (ROADMAP 4.5 / P1-11 / B2.6): the unit suite runs under
+# kcov with --include-path=lib, writing coverage/ (HTML + cobertura.xml).
+# The `coverage` target above is INTENT TRACKING only (tests/helpers.sh
+# manual function markers), never a line-coverage signal.
+coverage-kcov:
+	@command -v kcov >/dev/null 2>&1 || { \
+		echo "coverage-kcov: kcov not found in PATH — failing closed." >&2; \
+		echo "  Install kcov (apt-get install kcov / brew install kcov) or run the coverage-kcov Buildkite job." >&2; \
+		exit 1; \
+	}
+	@rm -rf coverage
+	@echo "=== Running Unit Suite under kcov (--include-path=lib) ==="
+	@bash tests/test_runner.sh coverage
+	@echo "=== kcov coverage written to coverage/ (index: coverage/index.html) ==="
+
 # ============================================================================
 # Quality Assurance
 # ============================================================================
@@ -161,7 +176,8 @@ help:
 	@echo "  lint              - Run ShellCheck on all scripts"
 	@echo "  validate          - Run quality validation"
 	@echo "  syntax-check      - Check syntax of all scripts"
-	@echo "  coverage          - Generate coverage report"
+	@echo "  coverage          - Pseudo-coverage report (intent tracking, not line coverage)"
+	@echo "  coverage-kcov     - Real line coverage via kcov over the unit suite (fails closed without kcov)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean             - Remove this project's temp files (scoped, B2.2)"

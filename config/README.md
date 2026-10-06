@@ -14,6 +14,7 @@ yours to edit, and how changes reach your machine. See
 | `minimal-p10k.zsh` | Alternate p10k preset | Reference asset; not wired into an installer |
 | `rainbow-p10k.zsh` | Alternate p10k preset | Reference asset; not wired into an installer |
 | `p10k-overrides.example.zsh` | Worked example of user prompt overrides (prompt elements, directory display, git status, custom segments) | **Copy and hand-edit** (see below) |
+| `p10k-project-context.zsh` | Fail-open p10k custom segment: expected-vs-active runtime versions for the current project (display-only) | **Opt-in, hand-wired** (source it yourself; see below) |
 | `vscode-settings.template.json` | Template for VS Code settings with `{{PLACEHOLDER}}` tokens | Hand-edit the template; the generated output is produced by script |
 | `presets/colorblind.zsh` | Prompt-element fragment preset for colorblind-friendly palettes | Reference asset; hand-edit a copy |
 | `presets/minimal.zsh` | Minimal prompt-element fragment preset | Reference asset; hand-edit a copy |
@@ -62,6 +63,37 @@ Naming note (actual repo behavior): the professional theme auto-sources
 documents the `~/.p10k-overrides.zsh` + manual-source-line mechanism.
 Either works; the professional-override filename is the one picked up
 without editing `~/.zshrc`.
+
+## Project-context segment: `p10k-project-context.zsh`
+
+**Display-only.** A p10k custom segment that shows, per runtime (node,
+python, go, rust, php), the version pinned by the current project's pin
+file (`.nvmrc`, `.python-version`, `.go-version`, `.rust-toolchain`,
+`.php-version`) next to the active runtime version, with a match/mismatch
+marker. It never installs or switches anything — the version-manager
+engine owns that; the prompt only reads.
+
+Performance model: the per-prompt callback only reads a small cache file
+(`${XDG_CACHE_HOME:-$HOME/.cache}/version-manager/prompt-context`); a
+`chpwd` hook regenerates it on directory change. The machine-readable
+equivalent of the same data is `version-manager.sh status-json` (also
+read-only), which the segment deliberately does not call — assembling
+JSON per prompt would be too slow.
+
+To enable (opt-in, in your overrides file — the suite never edits your
+p10k config):
+
+```zsh
+[[ -f <repo>/config/p10k-project-context.zsh ]] && \
+    source <repo>/config/p10k-project-context.zsh
+typeset -g POWERLEVEL9K_CUSTOM_PROJECT_CONTEXT="vms_prompt_context"
+# then add `custom_project_context` to POWERLEVEL9K_LEFT_PROMPT_ELEMENTS
+```
+
+Any error (unreadable pin, unwritable cache, missing tool) degrades to
+"segment renders nothing". Known limitation: the cache refreshes on
+directory change only — editing a pin file in place refreshes on the next
+cd out and back.
 
 ## VS Code settings: `vscode-settings.template.json`
 

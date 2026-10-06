@@ -94,6 +94,23 @@ what a plugin executes too). Use, in order of preference:
 
 A plugin that reaches for pipe-to-shell will not pass review.
 
+**Shell-experience layer (not the plugin contract):** provisioning the modern
+CLI/shell-experience tools (zsh-autosuggestions, zsh-syntax-highlighting, fzf,
+zoxide, eza, bat, fd, ripgrep, direnv) and managing the `plugins=( ... )` array
+in the user's `.zshrc` deliberately do NOT go through the version-manager plugin
+interface above — their semantics do not fit. They live in
+`lib/shell-experience.sh` as a transaction-routed installer class: plan-by-default
+with explicit `--confirm` (P0-6), every mutation under a backup transaction with
+hash-verified rollback, `sudo`/`apt` gated exactly like fix-terminal-issues'
+`/etc/shells` consent pattern, byte-identical idempotent reruns, and clone-based
+plugin installs that never pipe-to-shell and never auto-activate — activation is
+the explicit managed-array editor (`shellxp_plugins_add`/`remove`/`list`, with
+zsh-syntax-highlighting enforced last per upstream's requirement). Clone-based
+plugin installs currently pin to the upstream default branch; pinning them to a
+reviewed commit SHA is a coordinator TODO (B1.8 discipline) — until pinned, treat
+every clone as upstream-unreviewed content. Tests exercise clones against local
+`file://` fixture repositories only; network installs are out of scope for CI.
+
 ### `plugin_version()`
 
 Returns the current version of the tool.
