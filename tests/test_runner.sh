@@ -102,17 +102,24 @@ _run_test_file() {
     out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
     # B2.6/P1-11: in coverage mode each file runs under kcov; include-path=lib
     # restricts instrumentation to the lib/ sources the tests exercise.
-    local -a cmd=(bash "./$test_name")
     if [[ "$KCOV_MODE" == "true" ]]; then
-        cmd=(kcov --include-path=lib "$KCOV_DIR" bash "./$test_name")
-    fi
-    (
-        cd "$test_dir" && \
+        # kcov wraps the actual executable with full path; the --include-path=lib
+        # restricts coverage to lib/ sources. Run outside cd so kcov sees the full path.
+        (
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            "${cmd[@]}"
-    ) >"$out_file" 2>&1 &
+            kcov --include-path=lib "$KCOV_DIR" bash "$test_dir/$test_name"
+        ) >"$out_file" 2>&1 &
+    else
+        (
+            cd "$test_dir" && \
+                HOME="$sandbox" \
+                XDG_CONFIG_HOME="$sandbox/.config" \
+                XDG_CACHE_HOME="$sandbox/.cache" \
+                bash "./$test_name"
+        ) >"$out_file" 2>&1 &
+    fi
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
         if (( waited_ms >= limit_ms )); then
