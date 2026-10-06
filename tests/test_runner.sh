@@ -9,6 +9,7 @@
 #   ./tests/test_runner.sh               # run all tests
 #   ./tests/test_runner.sh unit          # unit tests only
 #   ./tests/test_runner.sh integration   # integration tests only
+#   ./tests/test_runner.sh coverage      # unit suite under kcov (B2.6/P1-11)
 #   PARALLEL=true ./tests/test_runner.sh # run test files in parallel
 # =============================================================================
 
@@ -47,6 +48,15 @@ RESULTS_DIR="${TMPDIR:-/tmp}/test_results_$$"
 PARALLEL="${PARALLEL:-false}"
 VERBOSE="${VERBOSE:-false}"
 FILTER="${TEST_FILTER:-}"
+
+# ── kcov coverage mode (B2.6/P1-11 remainder) ────────────────────────────────
+# "coverage" selects the unit suite and wraps every test file in kcov with
+# lib/ as the instrumentation include path, writing real line coverage to
+# "$ROOT_DIR/coverage". The pseudo-coverage in tests/helpers.sh remains
+# intent-tracking only (see its relabeled report). Fail-closed: coverage mode
+# without kcov installed aborts instead of silently running a plain suite.
+KCOV_MODE="false"
+KCOV_DIR="$ROOT_DIR/coverage"
 
 # ── Counters ──────────────────────────────────────────────────────────────────
 total_files=0
@@ -90,12 +100,18 @@ _run_test_file() {
     local limit_ms=$(( (${VMS_TEST_FILE_TIMEOUT:-300}) * 1000 ))
     local waited_ms=0 pid
     out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
+    # B2.6/P1-11: in coverage mode each file runs under kcov; include-path=lib
+    # restricts instrumentation to the lib/ sources the tests exercise.
+    local -a cmd=(bash "./$test_name")
+    if [[ "$KCOV_MODE" == "true" ]]; then
+        cmd=(kcov --include-path=lib "$KCOV_DIR" bash "./$test_name")
+    fi
     (
         cd "$test_dir" && \
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            bash "./$test_name"
+            "${cmd[@]}"
     ) >"$out_file" 2>&1 &
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
@@ -199,11 +215,22 @@ main() {
         case "$arg" in
             unit)        suite="unit" ;;
             integration) suite="integration" ;;
+            coverage)    suite="unit"; KCOV_MODE="true" ;;
             --parallel)  PARALLEL=true ;;
             --verbose|-v) VERBOSE=true ;;
             *)           _log_info "Unknown argument: $arg" ;;
         esac
     done
+
+    # B2.6/P1-11: coverage mode is fail-closed — no silent plain-suite run
+    # masquerading as a coverage run.
+    if [[ "$KCOV_MODE" == "true" ]] && ! command -v kcov >/dev/null 2>&1; then
+        echo "test_runner: coverage mode requested but kcov is not installed — install it (apt-get install kcov / brew install kcov) or use the coverage-kcov Buildkite job" >&2
+        exit 3
+    fi
+    if [[ "$KCOV_MODE" == "true" ]]; then
+        mkdir -p "$KCOV_DIR"
+    fi
 
     mkdir -p "$RESULTS_DIR"
     trap 'rm -rf "$RESULTS_DIR"' EXIT
@@ -252,9 +279,12 @@ main() {
         done
     fi
 
-    # Print coverage report if available
+    # Print coverage report if available. The report is informational — a
+    # failure inside it (missing/empty .coverage makes the Details pipeline
+    # non-zero under this file's set -euo pipefail; pre-existing on HEAD,
+    # reported as a lane finding) must never flip a fully-passing suite.
     if declare -f generate_coverage_report >/dev/null 2>&1; then
-        generate_coverage_report
+        generate_coverage_report || _log_info "coverage report incomplete (non-fatal)"
     fi
 
     # Summary

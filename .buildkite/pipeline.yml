@@ -104,20 +104,28 @@ steps:
         agents:
           queue: "macos-medium"
 
-  # -----------------------------------------------------------------------------
-  # Release attestation (B2.3) — ADDITIVE, dormant by default
-  # -----------------------------------------------------------------------------
-  # This group only runs when the operator triggers a manual build with
-  # RELEASE_ATTEST_SHA set (Buildkite "New Build" -> Environment Variables,
-  # plus RELEASE_ATTEST_TAG after the GitHub release has published). It
-  # verifies release <-> CI continuity:
-  #   (a) records the exact attested release SHA as a build artifact;
-  #   (b) asserts the full gate set (lint, syntax, pre-commit, secret-scan,
-  #       test-linux, test-macos) ran GREEN on that SHA in this pipeline;
-  #   (c) after the GitHub release publishes, asserts the release tag's
-  #       commit on origin equals the attested SHA.
-  # Procedure (and the pre-release half of this flow): docs/RELEASE_CHECKLIST.md
-  # -----------------------------------------------------------------------------
+      # B2.6/P1-11 remainder: REAL line coverage (kcov) replacing the
+      # pseudo-coverage signal. The unit suite runs under kcov with
+      # --include-path=lib into coverage/, which is uploaded as an artifact
+      # (matching-no-files fails the step, keeping this evidence fail-closed
+      # like the manifest artifacts). Linux-only: apt kcov is the canonical
+      # lane; `make coverage-kcov` fails closed locally without kcov.
+      - label: ":chart_with_upwards_trend: Coverage (kcov, unit suite)"
+        key: "coverage-kcov"
+        depends_on: ["lint", "syntax"]
+        command: |
+          # Provision the hosted Linux agent (idempotent), mirroring the
+          # other steps' provisioning pattern.
+          command -v kcov >/dev/null 2>&1 || {
+            apt-get update -qq
+            apt-get install -y -qq kcov
+          }
+          make coverage-kcov
+        artifact_paths:
+          - "coverage/**"
+        agents:
+          queue: "linux-small"
+
   - group: ":receipt: Release attestation (release-attest)"
     key: "release-attest-group"
     # Group-level `if:` is unsupported by this schema (build #34: group marked
