@@ -225,26 +225,27 @@ main() (
         parent=$(dirname "$target")
         _slick_mkdir "$parent" || return 1
         candidates[i]=$(mktemp "$parent/.vms-slick.XXXXXX") || return 1
-        if [[ -f "$target" ]]; then cp -p "$target" "${candidates[i]}" || return 1; fi
+        local file_mode=644 mode_source="$target"
+        if [[ ! -f "$target" && "${kinds[i]}" == font ]]; then mode_source="${sources[i]}"; fi
+        if [[ -f "$mode_source" ]]; then
+            file_mode=$(stat -c '%a' "$mode_source" 2>/dev/null || stat -f '%Lp' "$mode_source" 2>/dev/null) || return 1
+        fi
         case "${kinds[i]}" in
             font)
-                if [[ -f "$target" ]]; then
-                    cat "${sources[i]}" >"${candidates[i]}" || return 1
-                else cp -p "${sources[i]}" "${candidates[i]}" || return 1; fi
+                cat "${sources[i]}" >"${candidates[i]}" || return 1
                 ;;
             json)
                 printf '%s\n' "$json" >"${candidates[i]}" || return 1
                 _slick_validate_json <"${candidates[i]}" || return 1
-                if [[ ! -f "$target" ]]; then chmod 644 "${candidates[i]}" || return 1; fi
                 ;;
             demo)
                 printf '%s\n' "$demo" >"${candidates[i]}" || return 1
                 bash -n "${candidates[i]}" || return 1
-                if [[ ! -f "$target" ]]; then
-                    chmod 755 "${candidates[i]}" || return 1
-                else chmod u+x "${candidates[i]}" || return 1; fi
+                if [[ ! -f "$target" ]]; then file_mode=755; fi
                 ;;
         esac
+        chmod "$file_mode" "${candidates[i]}" || return 1
+        if [[ "${kinds[i]}" == demo ]]; then chmod u+x "${candidates[i]}" || return 1; fi
         [[ "$(_txn_sha256 "${candidates[i]}")" == "${hashes[i]}" ]] || return 1
     done
     transaction_start slick_terminal || return 1

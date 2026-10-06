@@ -3,6 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/tmp_rovodev_vscode.XXXXXX")"
+SANDBOX=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$SANDBOX")
 trap 'rm -rf -- "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home" XDG_CONFIG_HOME="$SANDBOX/home/.config"
 export XDG_CACHE_HOME="$SANDBOX/home/.cache" XDG_DATA_HOME="$SANDBOX/home/.local/share"
@@ -61,6 +62,10 @@ if run --unknown; then check false; else check test "$before" = "$(snapshot)"; f
 
 # Values are data, including quotes, backslashes, ampersands and dollar syntax.
 check run
+check python3 - "$OUTPUT" <<'PY'
+import os, stat, sys
+assert stat.S_IMODE(os.stat(sys.argv[1]).st_mode) == 0o644
+PY
 check python3 - "$OUTPUT" "$NVM_DIR" <<'PY'
 import json, sys
 with open(sys.argv[1]) as stream:
@@ -202,5 +207,15 @@ before="$(snapshot)"
 check env LOG_FILE="$HOME/preview.log" bash "$SCRIPT" --dry-run
 check test "$before" = "$(snapshot)"
 check test ! -e "$HOME/UNEXPECTED_NVM_SOURCE"
+# Immutable inputs must fail without stranding an immutable staging file.
+if [[ "$OSTYPE" == darwin* && -z "${VMS_TEST_BASELINE:-}" ]]; then
+    printf '{"value":"immutable-source"}\n' >"$TEMPLATE"
+    cp "$OUTPUT" "$SANDBOX/prestate"
+    chflags uchg "$OUTPUT"
+    if run; then check false; fi
+    chflags nouchg "$OUTPUT"
+    check cmp -s "$OUTPUT" "$SANDBOX/prestate"
+    check test -z "$(find "$REPO" -name '.vms-vscode.*' -print)"
+fi
 printf 'VS Code mutation regressions: %s failure(s)\n' "$failures"
 [[ "$failures" -eq 0 ]]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate repo-local VS Code settings; P3-1/B1.9 transaction-backed publication.
+# Generate repo-local VS Code settings; P3-1-vscode transaction-backed publication.
 set -euo pipefail
 
 _VMS_VSCODE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -194,8 +194,12 @@ main() (
         return 1
     }
     candidate=$(mktemp "$(dirname "$target")/.vms-vscode.XXXXXX") || return 1
-    if [[ -f "$target" ]]; then cp -p "$target" "$candidate" || return 1; fi
+    local mode=644
+    if [[ -f "$target" ]]; then
+        mode=$(stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) || return 1
+    fi
     printf '%s\n' "$generated" >"$candidate" || return 1
+    chmod "$mode" "$candidate" || return 1
     validate_generated_settings "$candidate" || return 1
     transaction_start vscode_settings || return 1
     log_info "Backup ID: $_TRANSACTION_DIR"

@@ -173,8 +173,10 @@ PREVIEW
         return 1
     }
     candidate=$(mktemp "$(dirname "$target")/.vms-icons.XXXXXX") || return 1
-    cp -p "$target" "$candidate" || return 1
+    local file_mode
+    file_mode=$(stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) || return 1
     printf '%s' "$generated" >"$candidate" || return 1
+    chmod "$file_mode" "$candidate" || return 1
     zsh -fn "$candidate" || return 1
     transaction_start theme_icons || return 1
     log_info "Backup ID: $_TRANSACTION_DIR"

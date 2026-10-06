@@ -178,7 +178,7 @@ residual hang name its file in CI logs.
 
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
-- **B1.9-vscode / P3-1:** `scripts/generate-vscode-settings.sh` used raw
+- **P3-1-vscode:** `scripts/generate-vscode-settings.sh` used raw
   placeholder substitution and wrote output before validation. It now passes
   values as parser arguments, validates before atomic publication, preserves
   symlink content/mode, and uses existing locks/transactions for rollback.

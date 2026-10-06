@@ -130,7 +130,7 @@ for theme in professional apple minimal rainbow; do
     check test "$before" = "$(snapshot)"
 done
 fixture
-command mv "$FILE" "$HOME/target's file"
+"$(type -P mv)" "$FILE" "$HOME/target's file"
 ln -s "target's file" "$FILE"
 chmod 640 "$HOME/target's file"
 check run --fix
