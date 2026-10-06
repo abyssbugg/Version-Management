@@ -1,195 +1,191 @@
 #!/usr/bin/env bash
-# Consolidated Theme Icon Management Script
-# Combines: fix-theme-icons.sh, customize-theme-icons.sh
-
+# P3-1: transaction-backed icon edits; configuration is parsed, never sourced.
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-source "${REPO_ROOT}/lib/logger.sh"
-source "${REPO_ROOT}/lib/theme-ops.sh"
+_VMS_ICONS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 show_usage() {
-    echo "Usage: $0 [OPTION]"
-    echo "Manage PowerLevel10k theme icons"
-    echo
-    echo "Options:"
-    echo "  --fix        Fix broken theme icons"
-    echo "  --customize  Interactive icon customization"
-    echo "  --reset      Reset to default icons"
-    echo "  --preview    Preview available icons"
-    echo "  --help       Show this help message"
+    printf 'Usage: %s [--dry-run] {--fix|--customize|--reset|--preview|--help}\n' "$0"
 }
 
-fix_icons() {
-    log_info "Fixing theme icons..."
-    local p10k_config="$HOME/.p10k.zsh"
-    if [[ ! -f "$p10k_config" ]]; then
-        log_error "No .p10k.zsh configuration found. Run theme setup first."
-        return 1
-    fi
+# Fixed program, with paths and user text passed only as data. ANSI-C quoted
+# literals preserve quotes/backslashes without evaluating shell substitutions.
+_icons_render() {
+    python3 -c '
+import pathlib, re, sys
+mode, path, choice, icon = sys.argv[1:]
+s = pathlib.Path(path).read_text()
+if mode == "fix":
+    for old, new in zip(["📁", "📂", "🔧", "⚙️", "🐍", "📦", "🟢", "🔴", "⚡"],
+                        ["\uf07b", "\uf115", "\uf0ad", "\ue615", "\ue73c", "\uf487", "\uf00c", "\uf00d", "\uf0e7"]):
+        s = s.replace(old, new)
+else:
+    keys = {"1": "POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION", "2": "POWERLEVEL9K_FOLDER_ICON",
+            "3": "POWERLEVEL9K_VCS_BRANCH_ICON", "4": r"POWERLEVEL9K_PROMPT_CHAR_OK_(?:[A-Z0-9_]+|\{[A-Z0-9_,]+\})_CONTENT_EXPANSION"}
+    if choice == "3": icon += " "
+    quote = chr(39)
+    literal = "$" + quote + icon.replace("\\", "\\\\").replace(quote, "\\" + quote).replace("\r", "\\r").replace("\t", "\\t") + quote
+    key = keys[choice]
+    value = r"(?:\$" + quote + r"(?:\\.|[^" + quote + r"\\])*" + quote + "|" + quote + "[^" + quote + "]*" + quote + r"|\"(?:\\.|[^\"\\])*\"|[^\s;#]+)"
+    assignment = re.compile(r"^(\s*(?:typeset\s+-g\s+)?" + key + r"=)" + value + r"([ \t]*(?:#.*)?)(\r?\n)?$")
+    count = 0
+    lines = []
+    for line in s.splitlines(keepends=True):
+        m = assignment.fullmatch(line)
+        if m:
+            line = m[1] + literal + m[2] + (m[3] or "")
+            count += 1
+        lines.append(line)
+    if not count:
+        sys.exit("No supported assignment found for selected icon; no changes made")
+    s = "".join(lines)
+sys.stdout.write(s)
+' "$@"
+}
 
-    # Backup before modifying
-    if command -v create_backup >/dev/null 2>&1; then
-        create_backup "$p10k_config"
-    else
-        cp "$p10k_config" "${p10k_config}.bak.$(date +%s)"
-    fi
-
-    # Replace common broken emoji sequences with Nerd Font icons
-    local -A icon_replacements=(
-        ['📁']=$'\uf07b'   # nf-fa-folder
-        ['📂']=$'\uf115'   # nf-fa-folder_open
-        ['🔧']=$'\uf0ad'   # nf-fa-wrench
-        ['⚙️']=$'\ue615'   # nf-seti-config
-        ['🐍']=$'\ue73c'   # nf-dev-python
-        ['📦']=$'\uf487'   # nf-oct-package
-        ['🟢']=$'\uf00c'   # nf-fa-check
-        ['🔴']=$'\uf00d'   # nf-fa-times
-        ['⚡']=$'\uf0e7'   # nf-fa-bolt
-    )
-
-    local count=0
-    for emoji in "${!icon_replacements[@]}"; do
-        if grep -q "$emoji" "$p10k_config" 2>/dev/null; then
-            sed -i.tmp "s/$emoji/${icon_replacements[$emoji]}/g" "$p10k_config"
-            count=$((count + 1))
-        fi
+main() (
+    local mode='' dry_run="${TRANSACTION_DRY_RUN:-0}" arg choice='' icon=''
+    # Read-only/error/idempotent paths must not write an inherited log file.
+    unset LOG_FILE
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=1 ;;
+            --fix | --customize | --reset | --preview)
+                [[ -z "$mode" ]] || {
+                    printf 'Conflicting operation modes\n' >&2
+                    return 2
+                }
+                mode="${arg#--}"
+                ;;
+            --help | -h)
+                show_usage
+                return 0
+                ;;
+            *)
+                printf 'Unknown argument: %s\n' "$arg" >&2
+                return 2
+                ;;
+        esac
     done
-    rm -f "${p10k_config}.tmp"
-
-    if (( count > 0 )); then
-        log_success "Replaced $count emoji icon(s) with Nerd Font glyphs"
-    else
-        log_info "No broken emoji icons found — config looks clean"
-    fi
-}
-
-customize_icons() {
-    log_info "Starting interactive icon customization..."
-    local p10k_config="$HOME/.p10k.zsh"
-    if [[ ! -f "$p10k_config" ]]; then
-        log_error "No .p10k.zsh configuration found. Run theme setup first."
+    [[ -n "$mode" ]] || {
+        show_usage
         return 1
+    }
+    if [[ "$mode" == preview ]]; then
+        cat <<'PREVIEW'
+Professional Development Theme Preview:
+======================================
+
+     ~/projects/my-app   main  20.19.2  3.12.8  ⌚ 10:30:25  ✓
+
+This theme features:
+  • Enhanced version management indicators (Go 1.23.4, Rust 1.82.0, Java 21.0.2)
+  • Customizable OS, directory, and status icons
+
+Apple Style Theme Preview:
+==========================
+
+   ~/projects/my-app  main 20.19.2 3.12.8 ⌚ 10:30:25 ✘
+
+Minimal Theme Preview:
+======================
+
+  ~/projects/my-app main N:20.19.2 P:3.12.8 10:30:25
+PREVIEW
+        return 0
     fi
-
-    echo "Customizable icon segments:"
-    echo "  1) OS icon"
-    echo "  2) Directory icon"
-    echo "  3) Git branch icon"
-    echo "  4) Prompt character"
-    echo "  5) Cancel"
-    echo
-    local choice
-    read -r -p "Select segment to customize (1-5): " choice
-
-    case "$choice" in
-        1)
-            read -r -p "Enter new OS icon (paste glyph or hex code): " icon
-            [[ -n "$icon" ]] && sed -i.tmp "s/POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=.*/POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION='$icon'/" "$p10k_config" && rm -f "${p10k_config}.tmp"
-            log_success "OS icon updated"
-            ;;
-        2)
-            read -r -p "Enter new folder icon: " icon
-            [[ -n "$icon" ]] && sed -i.tmp "s/POWERLEVEL9K_FOLDER_ICON=.*/POWERLEVEL9K_FOLDER_ICON='$icon'/" "$p10k_config" && rm -f "${p10k_config}.tmp"
-            log_success "Directory icon updated"
-            ;;
-        3)
-            read -r -p "Enter new git branch icon: " icon
-            [[ -n "$icon" ]] && sed -i.tmp "s/POWERLEVEL9K_VCS_BRANCH_ICON=.*/POWERLEVEL9K_VCS_BRANCH_ICON='$icon '/" "$p10k_config" && rm -f "${p10k_config}.tmp"
-            log_success "Git branch icon updated"
-            ;;
-        4)
-            read -r -p "Enter new prompt char (e.g. ❯ ▶ λ): " icon
-            [[ -n "$icon" ]] && sed -i.tmp "s/POWERLEVEL9K_PROMPT_CHAR_OK_.*_CONTENT_EXPANSION=.*/POWERLEVEL9K_PROMPT_CHAR_OK_VIINS_CONTENT_EXPANSION='$icon'/" "$p10k_config" && rm -f "${p10k_config}.tmp"
-            log_success "Prompt character updated"
-            ;;
-        5)
-            log_info "Cancelled"
-            return 0
-            ;;
-        *)
-            log_warn "Invalid choice"
+    local file="$HOME/.p10k.zsh" target generated expected actual candidate='' template
+    [[ -f "$file" ]] || {
+        printf 'No regular .p10k.zsh configuration found\n' >&2
+        return 1
+    }
+    source "$_VMS_ICONS_ROOT/lib/mutation.sh"
+    mutation_resolve_content_target "$file" || return 1
+    target="$_MUTATION_RESOLVED_TARGET"
+    [[ "$file$target" != *$'\n'* && "$file$target" != *$'\t'* ]] || return 1
+    if [[ "$mode" == customize ]]; then
+        printf 'Customizable icon segments:\n  1) OS icon\n  2) Directory icon\n  3) Git branch icon\n  4) Prompt character (OK state)\n  5) Cancel\n'
+        read -r -p 'Select segment to customize (1-5): ' choice || return 0
+        case "$choice" in
+            5) return 0 ;;
+            1 | 2 | 3 | 4)
+                read -r -p 'Enter new icon: ' icon || return 0
+                [[ -n "$icon" ]] || return 0
+                ;;
+            *)
+                printf 'Invalid choice\n' >&2
+                return 2
+                ;;
+        esac
+    fi
+    command -v zsh >/dev/null 2>&1 || {
+        printf 'zsh is required to validate configuration\n' >&2
+        return 1
+    }
+    if [[ "$mode" == reset ]]; then
+        template=professional-dev
+        if grep -qE 'Apple.*Monterey|^# Apple-Style Powerlevel10k' "$file"; then
+            template=apple-style
+        elif grep -q 'Minimal.*Theme' "$file"; then
+            template=minimal
+        elif grep -q Rainbow "$file"; then template=rainbow; fi
+        generated=$(cat "$_VMS_ICONS_ROOT/config/$template-p10k.zsh" && printf '\001') || return 1
+    else
+        command -v python3 >/dev/null 2>&1 || {
+            printf 'python3 is required to render icons safely\n' >&2
             return 1
-            ;;
-    esac
-    log_info "Restart your terminal or run 'source ~/.p10k.zsh' to see changes"
-}
-
-reset_icons() {
-    log_info "Resetting to default icons..."
-    local p10k_config="$HOME/.p10k.zsh"
-    local theme_dir="${REPO_ROOT}/config"
-
-    if [[ ! -f "$p10k_config" ]]; then
-        log_error "No .p10k.zsh configuration found."
+        }
+        generated=$(_icons_render "$mode" "$file" "$choice" "$icon" && printf '\001') || return 1
+    fi
+    generated="${generated%$'\001'}"
+    printf '%s' "$generated" | zsh -fn || return 1
+    expected=$(printf '%s' "$generated" | _txn_sha256 /dev/stdin) || return 1
+    actual=$(_txn_sha256 "$target") || return 1
+    if [[ "$dry_run" == 1 ]]; then
+        printf '[dry-run] Would %s icons: %s\n' "$mode" "$file"
+        return 0
+    fi
+    [[ "$expected" != "$actual" ]] || {
+        printf 'Icons already current\n'
+        return 0
+    }
+    source "$_VMS_ICONS_ROOT/lib/lock.sh"
+    local lock_held=0
+    _icons_cleanup() {
+        local rc=$?
+        trap - EXIT HUP INT TERM
+        [[ -z "$candidate" ]] || rm -f -- "$candidate" || rc=1
+        if [[ -n "${_TRANSACTION_ACTIVE:-}" ]]; then
+            _txn_journal mutation_write "target=$file mode=apply result=failed exit_code=$rc"
+            transaction_rollback || rc=1
+        fi
+        if [[ "$lock_held" == 1 ]]; then lock_release workstation-mutation || rc=1; fi
+        exit "$rc"
+    }
+    trap _icons_cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-mutation || return 1
+    lock_held=1
+    mutation_resolve_content_target "$file" || return 1
+    [[ "$_MUTATION_RESOLVED_TARGET" == "$target" && "$(_txn_sha256 "$target")" == "$actual" ]] || {
+        printf 'Configuration changed while preparing edit; retry\n' >&2
         return 1
-    fi
-
-    # Detect current theme and re-apply it
-    local current_theme="professional"
-    if grep -q "Apple.*Monterey" "$p10k_config" 2>/dev/null; then
-        current_theme="apple"
-    elif grep -q "Minimal.*Theme" "$p10k_config" 2>/dev/null; then
-        current_theme="minimal"
-    elif grep -q "Rainbow" "$p10k_config" 2>/dev/null; then
-        current_theme="rainbow"
-    fi
-
-    local theme_file=""
-    case "$current_theme" in
-        professional) theme_file="${theme_dir}/professional-dev-p10k.zsh" ;;
-        apple)        theme_file="${theme_dir}/apple-style-p10k.zsh" ;;
-        minimal)      theme_file="${theme_dir}/minimal-p10k.zsh" ;;
-        rainbow)      theme_file="${theme_dir}/rainbow-p10k.zsh" ;;
-    esac
-
-    if [[ -f "$theme_file" ]]; then
-        cp "$p10k_config" "${p10k_config}.bak.$(date +%s)"
-        cp "$theme_file" "$p10k_config"
-        log_success "Icons reset to '$current_theme' theme defaults"
-        log_info "Restart your terminal or run 'source ~/.p10k.zsh' to apply"
-    else
-        log_error "Theme file not found: $theme_file"
-        return 1
-    fi
-}
-
-preview_icons() {
-    log_info "👀 Available icon preview..."
-
-    # Professional Development Theme Preview
-    echo "Professional Development Theme Preview:"
-    echo "======================================"
-    echo
-    echo "     ~/projects/my-app   main  20.19.2  3.12.8  ⌚ 10:30:25  ✓"
-    echo
-    log_info "This theme features:"
-    log_info "  • Enhanced version management indicators (Go 1.23.4, Rust 1.82.0, Java 21.0.2)"
-    log_info "  • Customizable OS, directory, and status icons"
-    echo
-
-    # Apple Style Theme Preview
-    echo "Apple Style Theme Preview:"
-    echo "=========================="
-    echo
-    echo "   ~/projects/my-app  main 20.19.2 3.12.8 ⌚ 10:30:25 ✘"
-    echo
-
-    # Minimal Theme Preview
-    echo "Minimal Theme Preview:"
-    echo "======================"
-    echo
-    echo "  ~/projects/my-app main N:20.19.2 P:3.12.8 10:30:25"
-    echo
-}
-
-# Main execution
-case "${1:-}" in
-    --fix)       fix_icons ;;
-    --customize) customize_icons ;;
-    --reset)     reset_icons ;;
-    --preview)   preview_icons ;;
-    --help)      show_usage ;;
-    *)           show_usage; exit 1 ;;
-esac
+    }
+    candidate=$(mktemp "$(dirname "$target")/.vms-icons.XXXXXX") || return 1
+    cp -p "$target" "$candidate" || return 1
+    printf '%s' "$generated" >"$candidate" || return 1
+    zsh -fn "$candidate" || return 1
+    transaction_start theme_icons || return 1
+    log_info "Backup ID: $_TRANSACTION_DIR"
+    transaction_add_file "$file" || return 1
+    if [[ "$file" != "$target" ]]; then transaction_add_file "$target" || return 1; fi
+    mv -f -- "$candidate" "$target" || return 1
+    candidate=''
+    [[ "$(_txn_sha256 "$target")" == "$expected" ]] || return 1
+    zsh -fn "$target" || return 1
+    _txn_journal mutation_write "target=$file mode=apply result=verified exit_code=0"
+    transaction_commit || return 1
+    printf 'Icons updated. Restart your terminal to apply.\n'
+)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
