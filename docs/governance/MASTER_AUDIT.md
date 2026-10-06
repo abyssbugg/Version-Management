@@ -241,6 +241,14 @@ These entries close the terminal-output fix, not the broader Phase 3 registry,
 and do not constitute a new hosted-CI GO. The earlier 46-file run above is
 historical evidence; final gate evidence is reported with this branch's handoff.
 
+**P3-1/P3-2 manager-configuration follow-up** (`fix/managed-manager-config`,
+2026-10-06): the six manager/lazy-load rc writers now share transactional
+managed-block publication and fail closed on unmanaged or malformed blocks.
+Sandbox regressions cover rollback, reruns, symlink/mode retention and
+CLI preview initialization. NVM hooks only switch installed versions; missing
+versions require explicit installation. The broader finding stays PARTIAL:
+installer directories, version files and auto-switch are not closed here.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its

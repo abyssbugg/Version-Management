@@ -61,6 +61,19 @@ file rollback; refresh failure remains a nonzero result, not a success claim.
 
 This closes the terminal-output fix, not every mutator in the broader registry.
 
+## Manager rc adoption (2026-10-06, `fix/managed-manager-config`)
+
+The six `version-manager.sh` configuration writers for NVM, FNM, pyenv,
+rbenv, phpenv and lazy loading now use managed blocks with transaction
+registration, syntax verification, rollback and a shared configuration lock.
+Existing unmanaged configuration is refused unchanged for explicit migration.
+`configure <manager> --dry-run` bypasses installer and cache initialization.
+The NVM directory hook no longer installs a missing version implicitly.
+`tests/integration/test_manager_config_managed.sh` exercises reruns, symlinks,
+modes, failed edits, malformed markers, new rc files and zero-write previews.
+Installer directories, project version files and auto-switch adoption remain
+outside this slice; this is not closure of every `version-manager.sh` sink.
+
 ## Per-operation metadata contract (M2 exit criterion)
 
 Every adoption must record: target, mode (dry-run/apply), backup ID, result,

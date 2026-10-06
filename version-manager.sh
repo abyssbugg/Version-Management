@@ -93,6 +93,9 @@ source "$SCRIPT_DIR/lib/logger.sh"
 export VMS_STATE_DIR="${VMS_STATE_DIR:-$STATE_DIR}"
 # shellcheck source=lib/lock.sh
 source "$SCRIPT_DIR/lib/lock.sh"
+# Managed rc mutations share the canonical transaction/editor implementation.
+# shellcheck source=lib/mutation.sh
+source "$SCRIPT_DIR/lib/mutation.sh"
 
 # Canonical platform API (P1-9): lib/env.sh is the single owner of
 # get_os/get_shell/detect_os. This script's duplicated bodies (a private
@@ -120,8 +123,15 @@ fi
 # adopts this script's own CACHE_DIR — accepted (same posture as the other
 # lib/nvm.sh adopters; cache data is an optimization, never load-bearing).
 if [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
-    # shellcheck source=lib/nvm.sh
-    source "$SCRIPT_DIR/lib/nvm.sh"
+    if [[ "${BASH_SOURCE[0]}" == "$0" && ( "${1:-}" == configure || "${1:-}" == lazy-load ) ]]; then
+        # Configuration-only commands need definitions, not source-time cache writes.
+        # The temporary assignment leaves the caller's cache preference unchanged.
+        # shellcheck source=lib/nvm.sh
+        CACHE_ENABLED=0 source "$SCRIPT_DIR/lib/nvm.sh"
+    else
+        # shellcheck source=lib/nvm.sh
+        source "$SCRIPT_DIR/lib/nvm.sh"
+    fi
 fi
 
 # Compatibility shim: allow callers that use log "LEVEL" "msg" directly
@@ -195,6 +205,79 @@ get_shell_config() {
         *)    echo "$HOME/.profile" ;;
     esac
 }
+
+# P3-1/P3-2: stdin is trusted generated configuration, never user shell code.
+# Subshell scope keeps transaction state and cleanup traps out of the caller.
+_vm_configure_block() (
+    local name="$1" signature="$2" file="$3" block="version-manager-$1"
+    local content='' target="$file" active=0 locked=0
+    # shellcheck disable=SC2030 # Deliberately isolate preview logging from the caller.
+    local LOG_FILE=''  # Planning and diagnostics must never initialize file logging.
+    export LOG_FILE
+    if [[ -n "${_TRANSACTION_ACTIVE:-}" ]]; then
+        log_error 'Configuration requires its own transaction; nested mutation refused'
+        return 1
+    fi
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        target="$_MUTATION_RESOLVED_TARGET"
+    fi
+    if [[ -e "$target" && ! -f "$target" ]]; then
+        log_error "Not a regular shell configuration: $file"
+        return 1
+    fi
+    if [[ -f "$file" ]]; then
+        # Fail closed for partial/duplicate markers; never discard unknown rc text.
+        awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
+            $0 == b { if (inside || starts++) bad=1; inside=1; next }
+            $0 == e { if (!inside) bad=1; inside=0; next }
+            END { exit (bad || inside) ? 1 : 0 }
+        ' "$file" || { log_error "Malformed managed block in $file; repair markers before retrying"; return 1; }
+        if awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
+            $0 == b { inside=1; next } $0 == e { inside=0; next } !inside { print }
+        ' "$file" | grep -Eq "$signature"; then
+            log_error "Existing unmanaged $name configuration in $file; review/migrate it before retrying (left unchanged)"
+            return 1
+        fi
+    fi
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        printf '[dry-run] Would write managed block %s to %s (backup, verify, rollback on failure)\n' "$block" "$file"
+        return 0
+    fi
+    [[ -d "$(dirname "$target")" ]] || { log_error "Shell configuration parent missing: $file"; return 1; }
+    _vm_config_cleanup() {
+        local status=$?
+        trap - EXIT
+        if [[ "$active" == 1 ]]; then
+            transaction_rollback || status=1
+        fi
+        [[ -z "$content" ]] || rm -f -- "$content"
+        if [[ "$locked" == 1 ]]; then lock_release workstation-config || status=1; fi
+        exit "$status"
+    }
+    trap _vm_config_cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-config 30 || return 1
+    locked=1
+    content=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_manager_config.XXXXXX") || return 1
+    cat > "$content" || return 1
+    bash -n "$content" || return 1
+    transaction_start "version_manager_$name" || return 1
+    active=1
+    transaction_add_file "$file" || return 1
+    if [[ "$target" != "$file" ]]; then transaction_add_file "$target" || return 1; fi
+    mutation_block_write "$file" "$block" "$content" || return 1
+    if [[ "${SHELL##*/}" == zsh ]]; then
+        command -v zsh >/dev/null 2>&1 || { log_error 'zsh is required to verify zsh configuration'; return 1; }
+        zsh -n "$file" || return 1
+    else
+        bash -n "$file" || return 1
+    fi
+    transaction_commit || return 1
+    active=0
+    log_success "Managed $name configuration verified: $file"
+)
 
 # Create backup of file
 backup_file() {
@@ -357,23 +440,7 @@ install_nvm() {
 }
 
 configure_nvm() {
-    log_info "Configuring NVM..."
-
-    local shell_config="$(get_shell_config)"
-    backup_file "$shell_config"
-
-    # Check if already configured
-    if grep -q "NVM_DIR" "$shell_config" 2>/dev/null; then
-        log_info "NVM already configured in $shell_config"
-        return 0
-    fi
-
-    # Add NVM configuration
-    cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# NVM Configuration (added by version-manager)
-# ============================================================================
+    _vm_configure_block nvm 'NVM_DIR|NVM Configuration \(added by version-manager\)' "$(get_shell_config)" << 'EOF'
 export NVM_DIR="$HOME/.nvm"
 
 # Lazy load NVM for faster shell startup
@@ -412,7 +479,9 @@ load_nvmrc() {
         local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")" 2>/dev/null)
 
         if [ "$nvmrc_node_version" = "N/A" ]; then
-            nvm install
+            # Directory hooks never install implicitly. The unified auto-switch
+            # hook offers capability-gated installation via explicit project trust.
+            return 0
         elif [ "$nvmrc_node_version" != "$(nvm version 2>/dev/null)" ]; then
             nvm use --silent
         fi
@@ -438,7 +507,6 @@ fi
 export NVM_SILENT=true
 EOF
 
-    log_success "NVM configuration added to $shell_config"
 }
 
 # ============================================================================
@@ -476,29 +544,11 @@ install_fnm() {
 }
 
 configure_fnm() {
-    log_info "Configuring FNM..."
-
-    local shell_config="$(get_shell_config)"
-    backup_file "$shell_config"
-
-    # Check if already configured
-    if grep -q "fnm env" "$shell_config" 2>/dev/null; then
-        log_info "FNM already configured in $shell_config"
-        return 0
-    fi
-
-    # Add FNM configuration
-    cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# FNM Configuration (added by version-manager)
-# ============================================================================
+    _vm_configure_block fnm 'fnm env' "$(get_shell_config)" << 'EOF'
 if command -v fnm >/dev/null 2>&1; then
     eval "$(fnm env --use-on-cd)"
 fi
 EOF
-
-    log_success "FNM configuration added to $shell_config"
 }
 
 # ============================================================================
@@ -575,23 +625,7 @@ install_pyenv() {
 }
 
 configure_pyenv() {
-    log_info "Configuring pyenv..."
-
-    local shell_config="$(get_shell_config)"
-    backup_file "$shell_config"
-
-    # Check if already configured
-    if grep -q "PYENV_ROOT" "$shell_config" 2>/dev/null; then
-        log_info "Pyenv already configured in $shell_config"
-        return 0
-    fi
-
-    # Add pyenv configuration (auto-switch handled by unified hook in lib/auto-activate.sh)
-    cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# Pyenv Configuration (added by version-manager)
-# ============================================================================
+    _vm_configure_block pyenv 'PYENV_ROOT|pyenv init' "$(get_shell_config)" << 'EOF'
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 
@@ -603,9 +637,6 @@ pyenv() {
     pyenv "$@"
 }
 EOF
-
-    log_success "Pyenv configuration added to $shell_config"
-    log_info "Python auto-switch (.python-version) is handled by the unified dev auto-activate hook"
 }
 
 # ============================================================================
@@ -660,23 +691,7 @@ install_rbenv() {
 }
 
 configure_rbenv() {
-    log_info "Configuring rbenv..."
-
-    local shell_config="$(get_shell_config)"
-    backup_file "$shell_config"
-
-    # Check if already configured
-    if grep -q "rbenv init" "$shell_config" 2>/dev/null; then
-        log_info "rbenv already configured in $shell_config"
-        return 0
-    fi
-
-    # Add rbenv configuration
-    cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# rbenv Configuration (added by version-manager)
-# ============================================================================
+    _vm_configure_block rbenv 'rbenv init' "$(get_shell_config)" << 'EOF'
 export PATH="$HOME/.rbenv/bin:$PATH"
 
 # Lazy load rbenv for faster shell startup
@@ -705,7 +720,6 @@ bundle() {
 }
 EOF
 
-    log_success "rbenv configuration added to $shell_config"
 }
 
 # ============================================================================
@@ -760,23 +774,7 @@ install_phpenv() {
 }
 
 configure_phpenv() {
-    log_info "Configuring phpenv..."
-
-    local shell_config="$(get_shell_config)"
-    backup_file "$shell_config"
-
-    # Check if already configured
-    if grep -q "PHPENV_ROOT" "$shell_config" 2>/dev/null; then
-        log_info "phpenv already configured in $shell_config"
-        return 0
-    fi
-
-    # Add phpenv configuration
-    cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# phpenv Configuration (added by version-manager)
-# ============================================================================
+    _vm_configure_block phpenv 'PHPENV_ROOT|phpenv init' "$(get_shell_config)" << 'EOF'
 export PHPENV_ROOT="$HOME/.phpenv"
 export PATH="$PHPENV_ROOT/bin:$PATH"
 
@@ -800,7 +798,6 @@ composer() {
 }
 EOF
 
-    log_success "phpenv configuration added to $shell_config"
 }
 
 # ============================================================================
@@ -1127,27 +1124,16 @@ configure_lazy_load() {
         return 1
     fi
 
-    backup_file "$shell_config"
-
-    if grep -q "# >>> version-manager lazy-load <<<" "$shell_config" 2>/dev/null; then
-        log_info "Lazy-load wrappers already configured in $shell_config"
-        return 0
-    fi
-
-    cat >> "$shell_config" << EOF
-
-# >>> version-manager lazy-load <<<
+    local quoted_perf
+    printf -v quoted_perf '%q' "$perf_lib"
+    _vm_configure_block lazy-load 'version-manager lazy-load|setup_nvm_lazy|setup_pyenv_lazy' "$shell_config" << EOF
 # Load performance helper wrappers for nvm/pyenv on first use.
-if [[ -f "$perf_lib" ]]; then
-  source "$perf_lib"
+if [[ -f $quoted_perf ]]; then
+  source $quoted_perf
   declare -f setup_nvm_lazy >/dev/null 2>&1 && setup_nvm_lazy
   declare -f setup_pyenv_lazy >/dev/null 2>&1 && setup_pyenv_lazy
 fi
-# <<< version-manager lazy-load <<<
 EOF
-
-    log_success "Lazy-load bootstrap block added to $shell_config"
-    return 0
 }
 
 # ============================================================================
@@ -1174,6 +1160,8 @@ ${BOLD}Commands:${RESET}
   ${GREEN}install-ruby${RESET} [version]   Install Ruby version (default: 3.0.0)
   ${GREEN}install-php${RESET} [version]    Install PHP version (default: 8.3)
 
+  ${GREEN}configure${RESET} <manager>       Configure existing manager rc block (no installation)
+                              nvm|fnm|pyenv|rbenv|phpenv|lazy-load; accepts --dry-run
   ${GREEN}create-versions${RESET}          Create version files for current project
   ${GREEN}auto-switch${RESET}              Install unified auto-activation hook
   ${GREEN}lazy-load${RESET}                Add lazy-load bootstrap block to shell config
@@ -1247,6 +1235,26 @@ parse_args() {
 
 # Main function
 main() {
+    # Configuration-only entrypoint: no installer, eager directories or outer lock.
+    # Preserve legacy commands while making preview semantics explicit and scoped.
+    if [[ "${1:-}" == configure || "${1:-}" == lazy-load ]]; then
+        local manager option
+        if [[ "$1" == lazy-load ]]; then manager=lazy-load; shift
+        else manager="${2:-}"; shift; [[ $# -eq 0 ]] || shift; fi
+        case "$manager" in nvm|fnm|pyenv|rbenv|phpenv|lazy-load) ;;
+            *) printf 'Expected configure {nvm|fnm|pyenv|rbenv|phpenv|lazy-load} [--dry-run]\n' >&2; return 2 ;;
+        esac
+        local TRANSACTION_DRY_RUN="${TRANSACTION_DRY_RUN:-0}"
+        for option in "$@"; do
+            case "$option" in --dry-run) TRANSACTION_DRY_RUN=1 ;;
+                *) printf 'Unsupported configuration option: %s\n' "$option" >&2; return 2 ;;
+            esac
+        done
+        export TRANSACTION_DRY_RUN
+        if [[ "$manager" == lazy-load ]]; then configure_lazy_load
+        else "configure_$manager"; fi
+        return $?
+    fi
     # Initialize
     init_directories
 
