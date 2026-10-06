@@ -1,57 +1,10 @@
 #!/usr/bin/env bash
-# Enhanced Terminal Icon Setup - Get Official Nerd Font Icons Working
-# Specifically optimized for VS Code integrated terminal
-
+# P3-1: fonts and repo-local terminal artifacts form one verified transaction.
 set -euo pipefail
+_VMS_SLICK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/logger.sh"
-
-# Color definitions for beautiful output
-TERM_BLUE='\033[0;34m'
-TERM_GREEN='\033[0;32m'
-TERM_YELLOW='\033[1;33m'
-TERM_CYAN='\033[0;36m'
-TERM_NC='\033[0m'
-
-show_banner() {
-    echo -e "${TERM_CYAN}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                 SLICK TERMINAL ICON SETUP                 ║"
-    echo "║              Get Official Nerd Font Icons Working           ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${TERM_NC}"
-}
-
-# Install fonts to system
-install_fonts_to_system() {
-    log_info "📥 Installing MesloLGS Nerd Font to system..."
-
-    # Create fonts directory if it doesn't exist
-    local fonts_dir="$HOME/Library/Fonts"
-    mkdir -p "$fonts_dir"
-
-    # Copy font files
-    for font_file in "$SCRIPT_DIR"/*.ttf; do
-        if [[ -f "$font_file" ]]; then
-            cp "$font_file" "$fonts_dir/"
-            log_success "Installed: $(basename "$font_file")"
-        fi
-    done
-
-    # Refresh font cache
-    if command -v fc-cache >/dev/null 2>&1; then
-        fc-cache -f -v >/dev/null 2>&1
-        log_success "Font cache refreshed"
-    fi
-}
-
-# Configure VS Code settings for optimal font display
-configure_vscode_fonts() {
-    log_info " Configuring VS Code for optimal Nerd Font display..."
-
-    # Generate optimized VS Code settings
-    cat > "$SCRIPT_DIR/vscode-terminal-fonts.json" << 'EOF'
+_slick_json() {
+    cat <<'JSON'
 {
   "terminal.integrated.fontFamily": "MesloLGS NF",
   "terminal.integrated.fontSize": 14,
@@ -71,103 +24,247 @@ configure_vscode_fonts() {
   "editor.fontLigatures": true,
   "debug.console.fontFamily": "MesloLGS NF"
 }
-EOF
-
-    log_success "VS Code font configuration created: vscode-terminal-fonts.json"
-    log_info " Copy these settings to your VS Code settings.json"
+JSON
 }
-
-# Create font test script
-create_font_test() {
-    log_info " Creating font test script..."
-
-    cat > "$SCRIPT_DIR/test-nerd-font-icons.sh" << 'EOF'
+_slick_demo() {
+    cat <<'DEMO'
 #!/usr/bin/env bash
 # Test Nerd Font Icons Display
+set -euo pipefail
+cat <<'ICONS'
+ Testing Nerd Font Icons Display...
+==================================
 
-echo " Testing Nerd Font Icons Display..."
-echo "=================================="
-echo
+ Directory Icons:
+   Home: 
+   Folder: 
+   File: 
 
-echo " Directory Icons:"
-echo "   Home:  "
-echo "   Folder:  "
-echo "   File:  "
-echo
+🔀 Git Icons:
+   Branch: 
+   Modified: 
+   Added: 
+   Deleted: 
+   Renamed: 
+   Untracked: 
 
-echo "🔀 Git Icons:"
-echo "   Branch:  "
-echo "   Modified:  "
-echo "   Added:  "
-echo "   Deleted:  "
-echo "   Renamed:  "
-echo "   Untracked:  "
-echo
+⚙️  System Icons:
+   Terminal: 
+   Clock: 
+   CPU: 
+   Memory: 
 
-echo "⚙️  System Icons:"
-echo "   Terminal:  "
-echo "   Clock:  "
-echo "   CPU:  "
-echo "   Memory:  "
-echo
+ Language Icons:
+   Node.js: 
+   Python: 
+   JavaScript: 
+   TypeScript: 
+   React: 
+   Vue: 
 
-echo " Language Icons:"
-echo "   Node.js:  "
-echo "   Python:  "
-echo "   JavaScript:  "
-echo "   TypeScript:  "
-echo "   React:  "
-echo "   Vue:  "
-echo
+ Status Icons:
+   Success: 
+   Error: 
+   Warning: 
+   Info: 
 
-echo " Status Icons:"
-echo "   Success:  "
-echo "   Error:  "
-echo "   Warning:  "
-echo "   Info:  "
-echo
+ Tool Icons:
+   Settings: 
+   Package: 
+   Download: 
+   Upload: 
 
-echo " Tool Icons:"
-echo "   Settings:  "
-echo "   Package:  "
-echo "   Download:  "
-echo "   Upload:  "
-echo
-
-echo "If you see proper icons above (not squares/question marks),"
-echo "your Nerd Font is working correctly! "
-EOF
-
-    chmod +x "$SCRIPT_DIR/test-nerd-font-icons.sh"
-    log_success "Font test script created: test-nerd-font-icons.sh"
+If you see proper icons above (not squares/question marks),
+your Nerd Font is working correctly!
+ICONS
+DEMO
+}
+_slick_validate_json() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import json, sys; json.load(sys.stdin)'
+    elif command -v node >/dev/null 2>&1; then
+        node -e 'JSON.parse(require("fs").readFileSync(0, "utf8"))'
+    else
+        printf 'python3 or node is required to validate settings\n' >&2
+        return 1
+    fi
 }
 
-# Main execution
-main() {
-    show_banner
-
-    log_info "🎯 Setting up slick terminal with official Nerd Font icons..."
-    echo
-
-    install_fonts_to_system
-    configure_vscode_fonts
-    create_font_test
-
-    echo
-    log_success " Slick terminal setup completed!"
-    echo
-    log_info "📋 Next Steps:"
-    echo "   1. Copy settings from vscode-terminal-fonts.json to your VS Code settings"
-    echo "   2. Restart VS Code to apply font changes"
-    echo "   3. Run ./test-nerd-font-icons.sh to verify icons are working"
-    echo "   4. Open a new terminal to see your enhanced theme"
-    echo
-    log_info " Pro Tips:"
-    echo "   • If icons don't show, restart VS Code completely"
-    echo "   • Make sure MesloLGS NF is selected in terminal preferences"
-    echo "   • Use scripts/theme-icon-manager.sh --customize for more options"
-    echo
-}
-
-# Execute main function
-main "$@"
+main() (
+    local dry_run="${TRANSACTION_DRY_RUN:-0}" arg
+    unset LOG_FILE
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=1 ;;
+            --help | -h)
+                printf 'Usage: %s [--dry-run] [--help]\n' "$0"
+                return 0
+                ;;
+            *)
+                printf 'Unknown argument: %s\n' "$arg" >&2
+                return 2
+                ;;
+        esac
+    done
+    local json demo font_dir="$HOME/Library/Fonts"
+    json=$(_slick_json) || return 1
+    demo=$(_slick_demo) || return 1
+    printf '%s\n' "$json" | _slick_validate_json || return 1
+    printf '%s\n' "$demo" | bash -n || return 1
+    source "$_VMS_SLICK_ROOT/lib/mutation.sh"
+    local -a files=() sources=() kinds=() targets=() hashes=() before=() changed=() candidates=() created_dirs=()
+    local font file target hash old i j parent lock_held=0 cache_attempted=0 committed=0 fonts_changed=0
+    for font in "$_VMS_SLICK_ROOT"/*.ttf; do
+        [[ -f "$font" ]] || continue
+        files+=("$font_dir/$(basename "$font")")
+        sources+=("$font")
+        kinds+=(font)
+    done
+    files+=("$_VMS_SLICK_ROOT/vscode-terminal-fonts.json" "$_VMS_SLICK_ROOT/test-nerd-font-icons.sh")
+    sources+=('' '')
+    kinds+=(json demo)
+    _slick_resolve() {
+        local path="$1" ancestor
+        if [[ -e "$path" && ! -f "$path" ]] || [[ -L "$path" && ! -f "$path" ]]; then
+            printf 'Refusing nonregular or dangling target: %s\n' "$path" >&2
+            return 1
+        fi
+        if [[ -d "$(dirname "$path")" ]]; then
+            mutation_resolve_content_target "$path" || return 1
+            target="$_MUTATION_RESOLVED_TARGET"
+        else
+            ancestor=$(dirname "$path")
+            while [[ ! -e "$ancestor" && ! -L "$ancestor" ]]; do ancestor=$(dirname "$ancestor"); done
+            [[ -d "$ancestor" ]] || return 1
+            target="$path"
+        fi
+        [[ "$path$target" != *$'\n'* && "$path$target" != *$'\t'* ]] || return 1
+    }
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        file="${files[i]}"
+        _slick_resolve "$file" || return 1
+        # Two logical outputs must never overwrite the same resolved file.
+        for ((j = 0; j < i; j++)); do
+            [[ "$target" != "${targets[j]}" ]] || {
+                printf 'Output targets alias each other\n' >&2
+                return 1
+            }
+        done
+        targets+=("$target")
+        case "${kinds[i]}" in
+            font) hash=$(_txn_sha256 "${sources[i]}") || return 1 ;;
+            json) hash=$(printf '%s\n' "$json" | _txn_sha256 /dev/stdin) || return 1 ;;
+            demo) hash=$(printf '%s\n' "$demo" | _txn_sha256 /dev/stdin) || return 1 ;;
+        esac
+        hashes+=("$hash")
+        old=absent
+        if [[ -f "$target" ]]; then old=$(_txn_sha256 "$target") || return 1; fi
+        before+=("$old")
+        if [[ "$hash" != "$old" ]] || [[ "${kinds[i]}" == demo && ! -x "$target" ]]; then
+            changed+=("$i")
+            if [[ "${kinds[i]}" == font ]]; then fonts_changed=1; fi
+        fi
+    done
+    if [[ "$dry_run" == 1 ]]; then
+        printf '[dry-run] Would prepare terminal files:\n'
+        printf '  %s\n' "${files[@]}"
+        return 0
+    fi
+    [[ ${#changed[@]} -gt 0 ]] || {
+        printf 'Terminal setup already current\n'
+        return 0
+    }
+    source "$_VMS_SLICK_ROOT/lib/lock.sh"
+    _slick_cleanup() {
+        local rc=$? item
+        trap - EXIT HUP INT TERM
+        for item in "${candidates[@]}"; do [[ -z "$item" ]] || rm -f -- "$item" || rc=1; done
+        if [[ -n "${_TRANSACTION_ACTIVE:-}" ]]; then
+            _txn_journal mutation_write "mode=apply result=failed exit_code=$rc"
+            transaction_rollback || rc=1
+            if [[ "$cache_attempted" == 1 ]]; then
+                fc-cache -f "$font_dir" >/dev/null 2>&1 || {
+                    printf 'Font files restored; cache refresh failed\n' >&2
+                    rc=1
+                }
+            fi
+        fi
+        if [[ "$committed" == 0 ]]; then
+            for ((j = ${#created_dirs[@]} - 1; j >= 0; j--)); do rmdir -- "${created_dirs[j]}" 2>/dev/null || rc=1; done
+        fi
+        if [[ "$lock_held" == 1 ]]; then lock_release workstation-mutation || rc=1; fi
+        exit "$rc"
+    }
+    trap _slick_cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-mutation || return 1
+    lock_held=1
+    _slick_mkdir() {
+        local dir="$1"
+        [[ -d "$dir" ]] && return 0
+        [[ ! -e "$dir" && ! -L "$dir" ]] || return 1
+        _slick_mkdir "$(dirname "$dir")" || return 1
+        mkdir -- "$dir" || return 1
+        created_dirs+=("$dir")
+    }
+    # Recheck the entire plan after the lock, not just the last output.
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        _slick_resolve "${files[i]}" || return 1
+        old=absent
+        if [[ -f "$target" ]]; then old=$(_txn_sha256 "$target") || return 1; fi
+        [[ "$target" == "${targets[i]}" && "$old" == "${before[i]}" ]] || {
+            printf 'Target changed while preparing setup; retry\n' >&2
+            return 1
+        }
+    done
+    # Stage/validate all candidates before registering or publishing any output.
+    for i in "${changed[@]}"; do
+        target="${targets[i]}"
+        parent=$(dirname "$target")
+        _slick_mkdir "$parent" || return 1
+        candidates[i]=$(mktemp "$parent/.vms-slick.XXXXXX") || return 1
+        if [[ -f "$target" ]]; then cp -p "$target" "${candidates[i]}" || return 1; fi
+        case "${kinds[i]}" in
+            font)
+                if [[ -f "$target" ]]; then
+                    cat "${sources[i]}" >"${candidates[i]}" || return 1
+                else cp -p "${sources[i]}" "${candidates[i]}" || return 1; fi
+                ;;
+            json)
+                printf '%s\n' "$json" >"${candidates[i]}" || return 1
+                _slick_validate_json <"${candidates[i]}" || return 1
+                if [[ ! -f "$target" ]]; then chmod 644 "${candidates[i]}" || return 1; fi
+                ;;
+            demo)
+                printf '%s\n' "$demo" >"${candidates[i]}" || return 1
+                bash -n "${candidates[i]}" || return 1
+                if [[ ! -f "$target" ]]; then
+                    chmod 755 "${candidates[i]}" || return 1
+                else chmod u+x "${candidates[i]}" || return 1; fi
+                ;;
+        esac
+        [[ "$(_txn_sha256 "${candidates[i]}")" == "${hashes[i]}" ]] || return 1
+    done
+    transaction_start slick_terminal || return 1
+    log_info "Backup ID: $_TRANSACTION_DIR"
+    for i in "${changed[@]}"; do
+        transaction_add_file "${files[i]}" || return 1
+        if [[ "${files[i]}" != "${targets[i]}" ]]; then transaction_add_file "${targets[i]}" || return 1; fi
+    done
+    for i in "${changed[@]}"; do
+        mv -f -- "${candidates[i]}" "${targets[i]}" || return 1
+        candidates[i]=''
+        [[ "$(_txn_sha256 "${targets[i]}")" == "${hashes[i]}" ]] || return 1
+        _txn_journal mutation_write "target=${files[i]} mode=apply result=verified exit_code=0"
+    done
+    if [[ "$fonts_changed" == 1 ]] && command -v fc-cache >/dev/null 2>&1; then
+        cache_attempted=1
+        fc-cache -f "$font_dir" >/dev/null 2>&1 || return 1
+    fi
+    transaction_commit || return 1
+    committed=1
+    printf 'Slick terminal setup completed!\nCopy vscode-terminal-fonts.json into VS Code settings, restart VS Code,\nand run ./test-nerd-font-icons.sh to verify the glyph display.\n'
+)
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
