@@ -120,7 +120,6 @@ steps:
   # -----------------------------------------------------------------------------
   - group: ":receipt: Release attestation (release-attest)"
     key: "release-attest-group"
-    skip: "Runs only for release attestation - dispatch with RELEASE_ATTEST_SHA (docs/RELEASE_CHECKLIST.md)"
     # Group-level `if:` is unsupported by this schema (build #34: group marked
     # "broken" with no log) — the condition lives on the STEP below.
     steps:
