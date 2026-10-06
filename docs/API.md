@@ -67,6 +67,13 @@ Detects OS, shell, and environment characteristics.
 
 Creates timestamped backups with integrity verification.
 
+Transaction callers use `transaction_start`, `transaction_add_file`, and
+`transaction_commit` or `transaction_rollback`. Setting `TRANSACTION_DRY_RUN=1`
+when starting a transaction selects a zero-write preview: registration,
+commit and rollback emit console diagnostics without appending to `LOG_FILE`
+or the audit journal. Apply transactions retain their normal audit trail.
+Callers remain responsible for not performing their own writes in preview mode.
+
 ### Functions
 
 | Function | Description | Usage |

@@ -336,8 +336,10 @@ test_transaction_dry_run_zero_writes() {
         "TRANSACTION_DRY_RUN=1 performs zero privileged invocations"
     chk assert_equals "" "$(_txn_dir update_node_symlinks)" \
         "TRANSACTION_DRY_RUN=1 creates no transaction directory (zero writes)"
-    chk assert_contains "$(printf '\tstart\tupdate_node_symlinks\t')" "$(cat "$(_journal)" 2>/dev/null)" \
-        "dry-run transaction journaled (mode=dry_run)"
+    chk assert_contains "Transaction (dry-run, zero writes)" "$out" \
+        "dry-run transaction remains visible on the console"
+    chk assert_file_not_exists "$(_journal)" \
+        "dry-run transaction does not write an audit journal"
     _teardown
     return "$CASE_FAILED"
 }

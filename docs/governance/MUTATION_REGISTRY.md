@@ -33,6 +33,20 @@ tools (7): `analytics-report.sh`, `preview-nerd-fonts.sh`, `system-diagnostics.s
 
 Read-only (no sinks): `validate-setup.sh`, `lib/env.sh`, `lib/utils.sh`, `lib/validation.sh`, `scripts/lint-shell.sh`, `scripts/check-no-secrets.sh`, `tools/check-dependencies.sh`, `tools/health-check.sh`, `tools/validate-quality.sh`.
 
+## Working-tree adoption update (2026-10-06, pending review/merge)
+
+`scripts/generate-vscode-settings.sh` now renders JSON before publication,
+previews without writes, preserves existing symlinks/modes, and uses the
+existing lock and backup transaction for atomic publication and verified
+rollback. `tests/integration/test_vscode_settings_managed.sh` covers parser
+fallback, hostile string values, idempotency, failed publication/verification,
+new-file rollback and link preservation. Its default remains the repo-local
+`vscode-settings.json`; it does not install settings into a live VS Code profile.
+
+This is one additional adopter, not closure of the full registry. In particular,
+`theme-icon-manager.sh` and `setup-slick-terminal.sh` still need adoption.
+Transaction preview auditing is console-only; apply events retain backup IDs.
+
 ## Per-operation metadata contract (M2 exit criterion)
 
 Every adoption must record: target, mode (dry-run/apply), backup ID, result,

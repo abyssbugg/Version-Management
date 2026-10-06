@@ -43,35 +43,58 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 - [x] **M5 — Validation, portability, delivery.** Scoped `make clean` (B2.2); clean-HOME/no-network/permission/symlink scenarios; consolidated platform API + WSL contract; gitleaks+pre-commit in release path; SHA-pin generated workflows; checksum-verified installers; SCRIPT_DIR-hygiene pass (A5-new); SBOM/signing/attribution/ADR/security docs.*
   — *Status 2026-10-04: **GO.** Platform consolidation `668f7a1` (canonical `get_os`/`get_shell`, WSL reports `wsl` from both, pinned by `tests/unit/test_platform_contract.sh`; SCRIPT_DIR hygiene across 13 libs = A5-new FIXED) + root-script wrappers `b7d1007` (P1-9 CLOSED; wrapper-parity RED 4 → GREEN 47/47). Hygiene smalls `7df7744` (B2.2 scoped clean; ERR trap; log rotation; single NVM pin; SHA-pinned generated workflows; pipe-to-shell removal). Docs compliance `ccc9147` (ATTRIBUTION/SECURITY/OPERATIONS/config README, ADRs 001–005). Release integrity `31a23aa` (gitleaks+pre-commit as pre-build gates; attribution + deterministic SPDX-lite SBOM + full-coverage checksums in release artifacts; two phantom action SHAs fixed, 11/11 SHA-pinned upstream-verified; signing decision recorded: SHA256SUMS now, keyless cosign documented follow-up). Transaction-primitive robustness `05ff686` + `dd312b6` (B1.10/11/12/13-new FIXED — symlink-preserving block writes, guarded rollback recording, degraded source-time cache init, exported-transaction-function slate). Adverse-condition suite `4d3053d` (clean-HOME/no-network/permission/symlink, 19 cases + 4 negative controls; RED→GREEN each class). Lane H verified post-hoc (agent died on quota before reporting); all manifests 41/41 twice locally; CI 7/7 builds #31–#33. Known residual gaps live in SECURITY/MAINTENANCE (vendored font-patcher gitleaks finding, upload-artifact version drift, live-WSL verification, root/Linux adverse paths unverified on those platforms).*
 
-## Phase 3 — Transactional Mutation Framework (P3-1, P1-3) — **BLOCKED-ON-M2**
+## Phase 3 — Transactional Mutation Framework (P3-1, P1-3) — **UNBLOCKED (M2 GO)**
 
-*The strategic centerpiece. `setup-theme.sh:182-191` is the reference implementation pattern. Blocked by the M0–M3 milestone program above (directive Rule 4); adoption expands only after M2 exits GO.*
+*The strategic centerpiece. `setup-theme.sh:182-191` is the reference implementation pattern. M0–M3 milestones completed; M4 completed directive-named adopter set.*
 
-- [ ] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)*
-- [ ] **3.2** Managed-block editing for shell rc files: `# BEGIN version-management-setup:<name>` … `# END`, replaced atomically. Fix the `NVM_SILENT=1` vs `=true` idempotency drift in `scripts/fix-nvm-issues.sh`. *(P1-3)*
-- [ ] **3.3** Migrate remaining mutating scripts onto the framework: `scripts/fix-nvm-issues.sh`, `setup-versions.sh`, `scripts/emergency-recovery.sh`, `setup-fonts-enhanced.sh`, `tools/update-global-node-symlinks.sh`.
-- [ ] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test.
+- [~] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)* — **PARTIAL:** transaction primitives and best-effort `_txn_journal` exist (`fcbc584`, `05ff686`, `dd312b6`); managed-block operations verify their output. End-to-end lifecycle and complete operation metadata are not yet enforced for every registry entry.
+- [x] **3.2** Managed-block editing for shell rc files: `# BEGIN version-management-setup:<name>` … `# END`, replaced atomically. Fix the `NVM_SILENT=1` vs `=true` idempotency drift in `scripts/fix-nvm-issues.sh`. *(P1-3)* — `58b967d` editor, `3af0549` fix-nvm-issues, `a3b9038` setup-versions; per-adopter tests pin the canonical block and rerun behavior.
+- [x] **3.3** Migrate the five named scripts onto the framework: `scripts/fix-nvm-issues.sh` (`3af0549`), `setup-versions.sh` (`a3b9038`), `scripts/emergency-recovery.sh` (`08c3446`), `setup-fonts-enhanced.sh` (`96c482b`), `tools/update-global-node-symlinks.sh` (`50163f2`). The directive also added `scripts/fix-terminal-issues.sh` (`7def705`). This closes the named list, not the broader registry.
+- [~] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test. **Still open beyond the named set:** `scripts/theme-icon-manager.sh`, `setup-slick-terminal.sh` and other registry entries retain direct writes. Existing adverse-condition tests (`4d3053d`) do not prove all-mutator coverage.
 
 ## Phase 4 — Consolidation & Test Maturity (P1-9, P1-11, P2-*)
 
-- [ ] **4.1** Canonical platform detection in `lib/env.sh`; `get_os`/`get_shell` elsewhere become wrappers; contract test pins WSL semantics (decide: `wsl` vs `linux` — currently drifted). *(P1-9)*
-- [ ] **4.2** Deduplicate `command_exists`/colors/`log` shims between `version-manager.sh` and `version-advanced.sh`. *(P2 tier)*
-- [ ] **4.3** Validation sweep: user-supplied params validated at all public entry points (start: `install_node_version`). *(P2-4)*
-- [ ] **4.4** `setup.sh`: source `lib/error-handling.sh`, register ERR trap. Remove `sync` stub. Delete `tests/unit/test_restore.txt` + gitignore scratch. Log rotation in `lib/logger.sh`. Configurable `NVM_VERSION` single pin. *(P2-2/3/5/6/12)*
-- [ ] **4.5** Real coverage (kcov or bats+kcov) replacing pseudo-coverage; scenario-based integration tests: clean-HOME bootstrap, managed-block re-run idempotency, failed-installer rollback, no-network, permission-denied. *(P1-11, P2-13, P3-3)*
-- [ ] **4.6** Re-justify `.shellcheckrc` global disables; move SC2015/SC2181 to inline. *(P2-9)*
-- [ ] **4.7** Dockerfile templates: multi-stage, non-root, HEALTHCHECK. *(P2-7)*
+- [x] **4.1** Canonical platform detection in `lib/env.sh`; `get_os`/`get_shell` elsewhere become wrappers; contract test pins WSL semantics (decide: `wsl` vs `linux` — currently drifted). *(P1-9)* — **DONE (M5)**: `668f7a1` canonical API + WSL contract test; `b7d1007` root-script wrappers; SCRIPT_DIR hygiene (`668f7a1` A5-new); wrapper-parity RED 4 → GREEN 47/47.
+- [ ] **4.2** Deduplicate `command_exists`/colors/`log` shims between `version-manager.sh` and `version-advanced.sh`. *(P2 tier)* — Open; do not prioritize over Phase 3 safety work.
+- [~] **4.3** Validation sweep: user-supplied params validated at all public entry points (start: `install_node_version`). *(P2-4)* — Node guard landed in `0648f2d`; Python/Ruby/PHP public installer guards and alias validation remain to be completed. This is not a completed sweep.
+- [x] **4.4** `setup.sh`: source `lib/error-handling.sh`, register ERR trap. Remove `sync` stub. Delete `tests/unit/test_restore.txt` + gitignore scratch. Log rotation in `lib/logger.sh`. Configurable `NVM_VERSION` single pin. *(P2-2/3/5/6/12)* — **DONE (M5)**: `7df7744` (ERR trap, sync removed, test_restore.txt deleted, rotation, single pin, package-lock decision).
+- [~] **4.5** Real coverage (kcov or bats+kcov) replacing pseudo-coverage; scenario-based integration tests: clean-HOME bootstrap, managed-block re-run idempotency, failed-installer rollback, no-network, permission-denied. *(P1-11, P2-13, P3-3)* — Scenarios landed (`4d3053d`, `0648f2d`); **real coverage remains open**. Despite its merge subject, `3968abe` adds only `test_plugin_conformance.sh`; kcov commit `546f063` is not an ancestor of `40562ee`. `Makefile:coverage` still reports manual intent markers.
+- [ ] **4.6** Re-justify `.shellcheckrc` global disables; move SC2015/SC2181 to inline. *(P2-9)* — Open; both suppressions remain global. This requirement has not been reclassified as optional.
+- [x] **4.7** Dockerfile templates: multi-stage, non-root, HEALTHCHECK. *(P2-7)* — **DONE (M5 lane C2)**: `343afa7`/`0648f2d` hardened Docker templates (multi-stage, non-root USER, HEALTHCHECK).
 
 ## Phase 5 — Supply Chain, Compliance & Docs (P1-6, P1-10, P2-8)
 
-- [ ] **5.1** Artifact signing + SBOM + (optionally) GitHub artifact attestation in `release.yml`.
-- [ ] **5.2** `FontPatcher/ATTRIBUTION.md` consolidating mixed glyph licenses; correct `FONT_MANIFEST.md`; include attribution in release archives.
-- [ ] **5.3** `docs/SECURITY.md` (trust boundaries, installer policy, mutation policy), `docs/OPERATIONS.md` (runbooks), `config/README.md`.
-- [ ] **5.4** ADR directory (`docs/governance/adr/`) seeded from MASTER_AUDIT §5 decisions.
-- [ ] **5.5** Commit `package-lock.json` or drop the npm shellcheck devDependency. *(P2-11)*
+- [~] **5.1** Artifact signing + SBOM + (optionally) GitHub artifact attestation in `release.yml`. — **PARTIAL (M5 lane R)**: `31a23aa` release-path gates + SBOM integration + artifact checksums; `d25c637` attestation marker workflow (tag/workflow_dispatch) + signing skeleton (disabled pending owner decision); keyless cosign documented in template comments; execution runtime signing not yet deployed.
+- [x] **5.2** `FontPatcher/ATTRIBUTION.md` consolidating mixed glyph licenses; correct `FONT_MANIFEST.md`; include attribution in release archives. — **DONE (M5)**: `ccc9147` per-component license table + mixed-license statement; `31a23aa` attribution + SBOM in release artifacts.
+- [x] **5.3** `docs/SECURITY.md` (trust boundaries, installer policy, mutation policy), `docs/OPERATIONS.md` (runbooks), `config/README.md`. — **DONE (M5)**: `ccc9147` compliance set (SECURITY/OPERATIONS/config README); `31a23aa` MAINTENANCE runbook.
+- [x] **5.4** ADR directory (`docs/governance/adr/`) seeded from MASTER_AUDIT §5 decisions. — **DONE (M5)**: `ccc9147` ADRs 001–005 (keep-shell, argv-not-bash-c, actions-SHA-pinned, jq-optional, platform-governance).
+- [x] **5.5** Commit `package-lock.json` or drop the npm shellcheck devDependency. *(P2-11)* — **DONE (M5)**: `7df7744` removed the npm ShellCheck devDependency; `package.json` has no npm dependency to lock.
 
 ## Deferred / Watch List
 
 - **Option C hybrid** (compiled helper for planning/locking/downloads) — revisit after Phase 3 ships. *(P3-5)*
 - **Windows/Git-Bash CI runner** — add when Windows support claims become load-bearing. *(P2-10 partial)*
 - **Module decomposition of `lib/cache.sh` / `version-manager.sh`** — refactor around stable interfaces only after Phase 4 contracts exist; file size alone is not a trigger.
+
+---
+
+## Reconciliation Note (2026-10-06)
+
+Source and commit inspection at `40562ee` distinguishes completed named work
+from remaining acceptance criteria. Earlier M4/M5 GO entries are historical,
+scoped evidence, not proof that every registry mutator is adopted or that
+coverage/signing is enabled. Remaining adoption includes workstation files,
+not just disposable caches. Phase 3 safety work remains the next priority.
+
+Signing is still hard-disabled pending an owner decision; the attestation
+marker workflow exists but its release/CI continuity needs operational proof.
+No new CI run, release, tag or commit is claimed by this reconciliation.
+Working-tree changes require review and merge before their items become done.
+
+Current safety slice (pending merge): transaction-backed VS Code generator
+with dry-run, JSON-safe rendering, locking and rollback regression tests;
+transaction preview no longer writes audit/log files. See MASTER_AUDIT's
+working-tree entries B1.9-vscode/P3-1-preview and MUTATION_REGISTRY for scope.
+The next adopter remains `scripts/theme-icon-manager.sh`, followed by the
+remaining registry in risk order; lower-phase enhancements are not unblocked
+by completing this one slice.

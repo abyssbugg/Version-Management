@@ -513,6 +513,9 @@ _txn_sha256() {
 # Audit journal (P3-2 seed; M2: metadata recorded per operation). Best-effort:
 # a journal failure is surfaced but never blocks rollback safety.
 _txn_journal() {
+    # Preview events are console-only: creating an audit directory or appending
+    # even one record would violate the transaction's zero-write contract.
+    [[ "${_TRANSACTION_ACTIVE:-}" == "dryrun" || "${TRANSACTION_DRY_RUN:-0}" == 1 ]] && return 0
     local event="$1" detail="$2"
     local journal="${TXN_AUDIT_LOG:-$HOME/.config/version-manager/audit.log}"
     local dir
@@ -546,7 +549,7 @@ transaction_start() {
         _TRANSACTION_NAME="$name"
         _TRANSACTION_DIR=""
         _TRANSACTION_FILES=()
-        log_info "Transaction (dry-run, zero writes): $name"
+        LOG_FILE='' log_info "Transaction (dry-run, zero writes): $name"
         _txn_journal "start" "mode=dry_run"
         return 0
     fi
@@ -601,7 +604,7 @@ transaction_add_file() {
     fi
 
     if [[ "$_TRANSACTION_ACTIVE" == "dryrun" ]]; then
-        log_info "[dry-run] would register: $file"
+        LOG_FILE='' log_info "[dry-run] would register: $file"
         return 0
     fi
 
@@ -680,7 +683,7 @@ EOF
         log_success "Transaction committed: $_TRANSACTION_NAME (${#_TRANSACTION_FILES[@]} files)"
     else
         _txn_journal "commit" "mode=dry_run"
-        log_info "Dry-run transaction committed (zero writes): $_TRANSACTION_NAME"
+        LOG_FILE='' log_info "Dry-run transaction committed (zero writes): $_TRANSACTION_NAME"
     fi
 
     _TRANSACTION_ACTIVE=""
@@ -700,7 +703,7 @@ transaction_rollback() {
 
     if [[ "$_TRANSACTION_ACTIVE" == "dryrun" ]]; then
         _txn_journal "rollback" "mode=dry_run"
-        log_info "Dry-run rollback (zero writes): $_TRANSACTION_NAME"
+        LOG_FILE='' log_info "Dry-run rollback (zero writes): $_TRANSACTION_NAME"
         _TRANSACTION_ACTIVE=""
         _TRANSACTION_NAME=""
         _TRANSACTION_DIR=""

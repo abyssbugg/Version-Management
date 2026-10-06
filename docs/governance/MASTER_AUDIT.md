@@ -42,10 +42,10 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 |----|---------|---------|----------|----------|
 | P1-1 | Lock acquisition is check-then-write (TOCTOU race) | **FIXED** (`026cdd3`, 2026-07-04) | `lib/lock.sh`: atomic mkdir + stale-reclaim + ownership-checked release; adopted by version-manager, setup-theme, setup-versions | Concurrency-tested, 10 contenders, zero overlap |
 | P1-2 | `cache_namespace_clear` runs `rm -rf "${CACHE_DIR:?}/${namespace:?}"` with namespace validated only as non-empty; `cache_clear_all` removes `$CACHE_DIR` wholesale | **FIXED** (`50216cf`, 2026-07-04) | `_cache_validate_namespace` enforces `^[A-Za-z0-9_-]+$`; CACHE_DIR sanity check before full clear | Canary-verified: invalid namespaces delete nothing |
-| P1-3 | `fix-nvm-issues.sh` appends raw lines to `~/.zshrc`; idempotency checks are inconsistent (`NVM_SILENT=1` vs `NVM_SILENT=true`); no managed BEGIN/END blocks; no transactions | CONFIRMED | `scripts/fix-nvm-issues.sh:52,75` | Use managed blocks (`# BEGIN version-management-setup:<name>` … `# END`), replaced atomically under a backup transaction |
-| P1-4 | `validate_safe_path` only **warns** on `..` and returns success | CONFIRMED | `lib/validation.sh:138` | Fail on `..` for security-critical call sites |
+| P1-3 | `fix-nvm-issues.sh` raw appends, NVM_SILENT drift and missing transactions | **FIXED** (`58b967d`, `3af0549`) | `lib/mutation.sh:mutation_nvm_block`, `scripts/fix-nvm-issues.sh`; `tests/integration/test_fix_nvm_managed.sh` | Canonical managed block and transaction-backed replacement landed in M4 |
+| P1-4 | `validate_safe_path` warned on `..` and returned success | **FIXED** (`c158de3`) | `lib/validation.sh:validate_safe_path`; `tests/unit/test_path_validation.sh` | Fail-closed lexical validation and canonical containment, tracked also as A4/B1.3 |
 | P1-5 | Secret scanning is one narrow regex (quoted lowercase assignments only); no secret-scan job in CI | **PARTIALLY FIXED** (`8f6d269`, 2026-07-04) | gitleaks job added to `test.yml`; local hook regex unchanged | CI now scans with gitleaks; upgrading the local hook regex remains optional |
-| P1-6 | Release artifacts checksummed but not signed; no SBOM; no provenance/attestation | CONFIRMED | `release.yml:148,237`; no cosign/gpg/sbom/attest anywhere | Add artifact signing + SBOM generation to release workflow |
+| P1-6 | Release artifacts checksummed but not signed; no SBOM; no provenance/attestation | **PARTIALLY FIXED** (`31a23aa`, `d25c637`, 2026-10-04) | SBOM generation + attestation marker workflow live; `d25c637` keyless cosign skeleton disabled (owner decision); runtime signing not deployed | SBOM + attestation framework in place; keyless signing skeleton documented, execution deferred |
 | P1-7 | `validate-quality.sh` returns 0 even when degraded | **FIXED** (`78369bf`, 2026-07-04) | was: `tools/validate-quality.sh:53-64` | Gating by default; `--advisory` flag for report-only |
 | P1-8 | `cache_stats` defined **twice** in the same file (flat + namespaced API layers); later definition silently wins | **FIXED** (`50216cf`, 2026-07-04) | single definition remains; test asserts `grep -c '^cache_stats()' lib/cache.sh` == 1 | No other duplicate functions found in the file |
 | P1-9 | Platform detection duplicated with behavioral drift: `lib/utils.sh` `get_os` returns `wsl`; `version-manager.sh`, `version-advanced.sh`, `lib/env.sh` (`detect_os`) return `linux` for WSL. `get_shell` also duplicated | **FIXED** (`668f7a1` canonical API + `b7d1007` root-script wrappers, 2026-10-04) | canonical platform API in `lib/env.sh` (`get_os` = alias of `detect_os`; WSL reports `wsl` from BOTH, pinned by `tests/unit/test_platform_contract.sh`, `VMS_PROC_VERSION` seam); 13 libs' `SCRIPT_DIR` renamed `_VMS_<LIB>_DIR`; `version-manager.sh`/`version-advanced.sh` now source `lib/env.sh` and delegate — wrapper-parity cases RED at base (4 drift assertions) → GREEN 47/47; WSL-coupled consumers keyed `linux|wsl` preserving exact pre-fix behavior. Live-WSL execution unverified (no WSL host); proven by seam construction |
@@ -59,10 +59,10 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 | P2-1 | 16 sourced libraries + plugins lack strict mode (full inventory verified: all of `lib/auto-activate.sh, cache.sh, fonts.sh, gvm.sh, jenv.sh, metrics.sh, nvm.sh, performance.sh, phpenv.sh, pyvm.sh, rustup.sh, theme-ops.sh, utils.sh, validation.sh, plugins/asdf.sh, plugins/rbenv.sh`) | CONFIRMED | heads of each file | **Policy, not blanket fix:** executables get `set -euo pipefail`; sourced libraries deliberately avoid setting global strict mode (it would leak into callers) but must document this and code defensively. Record as ENGINEERING_RULES §3 |
 | P2-2 | `setup.sh` has strict mode but no ERR trap and doesn't source `lib/error-handling.sh` | **FIXED** (`7df7744`, 2026-10-04) | sources `lib/error-handling.sh`, registers `setup_error_trap`, re-asserts `SCRIPT_DIR` after the source (error-handling re-derives it to `lib/`) |
 | P2-3 | `sync` command is a dead stub ("Implementation would go here") | **FIXED** (`7df7744`, 2026-10-04) | stub removed from dispatch, body, and help text |
-| P2-4 | Validators exist but unused at key call sites (`install_node_version` doesn't validate `$version`) | CONFIRMED | `version-manager.sh:792-811`; `lib/validation.sh:100` | Sweep public entry points; validate all user-supplied parameters |
+| P2-4 | Validators unused at public installer entry points | **PARTIAL** (`0648f2d`) | `version-manager.sh:install_node_version` now guards input; Python/Ruby/PHP installers remain unguarded | Complete public-entrypoint sweep and constrain Node aliases; do not treat the Node-only guard as complete |
 | P2-5 | No log rotation/cleanup for `LOG_FILE` | **FIXED** (`7df7744`, 2026-10-04) | rotation/cleanup in `lib/logger.sh` |
 | P2-6 | NVM pin `v0.39.7` (positional override exists, no env/config knob); pins duplicated in `lib/nvm.sh:89`, `setup-versions.sh:104` | **FIXED** (`7df7744` + `b7d1007` + `05ff686`, 2026-10-04) | single source of truth `lib/nvm.sh:24` (`NVM_VERSION` env-overridable); `setup-versions.sh` consumes `${NVM_VERSION}` (literal count 0); `version-manager.sh` sources `lib/nvm.sh` and consumes it as the `install_nvm` positional default (literal count 0); remaining repo-wide literals are test fixtures only |
-| P2-7 | Generated Dockerfiles: single-stage, no `USER`, no `HEALTHCHECK` | CONFIRMED | `version-advanced.sh:468,499,604,638,674` | Upgrade templates to multi-stage + non-root + healthcheck |
+| P2-7 | Generated Dockerfiles: single-stage, no `USER`, no `HEALTHCHECK` | **FIXED in templates** (`0648f2d`, merged `343afa7`) | `version-advanced.sh` Docker generators; `tests/unit/test_docker_templates.sh` | Template contracts added; this records source/template tests, not fresh container runtime verification |
 | P2-8 | Missing docs: `docs/OPERATIONS.md`, `docs/SECURITY.md`, `docs/MAINTENANCE.md`, `config/README.md`, `FontPatcher/ATTRIBUTION.md`, no ADR directory | **FIXED** (`ccc9147` + `31a23aa`, 2026-10-04) | OPERATIONS/SECURITY/config README/ATTRIBUTION + ADRs 001–005 (codify §5.1–5.5); `docs/MAINTENANCE.md` runbook (pin table + verification recipe, release flow, known-gaps pointer) |
 | P2-9 | `.shellcheckrc` globally disables SC2155, SC1091, SC2015, SC2181 **plus** SC2034 (duplicated at lines 14 & 41), SC2329, SC2016, SC2059, SC2012, SC2129 | CONFIRMED (broader than audits claimed) | `.shellcheckrc:7-41` | Re-justify each; move high-risk ones (SC2015, SC2181) to inline suppressions |
 | P2-10 | CI gaps: no pre-commit job, no Windows/Git-Bash runner despite documented WSL/Windows support, no coverage gate | CONFIRMED | `.github/workflows/test.yml:9-40` | Add pre-commit job now; Windows runner when platform claims are load-bearing |
@@ -74,8 +74,8 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 
 | ID | Item | Rationale |
 |----|------|-----------|
-| P3-1 | **Transactional mutation framework** — plan/apply/verify/commit-or-rollback wrapper adopted by every script that mutates user or system files. `lib/backup.sh` transactions (`lib/backup.sh:490+`) are the seed; `setup-theme.sh:182-191` is the reference adopter. Non-adopters verified: `fix-nvm-issues.sh`, `setup-versions.sh`, `emergency-recovery.sh`, `setup-fonts-enhanced.sh` | The project **is** configuration management; declarative plan→apply is the correct end-state |
-| P3-2 | **Operation audit journal** (`~/.config/version-manager/audit.log`): timestamp, script, operation, targets, mode, backup ID, result, exit code | Required for enterprise traceability of workstation mutations |
+| P3-1 | **PARTIAL:** hardened `lib/backup.sh` + `lib/mutation.sh`; all six M4 named adopters landed (`3af0549`, `a3b9038`, `7def705`, `50163f2`, `96c482b`, `08c3446`). Broader registry adoption, including theme-icon and slick-terminal user-file writes, remains open | The project **is** configuration management; named-set completion does not establish the all-mutator invariant |
+| P3-2 | **PARTIAL:** `_txn_journal` in `lib/backup.sh` records transaction events (`fcbc584`); adopters add operation detail. Complete script/target/mode/backup/result/exit-code coverage across every mutator remains open | Required for traceability; dry-run must remain console-only to satisfy zero writes |
 | P3-3 | **Real test maturity**: Bats (or equivalent), kcov coverage, hermetic zsh-session tests for lazy-loading, plugin contract tests | Current coverage numbers are not trustworthy signals |
 | P3-4 | **Module API contracts**: public/private function conventions, `docs/API.md` conformance tests, plugin load validation (path containment, required functions, namespacing) | Global-namespace shell at 74 files needs boundaries to keep scaling |
 | P3-5 | **Option C (deferred)**: optional compiled helper for planning/JSON/locking/checksums/downloads, shell remains the UX layer | Revisit only after P0–P2 and P3-1 land; not now |
@@ -150,26 +150,61 @@ directive milestone mapping (M4).
 | B1.12-new | `lib/cache.sh` ran `cache_init` at source time with an unredirected `mkdir -p`: a read-only (555) HOME killed ANY executable sourcing the chain (setup-versions → nvm.sh → cache.sh) at load, before any mutation path | **FIXED** (`05ff686`, 2026-10-04) | source-time init degrades: stderr-only warn (B2.4), `_CACHE_OPERATIONAL` flag, setters no-op/getters miss; `bash -c 'set -euo pipefail; source lib/cache.sh; echo SURVIVED'` exits 0 under 555 HOME; writable-HOME behavior unchanged (`test_cache.sh` green); pinned by the adverse cache-source case |
 | B1.13-new | `lib/backup.sh` export -f's all transaction functions; `mutation.sh`/`auto-activate.sh` guarded their backup.sh source with `declare -f transaction_start` — a grandchild inheriting the exported copies satisfied the guard, backup.sh never sourced, `_TRANSACTION_ACTIVE` never initialized, and the first transaction call died under `set -u` (`environment: line 1: _TRANSACTION_ACTIVE: unbound variable`; reproduced by the adverse suite's post-editor cases) | **FIXED** (`dd312b6`, 2026-10-04) | backup.sh re-source-safe (readonly config block guarded, functions re-declared every source); mutation.sh + auto-activate.sh source unconditionally per the M4 clean-function-slate lesson; pinned by the adverse strip cases (RED at base: unbound-variable death → GREEN 19/19) |
 | B1.9 | fonts.sh double-zero on no-match (grep -c + `\|\| echo 0`); Bash 3.2 vs 4+ contract undefined | **FIXED** (`cdcba9e`) | `|| true` on grep -c (single count); Bash >= 4.0 contract documented (ENGINEERING_RULES §3.1) and enforced in test_runner |
-| B2.1 | `.zshrc` bare appends, no managed blocks, `NVM_SILENT` drift | OPEN — M4 | managed-block editor + canonical NVM block scheduled M4 with per-adopter canary gates |
+| B2.1 | `.zshrc` bare appends, no managed blocks, `NVM_SILENT` drift | **FIXED for M4 named set** (`58b967d`, `3af0549`, `a3b9038`) | Editor and canonical NVM block adopted; per-adopter matrices in `test_mutation_editor.sh`, `test_fix_nvm_managed.sh`, `test_setup_versions_managed.sh`. Broader adoption remains P3-1 |
 | B2.2 | `make clean` deletes unscoped `/tmp/test_*` | **FIXED** (`7df7744`, 2026-10-04) | clean scoped to `${TMPDIR:-/tmp}/version-management-setup/` + repo-local `test-results/`; unrelated `/tmp/test_*` survival probe tested |
 | A5-new | `lib/validation.sh:12` clobbers the global `SCRIPT_DIR` on source (M1 library-invariant spirit: sourcing must not disturb caller state); caught live by the M4 fonts adopter — every font source silently retargeted to `lib/` | **FIXED** (`668f7a1`, 2026-10-04) | SCRIPT_DIR-hygiene pass: 13 libs renamed to `_VMS_<LIB>_DIR` with all internal references updated; caller-global `SCRIPT_DIR` preservation verified by `tests/unit/test_platform_contract.sh`; addendum `dd312b6`: `lib/cache.sh` lowercase `script_dir` clobber renamed `_VMS_CACHE_DIR` (same class, no in-repo caller affected) |
 | B2.4 | Logger contaminates stdout of value-returning functions | **FIXED** (`520d533`, 2026-10-02) | all log levels → stderr (INFO/WARN/SUCCESS/DEBUG; ERROR already did); `tests/unit/test_logger_contract.sh` asserts the stream contract, gating, file logging, and M1 `$-` regression; `test_logger.sh` stdout-capture assertions updated to the stderr contract |
 
-**Directive execution state (2026-10-04):** M0 **GO**, M1 **GO**, M2 **GO**,
-M3 **GO**, M4 **GO for the directive-named adopter set** (all six: fix-nvm-issues,
-setup-versions, fix-terminal-issues, update-global-node-symlinks,
-setup-fonts-enhanced, emergency-recovery — each transaction-routed with
-red→green per-adopter matrices; registry published). **M5 GO** (2026-10-04):
-platform consolidation + root-script wrappers (`668f7a1`, `b7d1007`), hygiene
-smalls (`7df7744`), docs compliance (`ccc9147`), release integrity
-(`31a23aa`), transaction-primitive robustness (`05ff686`, `dd312b6`) — all
-lanes verified (red→green where applicable; manifest 41/41 twice locally,
-CI 7/7 builds #32–#33). Remaining: M4-continuation adoption of the broader
-registry (cache/state-writer class, lower risk); documented known gaps in
-SECURITY/MAINTENANCE (vendored font-patcher gitleaks finding, upload-artifact
-version drift, keyless-signing decision, live-WSL verification).
+**Directive execution state (historical evidence, 2026-10-04):** M0 **GO**,
+M1 **GO**, M2 **GO**, M3 **GO**, M4 **GO for the six named adopters**.
+The recorded M5 GO covers platform consolidation (`668f7a1`, `b7d1007`),
+hygiene (`7df7744`), compliance docs (`ccc9147`), release-integrity additions
+(`31a23aa`) and transaction hardening (`05ff686`, `dd312b6`), with recorded
+CI 7/7 builds #32–#33. These are prior evidence, not new CI execution.
+
+**Source reconciliation at `40562ee` (2026-10-06):** broader mutation adoption
+remains open, including workstation configuration in `theme-icon-manager.sh`
+and `setup-slick-terminal.sh`, not only cache/state writers. The merge
+`3968abe` contains plugin conformance tests but no kcov wiring; `Makefile`
+coverage still reports manual markers. Signing is disabled; attestation
+marker plumbing exists but operational continuity proof remains external.
+Live WSL execution and the other documented SECURITY/MAINTENANCE gaps
+remain unverified by this session.
 
 Test-infrastructure durability (B1.8, `e1a8c66`, 2026-10-04): hosted macOS
 test legs that hang now fail closed inside the run (watchdog, FAIL:124)
 instead of dying silently at the 4h job timeout; per-file progress makes any
 residual hang name its file in CI logs.
+
+### Working-tree safety fixes (2026-10-06, pending review/merge)
+
+- **B1.9-vscode / P3-1:** `scripts/generate-vscode-settings.sh` used raw
+  placeholder substitution and wrote output before validation. It now passes
+  values as parser arguments, validates before atomic publication, preserves
+  symlink content/mode, and uses existing locks/transactions for rollback.
+  `tests/integration/test_vscode_settings_managed.sh` tests original-code
+  failure via `VMS_TEST_BASELINE=1` and current-code behavior without it.
+- **P3-1-preview:** transaction dry-run still created/appended audit and log
+  files despite reporting zero writes. `_txn_journal` now skips preview
+  writes and preview messages locally disable file logging. The original
+  primitive fails all three cases in `tests/unit/test_transaction_preview.sh`;
+  apply-mode auditing remains unchanged. This corrects the scope of earlier
+  dry-run evidence, which checked backup directories and target bytes only.
+  The symlink adopter's former expectation of a dry-run journal write is
+  replaced with console visibility plus journal absence; its apply/restore
+  audit checks are retained.
+
+Local macOS verification: `make test` under sandboxed HOME/XDG/TMPDIR
+reported **46 passed, 0 failed, 0 skipped, 0 errors** after updating the
+contradictory symlink-preview assertion. Original-code controls
+(`VMS_TEST_BASELINE=1`) exited 1 for both new suites; current implementations
+exited 0. The manifest and command-output hashes are retained under
+`test-results/manifest.json` and `test-results/rovodev-evidence/` (local,
+gitignored evidence; not release artifacts).
+
+Neither entry closes the broader Phase 3 registry or constitutes a new CI GO.
+
+**Reconciliation scope:** Commit/source inspection is not proof of a fresh
+release, CI run or platform execution. Working-tree remediation is tracked
+separately until review and merge; no finding is closed merely because its
+phase or a merge-commit subject mentions it.
