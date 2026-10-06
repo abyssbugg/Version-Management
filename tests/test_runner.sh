@@ -100,12 +100,9 @@ _run_test_file() {
     local limit_ms=$(( (${VMS_TEST_FILE_TIMEOUT:-300}) * 1000 ))
     local waited_ms=0 pid
     out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
-    # B2.6/P1-11: in coverage mode each file runs under kcov; include-path=lib
-    # restricts instrumentation to the lib/ sources the tests exercise.
     local -a cmd=(bash "./$test_name")
     if [[ "$KCOV_MODE" == "true" ]]; then
-        # Pass the SCRIPT, not the Bash ELF binary: select kcov's shell engine
-        # rather than ptrace/personality tracing, which hosted CI disallows.
+        # Select the shell engine, not binary ptrace/personality tracing.
         cmd=(kcov --bash-parser="$(command -v bash)" --include-path="$ROOT_DIR/lib" "$KCOV_DIR" "$test_dir/$test_name")
     fi
     (
