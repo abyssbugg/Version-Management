@@ -654,7 +654,12 @@ transaction_add_file() {
         readlink "$file" > "$entry_dir/data" || { log_error "Cannot read symlink: $file"; return 1; }
     elif [[ -f "$file" ]]; then
         kind="file"
-        cp -p "$file" "$entry_dir/data" || { log_error "Cannot back up: $file"; return 1; }
+        # Preserve permissions explicitly: BSD cp -p also propagates immutable
+        # flags, making backup payloads unremovable and breaking rollback.
+        cp "$file" "$entry_dir/data" || { log_error "Cannot back up: $file"; return 1; }
+        local mode
+        mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null) || return 1
+        chmod "$mode" "$entry_dir/data" || return 1
     else
         log_error "Unsupported file type (not regular/symlink): $file"
         return 1
@@ -751,7 +756,9 @@ transaction_rollback() {
                     rollback_errors=$((rollback_errors + 1))
                 fi
             else
-                if cp -p "$data" "$path" 2>/dev/null; then
+                local restored_mode
+                restored_mode=$(stat -c '%a' "$data" 2>/dev/null || stat -f '%Lp' "$data" 2>/dev/null) || restored_mode=''
+                if [[ -n "$restored_mode" ]] && cp "$data" "$path" 2>/dev/null && chmod "$restored_mode" "$path" 2>/dev/null; then
                     if [[ "$(_txn_sha256 "$path")" == "$sha" ]]; then
                         log_debug "Restored (hash-verified): $path"
                     else

@@ -73,7 +73,7 @@ before=$(snapshot)
 check run
 check test "$before" = "$(snapshot)"
 # Preserve existing link, target mode and bytes on a real update.
-mv "$JSON" "$REPO/settings' target.json"
+command mv "$JSON" "$REPO/settings' target.json"
 ln -s "settings' target.json" "$JSON"
 printf '{"old":true}\n' >"$JSON"
 chmod 640 "$REPO/settings' target.json"

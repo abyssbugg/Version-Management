@@ -176,7 +176,7 @@ test legs that hang now fail closed inside the run (watchdog, FAIL:124)
 instead of dying silently at the 4h job timeout; per-file progress makes any
 residual hang name its file in CI logs.
 
-### Working-tree safety fixes (2026-10-06, pending review/merge)
+### Terminal safety fixes (2026-10-06, locally integrated)
 
 - **B1.9-vscode / P3-1:** `scripts/generate-vscode-settings.sh` used raw
   placeholder substitution and wrote output before validation. It now passes
@@ -202,7 +202,24 @@ exited 0. The manifest and command-output hashes are retained under
 `test-results/manifest.json` and `test-results/rovodev-evidence/` (local,
 gitignored evidence; not release artifacts).
 
-Neither entry closes the broader Phase 3 registry or constitutes a new CI GO.
+Additional terminal fixes are integrated on `fix/terminal-mutation-safety`:
+
+- **P3-1-icons** (`a94b72d`): safe literal icon assignment, atomic transaction
+  publication, preserved prompt-mode names and Apple reset identity; original
+  implementation fails 34 behavioral assertions.
+- **P3-1-slick** (`4eb2c20`): fonts/settings/glyph demo are one rollback unit;
+  original implementation fails 25 assertions (the known-blocking original
+  FIFO case is excluded only from the baseline control).
+- **P3-1-registration** (`a03f8e7`, follow-up on integration): duplicate
+  registration retains first pre-state, dangling symlinks survive rollback,
+  original permissions are restored without propagating immutable flags.
+  The four original registration assertions fail before the fix. Local font
+  installation now shares the workstation lock; a forced lock-denial regression
+  fails twice before that repair.
+
+These entries close the terminal-output fix, not the broader Phase 3 registry,
+and do not constitute a new hosted-CI GO. The earlier 46-file run above is
+historical evidence; final gate evidence is reported with this branch's handoff.
 
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked

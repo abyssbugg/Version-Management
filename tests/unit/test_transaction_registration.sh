@@ -50,5 +50,16 @@ if bash -c '
 ' bash "$SB/repo/setup-fonts-enhanced.sh" >"$SB/fonts.log" 2>&1; then check false; fi
 check test ! -d "$HOME/Library/Fonts"
 check test ! -d "$HOME/.local/share/fonts"
+# BSD cp -p must not propagate immutable flags into backup storage.
+if [[ "$OSTYPE" == darwin* ]]; then
+    printf 'immutable prestate\n' >"$file"
+    chflags uchg "$file"
+    transaction_start flags
+    transaction_add_file "$file"
+    payload="$_TRANSACTION_DIR/files/0000/data"
+    chflags nouchg "$file"
+    transaction_rollback
+    check rm "$payload"
+fi
 printf 'Transaction registration: %s failure(s)\n' "$failures"
 [[ "$failures" == 0 ]]

@@ -50,7 +50,7 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 - [~] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)* — **PARTIAL:** transaction primitives and best-effort `_txn_journal` exist (`fcbc584`, `05ff686`, `dd312b6`); managed-block operations verify their output. End-to-end lifecycle and complete operation metadata are not yet enforced for every registry entry.
 - [x] **3.2** Managed-block editing for shell rc files: `# BEGIN version-management-setup:<name>` … `# END`, replaced atomically. Fix the `NVM_SILENT=1` vs `=true` idempotency drift in `scripts/fix-nvm-issues.sh`. *(P1-3)* — `58b967d` editor, `3af0549` fix-nvm-issues, `a3b9038` setup-versions; per-adopter tests pin the canonical block and rerun behavior.
 - [x] **3.3** Migrate the five named scripts onto the framework: `scripts/fix-nvm-issues.sh` (`3af0549`), `setup-versions.sh` (`a3b9038`), `scripts/emergency-recovery.sh` (`08c3446`), `setup-fonts-enhanced.sh` (`96c482b`), `tools/update-global-node-symlinks.sh` (`50163f2`). The directive also added `scripts/fix-terminal-issues.sh` (`7def705`). This closes the named list, not the broader registry.
-- [~] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test. **Still open beyond the named set:** `scripts/theme-icon-manager.sh`, `setup-slick-terminal.sh` and other registry entries retain direct writes. Existing adverse-condition tests (`4d3053d`) do not prove all-mutator coverage.
+- [~] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test. **Terminal adopters integrated:** VS Code generator (`96da206`), `scripts/theme-icon-manager.sh` (`a94b72d`) and `setup-slick-terminal.sh` (`4eb2c20`) now have verified transaction publication and sandboxed rollback matrices. Other registry entries remain outside this terminal fix. Existing adverse-condition tests (`4d3053d`) do not prove all-mutator coverage.
 
 ## Phase 4 — Consolidation & Test Maturity (P1-9, P1-11, P2-*)
 
@@ -91,10 +91,10 @@ marker workflow exists but its release/CI continuity needs operational proof.
 No new CI run, release, tag or commit is claimed by this reconciliation.
 Working-tree changes require review and merge before their items become done.
 
-Current safety slice (pending merge): transaction-backed VS Code generator
-with dry-run, JSON-safe rendering, locking and rollback regression tests;
-transaction preview no longer writes audit/log files. See MASTER_AUDIT's
-working-tree entries B1.9-vscode/P3-1-preview and MUTATION_REGISTRY for scope.
-The next adopter remains `scripts/theme-icon-manager.sh`, followed by the
-remaining registry in risk order; lower-phase enhancements are not unblocked
-by completing this one slice.
+Terminal-output safety fix integrated on `fix/terminal-mutation-safety`:
+VS Code generator and preview repair (`96da206`), icon editor (`a94b72d`),
+slick-terminal bundle (`4eb2c20`), and shared rollback/lock corrections
+(`a03f8e7`). The original CLI defaults and output locations are retained.
+See MASTER_AUDIT and MUTATION_REGISTRY for regression evidence and boundaries.
+The broader registry, coverage instrumentation and release-signing decisions
+remain separate roadmap work; completing this fix does not mark them done.

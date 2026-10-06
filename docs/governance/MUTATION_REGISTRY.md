@@ -33,7 +33,7 @@ tools (7): `analytics-report.sh`, `preview-nerd-fonts.sh`, `system-diagnostics.s
 
 Read-only (no sinks): `validate-setup.sh`, `lib/env.sh`, `lib/utils.sh`, `lib/validation.sh`, `scripts/lint-shell.sh`, `scripts/check-no-secrets.sh`, `tools/check-dependencies.sh`, `tools/health-check.sh`, `tools/validate-quality.sh`.
 
-## Working-tree adoption update (2026-10-06, pending review/merge)
+## Terminal adoption update (2026-10-06, integration branch)
 
 `scripts/generate-vscode-settings.sh` now renders JSON before publication,
 previews without writes, preserves existing symlinks/modes, and uses the
@@ -43,9 +43,23 @@ fallback, hostile string values, idempotency, failed publication/verification,
 new-file rollback and link preservation. Its default remains the repo-local
 `vscode-settings.json`; it does not install settings into a live VS Code profile.
 
-This is one additional adopter, not closure of the full registry. In particular,
-`theme-icon-manager.sh` and `setup-slick-terminal.sh` still need adoption.
-Transaction preview auditing is console-only; apply events retain backup IDs.
+Three terminal adopters are now integrated: the generator (`96da206`),
+`theme-icon-manager.sh` (`a94b72d`) and `setup-slick-terminal.sh` (`4eb2c20`).
+The icon editor handles literal input without evaluating configuration, retains
+prompt mode names, and preserves theme identity on repeated resets. Slick
+terminal publishes its fonts, JSON and executable glyph demo as one rollback
+unit, preserving the original locations and settings values. Their regression
+matrices cover zero-write previews, idempotency, symlinks/modes and injected
+post-publication failure, including new-file removal.
+
+Shared follow-up `a03f8e7` preserves first-registration state, dangling symlinks
+and original modes during transaction rollback, and coordinates local font
+installation using the existing `workstation-mutation` lock. Transaction
+preview auditing is console-only; apply events retain backup IDs. Fontconfig
+cache is derived state: refresh is scoped to the destination and retried after
+file rollback; refresh failure remains a nonzero result, not a success claim.
+
+This closes the terminal-output fix, not every mutator in the broader registry.
 
 ## Per-operation metadata contract (M2 exit criterion)
 
