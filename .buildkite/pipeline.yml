@@ -116,10 +116,10 @@ steps:
         command: |
           # Provision the hosted Linux agent (idempotent), mirroring the
           # other steps' provisioning pattern.
-          command -v kcov >/dev/null 2>&1 || {
+          if ! command -v kcov >/dev/null 2>&1 || ! command -v zsh >/dev/null 2>&1 || ! command -v shellcheck >/dev/null 2>&1; then
             apt-get update -qq
-            apt-get install -y -qq kcov
-          }
+            apt-get install -y -qq kcov zsh shellcheck
+          fi
           make coverage-kcov
         artifact_paths:
           - "coverage/**"

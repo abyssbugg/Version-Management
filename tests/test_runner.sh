@@ -102,24 +102,19 @@ _run_test_file() {
     out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
     # B2.6/P1-11: in coverage mode each file runs under kcov; include-path=lib
     # restricts instrumentation to the lib/ sources the tests exercise.
+    local -a cmd=(bash "./$test_name")
     if [[ "$KCOV_MODE" == "true" ]]; then
-        # kcov wraps the actual executable with full path; the --include-path=lib
-        # restricts coverage to lib/ sources. Run outside cd so kcov sees the full path.
-        (
+        # Pass the SCRIPT, not the Bash ELF binary: select kcov's shell engine
+        # rather than ptrace/personality tracing, which hosted CI disallows.
+        cmd=(kcov --bash-parser="$(command -v bash)" --include-path="$ROOT_DIR/lib" "$KCOV_DIR" "$test_dir/$test_name")
+    fi
+    (
+        cd "$test_dir" && \
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            kcov --include-path=lib "$KCOV_DIR" bash "$test_dir/$test_name"
-        ) >"$out_file" 2>&1 &
-    else
-        (
-            cd "$test_dir" && \
-                HOME="$sandbox" \
-                XDG_CONFIG_HOME="$sandbox/.config" \
-                XDG_CACHE_HOME="$sandbox/.cache" \
-                bash "./$test_name"
-        ) >"$out_file" 2>&1 &
-    fi
+            "${cmd[@]}"
+    ) >"$out_file" 2>&1 &
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
         if (( waited_ms >= limit_ms )); then
@@ -253,6 +248,7 @@ main() {
 
     if [[ ${#test_files[@]} -eq 0 ]]; then
         _log_info "No test files found for suite: $suite"
+        [[ "$KCOV_MODE" != true ]] || exit 3
         exit 0
     fi
 
@@ -304,6 +300,23 @@ main() {
     echo ""
 
     [[ "$failed_files" -gt 0 ]] && exit 1
+    if [[ "$KCOV_MODE" == true ]]; then
+        # A successful subprocess alone does not prove instrumentation occurred.
+        python3 - "$KCOV_DIR" "${#test_files[@]}" <<'PY' || exit 3
+import pathlib, sys, xml.etree.ElementTree as ET
+reports = list(pathlib.Path(sys.argv[1]).glob('test_*/cobertura.xml'))
+try:
+    roots = [ET.parse(path).getroot() for path in reports]
+    valid = sum(int(root.get('lines-valid', '0')) for root in roots)
+    hits = sum(int(root.get('lines-covered', '0')) for root in roots)
+    if len(reports) < int(sys.argv[2]) or valid <= 0 or hits <= 0:
+        raise ValueError('missing reports or no instrumented/executed library lines')
+except (ValueError, ET.ParseError, OSError) as exc:
+    print('coverage validation failed: ' + str(exc), file=sys.stderr)
+    sys.exit(1)
+print(f'Validated {len(reports)} real coverage reports: {hits}/{valid} executed library lines (summed per suite)')
+PY
+    fi
     exit 0
 }
 
