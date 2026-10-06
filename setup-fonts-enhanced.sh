@@ -99,7 +99,17 @@ install_with_homebrew() {
 # (or removes) the pre-state byte-identically; an unchanged source writes
 # nothing (byte-compare idempotency, no mtime churn); the copy itself is
 # atomic (temp file in the target directory + rename, source mode preserved).
-install_local_fonts() {
+install_local_fonts() (
+    # Serialize with the other workstation mutators; confine the trap to this
+    # operation so an interactive caller does not retain the lock afterward.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" != 1 ]]; then
+        source "$_VMS_FONTS_SCRIPT_DIR/lib/lock.sh"
+        lock_with_trap workstation-mutation 30 || return 1
+    fi
+    _install_local_fonts_locked
+)
+
+_install_local_fonts_locked() {
     log_info " Installing MesloLGS NF from local files..."
 
     local font_files=(

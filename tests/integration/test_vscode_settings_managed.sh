@@ -11,8 +11,10 @@ unset LOG_FILE BACKUP_DIR TRANSACTION_DRY_RUN NVM_DIR
 mkdir -p "$HOME"
 REPO="$SANDBOX/repo's copy"
 mkdir -p "$REPO/scripts" "$REPO/config"
-if [[ "${VMS_TEST_BASELINE:-0}" == 1 ]]; then
-    git -C "$ROOT" show HEAD:scripts/generate-vscode-settings.sh >"$REPO/scripts/generate-vscode-settings.sh"
+if [[ -n "${VMS_TEST_BASELINE:-}" ]]; then
+    baseline="$VMS_TEST_BASELINE"
+    [[ "$baseline" != 1 ]] || baseline=40562ee34bbc6de18e9ff1c99a198bcbeba5b397
+    git -C "$ROOT" show "$baseline:scripts/generate-vscode-settings.sh" >"$REPO/scripts/generate-vscode-settings.sh"
 else
     cp "$ROOT/scripts/generate-vscode-settings.sh" "$REPO/scripts/"
 fi

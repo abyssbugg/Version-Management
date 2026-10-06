@@ -7,9 +7,11 @@ trap 'rm -rf -- "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
 export TXN_AUDIT_LOG="$HOME/audit/events.log" LOG_FILE="$HOME/log/events.log"
-if [[ "${VMS_TEST_BASELINE:-0}" == 1 ]]; then
+if [[ -n "${VMS_TEST_BASELINE:-}" ]]; then
+    baseline="$VMS_TEST_BASELINE"
+    [[ "$baseline" != 1 ]] || baseline=40562ee34bbc6de18e9ff1c99a198bcbeba5b397
     mkdir -p "$SANDBOX/lib"
-    git -C "$ROOT" show HEAD:lib/backup.sh >"$SANDBOX/lib/backup.sh"
+    git -C "$ROOT" show "$baseline:lib/backup.sh" >"$SANDBOX/lib/backup.sh"
     ln -s "$ROOT/lib/logger.sh" "$SANDBOX/lib/logger.sh"
     # shellcheck source=lib/backup.sh
     source "$SANDBOX/lib/backup.sh"

@@ -617,14 +617,20 @@ transaction_add_file() {
 
     # Idempotent duplicate registration: the same path registered twice keeps
     # its first backup (the pre-transaction state).
-    if grep -qxF "$file" "$_TRANSACTION_DIR/files.tsv" 2>/dev/null \
-        || grep -qxF "$file" "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null; then
+    local registered_kind registered_idx registered_sha registered_path
+    while IFS=$'\t' read -r registered_kind registered_idx registered_sha registered_path; do
+        if [[ "$registered_path" == "$file" ]]; then
+            log_debug "Already registered, idempotent: $file"
+            return 0
+        fi
+    done < "$_TRANSACTION_DIR/files.tsv"
+    if grep -qxF -- "$file" "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null; then
         log_debug "Already registered, idempotent: $file"
         return 0
     fi
 
     # New files: nothing to back up; recorded for removal on rollback.
-    if [[ ! -e "$file" ]]; then
+    if [[ ! -e "$file" && ! -L "$file" ]]; then
         log_debug "File does not exist yet, marking as new: $file"
         echo "$file" >> "$_TRANSACTION_DIR/new_files.txt"
         _TRANSACTION_FILES+=("NEW:$file")
@@ -648,7 +654,7 @@ transaction_add_file() {
         readlink "$file" > "$entry_dir/data" || { log_error "Cannot read symlink: $file"; return 1; }
     elif [[ -f "$file" ]]; then
         kind="file"
-        cp "$file" "$entry_dir/data" || { log_error "Cannot back up: $file"; return 1; }
+        cp -p "$file" "$entry_dir/data" || { log_error "Cannot back up: $file"; return 1; }
     else
         log_error "Unsupported file type (not regular/symlink): $file"
         return 1
@@ -745,7 +751,7 @@ transaction_rollback() {
                     rollback_errors=$((rollback_errors + 1))
                 fi
             else
-                if cp "$data" "$path" 2>/dev/null; then
+                if cp -p "$data" "$path" 2>/dev/null; then
                     if [[ "$(_txn_sha256 "$path")" == "$sha" ]]; then
                         log_debug "Restored (hash-verified): $path"
                     else
