@@ -1245,13 +1245,17 @@ _vm_status_active_version() {
         python)
             command -v python3 >/dev/null 2>&1 || return 1
             raw="$(python3 --version 2>&1 | head -n 1 || true)"
-            # Portable extraction: "Python 3.12.0" -> "3.12.0". The previous
-            # ${raw#*[[:space:]]} relied on POSIX-class globbing inside # / %%
-            # expansion, whose behavior varies across bash builds (it parsed
-            # correctly on macOS bash 5.3 but mis-parsed on the hosted Linux
-            # agent, flipping python.match). `read` splits on IFS whitespace
-            # identically everywhere.
-            read -r _ raw _ <<<"$raw" || true
+            # Portable extraction: "Python 3.12.0" -> "3.12.0".
+            # Prior forms each failed the hosted Linux agent while passing
+            # macOS: ${raw#*[[:space:]]} used POSIX-class globbing inside
+            # #-expansion (build-dependent), and `read -r _ raw _ <<<"$raw"`
+            # left python.active empty there (exact mechanism unconfirmed —
+            # cannot repro on the macOS host). This form uses only literal
+            # parameter expansion: strip a leading "Python " label, then take
+            # the first space-delimited field. No globbing, subshell, pipe, or
+            # here-string, so it evaluates identically on every bash build.
+            raw="${raw#Python }"
+            raw="${raw%% *}"
             ;;
         go)
             command -v go >/dev/null 2>&1 || return 1

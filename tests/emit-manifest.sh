@@ -107,7 +107,10 @@ for f in "${files[@]}"; do
         printf '%s\n' "---- failed: ${name} (output tail) ----" >&2
         # Failing assertions first (they can scroll past the tail window when a
         # file has many passing lines after the failure), then the tail for context.
-        _fail_lines="$(printf '%s\n' "$plain" | grep -nE '✗|FAIL(:|ED)?|✘' | grep -vE "✗ ${name} \(exit" | head -40 || true)"
+        # -A2 trails each failing marker with the two context lines that
+        # assert_eq/assert_contains print (expected:/actual:), so a value
+        # mismatch is diagnosable from the log alone, not just its label.
+        _fail_lines="$(printf '%s\n' "$plain" | grep -nE -A2 '✗|FAIL(:|ED)?|✘' | grep -vE "✗ ${name} \(exit" | head -60 || true)"
         if [[ -n "$_fail_lines" ]]; then
             printf '%s\n' "  failing lines:" >&2
             printf '%s\n' "$_fail_lines" | sed 's/^/    /' >&2
