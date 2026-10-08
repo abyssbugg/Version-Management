@@ -1245,8 +1245,13 @@ _vm_status_active_version() {
         python)
             command -v python3 >/dev/null 2>&1 || return 1
             raw="$(python3 --version 2>&1 | head -n 1 || true)"
-            raw="${raw#*[[:space:]]}"        # drop "Python "
-            raw="${raw%%[[:space:]]*}"
+            # Portable extraction: "Python 3.12.0" -> "3.12.0". The previous
+            # ${raw#*[[:space:]]} relied on POSIX-class globbing inside # / %%
+            # expansion, whose behavior varies across bash builds (it parsed
+            # correctly on macOS bash 5.3 but mis-parsed on the hosted Linux
+            # agent, flipping python.match). `read` splits on IFS whitespace
+            # identically everywhere.
+            read -r _ raw _ <<<"$raw" || true
             ;;
         go)
             command -v go >/dev/null 2>&1 || return 1
