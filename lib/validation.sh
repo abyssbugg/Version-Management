@@ -118,6 +118,33 @@ validate_python_version() {
     return 0
 }
 
+# Validate Ruby version/identifier for rbenv (P2-4).
+# rbenv accepts more than plain semver (jruby-9.4.5.0, truffleruby-23.1.0,
+# 3.3.0-dev), so this is an injection guard, not a strict semver check: the
+# string must start alphanumeric and contain only [A-Za-z0-9._+-]. That
+# rejects shell metacharacters, whitespace, path separators and '..' while
+# accepting every legitimate rbenv version name.
+validate_ruby_version() {
+    local version="$1"
+    if [[ ! "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+        log_error "Invalid Ruby version: $version"
+        return 1
+    fi
+    return 0
+}
+
+# Validate PHP version/identifier for phpenv (P2-4). Same conservative
+# grammar as Ruby: phpenv names include 8.3.0, 8.3snapshot, 8.4.0-dev, so
+# allow [A-Za-z0-9._+-] starting alphanumeric and reject everything else.
+validate_php_version() {
+    local version="$1"
+    if [[ ! "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+        log_error "Invalid PHP version: $version"
+        return 1
+    fi
+    return 0
+}
+
 # ============================================================================
 # Path Validation
 # ============================================================================
@@ -377,7 +404,7 @@ validate_option() {
 # ============================================================================
 
 export -f validate_not_empty validate_pattern validate_length
-export -f validate_semver validate_node_version validate_python_version
+export -f validate_semver validate_node_version validate_python_version validate_ruby_version validate_php_version
 export -f validate_safe_path validate_path_within path_validate_containment
 export -f validate_identifier _path_realpath _path_canonical
 export -f validate_file_readable validate_file_writable

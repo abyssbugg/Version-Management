@@ -70,10 +70,34 @@ test_validate_missing_command() {
     fi
 }
 
-coverage_expect 3
+# Test: P2-4 ruby/php version validators accept legitimate toolchain names and
+# reject injection/traversal/whitespace. These guard install_ruby_version and
+# install_php_version at their public entry points.
+test_ruby_php_version_validators() {
+    track_coverage "validate_ruby_version"
+    track_coverage "validate_php_version"
+
+    local v
+    for v in "3.3.0" "jruby-9.4.5.0" "8.3" "8.4.0-dev"; do
+        validate_ruby_version "$v" 2>/dev/null && result=0 || result=1
+        assert_equals "0" "$result" "validate_ruby_version accepts '$v'"
+        validate_php_version "$v" 2>/dev/null && result=0 || result=1
+        assert_equals "0" "$result" "validate_php_version accepts '$v'"
+    done
+
+    for v in '3.0.0; rm -rf /' '$(whoami)' '1.0|cat' '../etc' 'a b' ''; do
+        validate_ruby_version "$v" 2>/dev/null && result=0 || result=1
+        assert_equals "1" "$result" "validate_ruby_version rejects '$v'"
+        validate_php_version "$v" 2>/dev/null && result=0 || result=1
+        assert_equals "1" "$result" "validate_php_version rejects '$v'"
+    done
+}
+
+coverage_expect 4
 test_valid_semver_accepted
 test_invalid_version_rejected
 test_validate_missing_command
+test_ruby_php_version_validators
 
 generate_coverage_report
 exit "$failures"

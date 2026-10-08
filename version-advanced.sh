@@ -78,18 +78,8 @@ source "$SCRIPT_DIR/lib/logger.sh"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
-# Compatibility shim: allow callers that use log "LEVEL" "msg" directly
-log() {
-    local level="$1"; shift
-    case "$level" in
-        ERROR)   log_error "$*" ;;
-        WARN)    log_warn  "$*" ;;
-        INFO)    log_info  "$*" ;;
-        SUCCESS) log_success "$*" ;;
-        DEBUG)   log_debug "$*" ;;
-        *)       log_info  "[$level] $*" ;;
-    esac
-}
+# log() and command_exists() are provided by lib/env.sh (ROADMAP 4.2 dedup);
+# both are sourced above and guarded there so a caller override still wins.
 
 # ============================================================================
 # Utility Functions
@@ -106,10 +96,7 @@ init_directories() {
     done
 }
 
-# Check if command exists
-command_exists() {
-    command -v "$1" &>/dev/null
-}
+# command_exists() is provided by lib/env.sh (ROADMAP 4.2 dedup).
 
 # get_os: canonical implementation lives in lib/env.sh (sourced above, P1-9).
 # WSL is reported as "wsl". This script has no get_os consumers today — the

@@ -408,7 +408,36 @@ show_env_summary() {
     log_info "  NVM_SILENT: ${NVM_SILENT:-not set}"
 }
 
+# ---------------------------------------------------------------------------
+# Shared shims (ROADMAP 4.2 / P2-9 §5.4): command_exists and the log() level
+# wrapper were defined identically in version-manager.sh and version-advanced.sh.
+# Consolidated here (both entry points already source lib/env.sh after
+# lib/logger.sh). Guarded so a caller that defines its own is never clobbered.
+# log() is a runtime wrapper over the logger API, so it only needs log_* at
+# call time, not at source time.
+# ---------------------------------------------------------------------------
+if ! declare -f command_exists >/dev/null 2>&1; then
+    command_exists() {
+        command -v "$1" &>/dev/null
+    }
+fi
+
+if ! declare -f log >/dev/null 2>&1; then
+    log() {
+        local level="$1"; shift
+        case "$level" in
+            ERROR)   log_error "$*" ;;
+            WARN)    log_warn  "$*" ;;
+            INFO)    log_info  "$*" ;;
+            SUCCESS) log_success "$*" ;;
+            DEBUG)   log_debug "$*" ;;
+            *)       log_info  "[$level] $*" ;;
+        esac
+    }
+fi
+
 # Export functions for use in other scripts
 export -f detect_shell detect_os get_os get_shell validate_env_var detect_nvm detect_pyenv
 export -f setup_path_mod setup_nvm_silent show_env_summary
 export -f check_nvm_installed check_pyenv_installed check_nvm_silent_configured
+export -f command_exists log

@@ -565,6 +565,7 @@ cache_pyenv_versions() {
             result=$(pyenv versions 2>/dev/null)
         fi
 
+        # shellcheck disable=SC2181 # P2-9: $? reflects the preceding command substitution
         if [ $? -eq 0 ] && [ -n "$result" ]; then
             cache_namespace_set "version-managers" "$cache_key" "$result"
             echo "$result"
@@ -591,6 +592,7 @@ cache_nvm_list() {
     if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ] && command -v nvm >/dev/null 2>&1; then
         result=$(nvm list 2>/dev/null)
 
+        # shellcheck disable=SC2181 # P2-9: $? reflects the preceding command substitution
         if [ $? -eq 0 ] && [ -n "$result" ]; then
             cache_namespace_set "version-managers" "$cache_key" "$result"
             echo "$result"
@@ -693,6 +695,7 @@ cache_theme_files() {
     if [ -d "$theme_dir" ]; then
         result=$(find "$theme_dir" -name "*.zsh" -type f 2>/dev/null | sort)
 
+        # shellcheck disable=SC2181 # P2-9: $? reflects the preceding command substitution
         if [ $? -eq 0 ]; then
             cache_namespace_set "themes" "$cache_key" "$result"
             echo "$result"
@@ -788,6 +791,7 @@ cache_backup_files() {
     if [ -d "$backup_dir" ]; then
         result=$(ls -1t "$backup_dir"/.p10k_backup_*.zsh "$backup_dir"/.p10k_manual_backup_*.zsh 2>/dev/null | head -20)
 
+        # shellcheck disable=SC2181 # P2-9: $? reflects the preceding command substitution
         if [ $? -eq 0 ]; then
             cache_set "themes" "$cache_key" "$result"
             echo "$result"

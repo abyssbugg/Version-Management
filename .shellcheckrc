@@ -18,11 +18,18 @@ disable=SC2034
 disable=SC2329
 
 # SC2015: Note that A && B || C is not if-then-else. Used intentionally
-# throughout as a concise pattern for simple conditionals.
+# throughout as a concise pattern for simple conditionals. P2-9 re-justified
+# (2026-10-08): 120 occurrences across 115 scripts; each is a
+# guard-with-fallback where C is an independent fallback action (log/return),
+# not a mutually-exclusive else. Moving to 120 inline suppressions would add
+# churn to mutation-critical code for no safety gain; kept global by
+# deliberate decision. New code should still prefer explicit if/then/else.
 disable=SC2015
 
-# SC2181: Check exit code with $? is a common pattern in this project.
-disable=SC2181
+# SC2181 (Check exit code directly, not via $?) was moved to INLINE
+# suppressions (P2-9, 2026-10-08): its 7 sites in lib/backup.sh, lib/cache.sh
+# and version-manager.sh now carry `# shellcheck disable=SC2181` with a reason.
+# Removed from the global list so new $?-checks are flagged.
 
 # SC2016: Single-quoted strings intentionally prevent expansion
 # (e.g. in help text, templates, log messages).
@@ -37,5 +44,5 @@ disable=SC2012
 # SC2129: Multiple redirects to same file is clearer for separate sections.
 disable=SC2129
 
-# SC2034: Variables appear unused but are exported/used by sourcing scripts.
-disable=SC2034
+# (SC2034 was listed twice; the duplicate was removed in P2-9, 2026-10-08.
+# The single declaration above covers library export/consumption vars.)

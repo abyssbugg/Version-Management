@@ -155,18 +155,8 @@ elif [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
     fi
 fi
 
-# Compatibility shim: allow callers that use log "LEVEL" "msg" directly
-log() {
-    local level="$1"; shift
-    case "$level" in
-        ERROR)   log_error "$*" ;;
-        WARN)    log_warn  "$*" ;;
-        INFO)    log_info  "$*" ;;
-        SUCCESS) log_success "$*" ;;
-        DEBUG)   log_debug "$*" ;;
-        *)       log_info  "[$level] $*" ;;
-    esac
-}
+# log() and command_exists() are provided by lib/env.sh (ROADMAP 4.2 dedup);
+# both are sourced above and guarded there so a caller override still wins.
 
 # ============================================================================
 # Utility Functions
@@ -183,10 +173,7 @@ init_directories() {
     done
 }
 
-# Check if command exists
-command_exists() {
-    command -v "$1" &>/dev/null
-}
+# command_exists() is provided by lib/env.sh (ROADMAP 4.2 dedup).
 
 # get_os: canonical implementation lives in lib/env.sh (sourced above, P1-9).
 # WSL is reported as "wsl" — the install_* case labels below carry explicit
@@ -701,6 +688,7 @@ install_rbenv() {
             ;;
     esac
 
+    # shellcheck disable=SC2181 # P2-9: $? reflects the case block above (rbenv install path)
     if [[ $? -eq 0 ]]; then
         log_success "rbenv installed successfully"
         configure_rbenv
@@ -784,6 +772,7 @@ install_phpenv() {
             ;;
     esac
 
+    # shellcheck disable=SC2181 # P2-9: $? reflects the case block above (phpenv install path)
     if [[ $? -eq 0 ]]; then
         log_success "phpenv installed successfully"
         configure_phpenv
@@ -871,6 +860,16 @@ install_node_version() {
 install_python_version() {
     local version="${1:-3.12.0}"
 
+    # P2-4: validate user-supplied version BEFORE any side effect (no pyenv
+    # bootstrap, no network, no install). Canonical semver shapes pass the
+    # validator; pyenv's non-semver names (3.13-dev, pypy3.10-7.3.12) pass the
+    # conservative injection grammar. Everything else is rejected here.
+    if ! validate_python_version "$version" 2>/dev/null \
+        && [[ ! "$version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+        log_error "install_python_version: refusing invalid version '$version' (expected e.g. 3.12.0 or a pyenv name like pypy3.10-7.3.12)"
+        return 1
+    fi
+
     log_info "Installing Python version: $version"
 
     # Ensure pyenv is installed
@@ -898,6 +897,12 @@ install_python_version() {
 install_ruby_version() {
     local version="${1:-3.0.0}"
 
+    # P2-4: validate user-supplied version BEFORE any side effect.
+    if ! validate_ruby_version "$version" 2>/dev/null; then
+        log_error "install_ruby_version: refusing invalid version '$version' (expected e.g. 3.3.0 or an rbenv name like jruby-9.4.5.0)"
+        return 1
+    fi
+
     log_info "Installing Ruby version: $version"
 
     # Ensure rbenv is installed
@@ -923,6 +928,12 @@ install_ruby_version() {
 
 install_php_version() {
     local version="${1:-8.3}"
+
+    # P2-4: validate user-supplied version BEFORE any side effect.
+    if ! validate_php_version "$version" 2>/dev/null; then
+        log_error "install_php_version: refusing invalid version '$version' (expected e.g. 8.3.0 or a phpenv name like 8.4.0-dev)"
+        return 1
+    fi
 
     log_info "Installing PHP version: $version"
 

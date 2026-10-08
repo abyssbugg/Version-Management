@@ -304,6 +304,7 @@ restore_backup() {
     if [[ -f "$target_file" ]]; then
         local pre_restore_backup
         pre_restore_backup=$(create_backup "$target_file" "$backup_dir" "pre-restore")
+        # shellcheck disable=SC2181 # P2-9: $? check kept (assignment above); refactor would change control flow
         if [[ $? -eq 0 ]]; then
             log_info "Current file backed up before restore: $pre_restore_backup"
         else
