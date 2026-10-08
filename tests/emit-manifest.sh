@@ -105,6 +105,13 @@ for f in "${files[@]}"; do
         # Surface the failing file's own output — without this, CI logs show
         # only the manifest summary and a failing test is undiagnosable.
         printf '%s\n' "---- failed: ${name} (output tail) ----" >&2
+        # Failing assertions first (they can scroll past the tail window when a
+        # file has many passing lines after the failure), then the tail for context.
+        _fail_lines="$(printf '%s\n' "$plain" | grep -nE '✗|FAIL(:|ED)?|✘' | grep -vE "✗ ${name} \(exit" | head -40 || true)"
+        if [[ -n "$_fail_lines" ]]; then
+            printf '%s\n' "  failing lines:" >&2
+            printf '%s\n' "$_fail_lines" | sed 's/^/    /' >&2
+        fi
         printf '%s\n' "$plain" | tail -40 >&2
         printf '%s\n' "--------------------------------" >&2
     elif printf '%s\n' "$plain" | grep -Eq "⊘ ${name}( |$)"; then
