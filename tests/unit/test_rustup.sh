@@ -14,6 +14,14 @@ source "$ROOT_DIR/lib/rustup.sh"
 # is absent), so the own posture is deliberately non-aborting:
 set +e +u +o pipefail
 
+# Test isolation (P0-3 spirit): a sandboxed HOME has no ~/.rustup, so a bare
+# `rustup --version` would try to auto-install the toolchain pinned by the
+# repo's rust-toolchain file (network fetch of ~hundreds of MB) and hang until
+# the per-file watchdog kills it. These are unit tests of lib/rustup.sh's shell
+# logic, not of a real toolchain install — forbid auto-install so rustup
+# answers immediately. Does not change what any assertion checks.
+export RUSTUP_AUTO_INSTALL=0
+
 failures=0
 
 # Test rustup_detect function exists and is callable

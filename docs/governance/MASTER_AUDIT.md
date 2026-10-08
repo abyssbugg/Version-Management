@@ -196,6 +196,48 @@ Independent review reported no project-code finding (one disposable wrapper
 finding, removed with the wrapper). No real HOME was inspected, restored or
 cleaned; the reported `.zshrc` loss and attribution remain unverified.
 
+### P0-3-direct-run — cwd-relative `source ../helpers.sh` wipes the real `~/.zshrc` (2026-10-08)
+
+**CONFIRMED, FIXED.** The runner-level and `setup_test` sandboxes only protect
+a test that actually reaches `setup_test`. Sixteen tests sourced the harness
+with the **cwd-relative** form `source ../helpers.sh`. Run directly from the
+repo root (`bash tests/unit/<file>.sh`), that path does not resolve, so
+`setup_test` is never defined, HOME is never sandboxed, and — because the
+script has not yet enabled `set -e` at that point — execution continues to a
+write against `$HOME/.zshrc` on the **real** HOME. `test_auto_activate_trust.sh`
+(sentinel `printf 'export EDITOR=vi\n' > "$HOME/.zshrc"`) is the proven case:
+reproduced in a disposable fake HOME, a sentinel rc file was replaced with
+`export EDITOR=vi` (`sha aec1823…` → `11c7a4a…`). This is the mechanism behind
+both real-workstation `~/.zshrc` losses on 2026-10-04 and 2026-10-06; the
+earlier "ASCII BOAT" attribution was mistaken (BOAT wrapped an already-wiped
+one-line file — its `export EDITOR=vi` is this test's sentinel).
+
+Fixed on `fix/managed-manager-config`: every cwd-relative `source ../helpers.sh`
+replaced with the self-locating, **fail-closed** form
+`source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { …exit 1; }` (16 files). The
+test now finds the harness regardless of cwd (so `setup_test` sandboxes HOME),
+and if the harness is ever unreachable the test aborts instead of running
+unsandboxed. Re-reproduction from the repo root: sentinel rc **byte-identical**
+(`aec1823…` preserved), test `rc=0`. Full gate green afterward (lint 0 ·
+syntax 124/124 · unit 37/37 · integration 20/20). The other two HOME-rc writers
+(`test_mutation_editor.sh`, `test_backup_home_isolation.sh`) were already safe
+(they derive paths from `${BASH_SOURCE[0]}` and sandbox HOME before any write).
+
+### test_rustup network/isolation hang (2026-10-08)
+
+**CONFIRMED, FIXED.** `tests/unit/test_rustup.sh` exercised `rustup_detect`,
+which runs `rustup --version`. Under the sandbox HOME (no `~/.rustup`), rustup
+honored the repo's `rust-toolchain` pin (`1.81.0`) and attempted a network
+toolchain auto-install, hanging until the B1.8 per-file watchdog killed it
+(exit 124 at ≥300s). Environment-dependent (instant on hosts without rustup;
+117s–300s+ where rustup is present), so it intermittently reddened the unit
+gate and violated the test-isolation spirit (a unit test reaching the network
+and writing a sandbox `~/.rustup`). Fixed by exporting `RUSTUP_AUTO_INSTALL=0`
+in the test before sourcing the library — rustup answers immediately without
+network; no assertion semantics change. Proven: `rustup --version` under an
+empty HOME goes from `rc=124` (timeout) to instant; the test file runs 13/13 in
+~0s; unit suite 37/37.
+
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
 - **P3-1-vscode:** `scripts/generate-vscode-settings.sh` used raw

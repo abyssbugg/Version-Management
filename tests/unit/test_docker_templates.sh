@@ -22,7 +22,7 @@
 # Accumulation pattern (set +e + helpers counters); exit code = failures.
 # =============================================================================
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 source ../../version-advanced.sh
 
 set +e

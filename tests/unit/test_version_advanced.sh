@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests for version-advanced.sh - CI/CD Generation
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 source ../../version-advanced.sh
 
 # Test generate_github_actions function exists

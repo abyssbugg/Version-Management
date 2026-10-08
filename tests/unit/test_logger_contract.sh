@@ -18,7 +18,7 @@
 #   - sourcing logger.sh leaves the caller's shell options unchanged (M1)
 # =============================================================================
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 source ../../lib/logger.sh
 
 ROOT_DIR="$(cd "$(pwd)/../.." && pwd)"

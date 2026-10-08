@@ -31,7 +31,7 @@
 #                    watchdog: gate red, bounded runtime, exit 124 recorded
 # =============================================================================
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 
 # Own posture: accumulate failures across all meta-cases; never abort early
 # (a skipped later case would hide whether its gate also fails closed).

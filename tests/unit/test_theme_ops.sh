@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests for lib/theme-ops.sh - Theme Operations
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 source ../../lib/theme-ops.sh
 
 # Own strict-mode posture (M0 step 3): sourced libraries may enable global

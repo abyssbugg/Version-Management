@@ -12,7 +12,7 @@
 # file; the assertion compares the caller-visible flags.
 # =============================================================================
 
-source ../helpers.sh
+source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
 
 set +e
 
