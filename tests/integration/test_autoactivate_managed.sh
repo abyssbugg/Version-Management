@@ -14,6 +14,7 @@ source "$ROOT/lib/auto-activate.sh"
 failures=0; checks=0
 check() { checks=$((checks+1)); if ! "$@"; then echo "FAIL: $*" >&2; failures=$((failures+1)); fi; }
 reject() { ! "$@"; }
+file_mode() { python3 -c 'import os, stat, sys; print(format(stat.S_IMODE(os.stat(sys.argv[1]).st_mode), "o"))' "$1"; }
 rc="$HOME/.zshrc"
 printf '# canary\nexport KEEP_ME=yes\n' > "$rc"
 cp "$rc" "$SANDBOX/original"
@@ -34,10 +35,10 @@ check auto_activate_remove
 mv "$rc" "$HOME/target"; chmod 600 "$HOME/target"; ln -s target "$rc"
 check auto_activate_setup
 check test -L "$rc"
-check test "$(stat -f '%Lp' "$HOME/target" 2>/dev/null || stat -c '%a' "$HOME/target")" = 600
+check test "$(file_mode "$HOME/target")" = 600
 check auto_activate_remove
 check test -L "$rc"
-check test "$(stat -f '%Lp' "$HOME/target" 2>/dev/null || stat -c '%a' "$HOME/target")" = 600
+check test "$(file_mode "$HOME/target")" = 600
 check cmp -s "$HOME/target" "$SANDBOX/original"
 # Pre-register the destination before delegating: partial publication must roll back.
 check reject bash -c 'source "$1/lib/auto-activate.sh"; mutation_block_write() { printf "BROKEN\n" >> "$1"; return 1; }; auto_activate_setup' _ "$ROOT"

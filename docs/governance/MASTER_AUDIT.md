@@ -285,7 +285,13 @@ noisy probes and verify byte-identical targets after injected permission errors.
 The unattended runner also explicitly redirects child stdin from `/dev/null`:
 a pseudo-terminal regression proved it previously exposed terminal input,
 allowing confirmation or immutable-file utilities to block CI. Tests needing
-interactive input must allocate their own fixture terminal.
+interactive input must allocate their own fixture terminal. A controlling-PTY
+reproduction then isolated the remaining Linux health-check stop to Bash's
+startup job-control handshake (SIGTTIN). Child tests now enter a separate
+session before exec, retaining owned process-group cleanup without inheriting
+the hosted controlling terminal; production interactive shell behavior stays
+unchanged. The auto-activation test's own mode assertions now use Python stat
+rather than repeating the defective BSD/GNU probe fallback.
 
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked

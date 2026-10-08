@@ -23,6 +23,12 @@ if ((BASH_VERSINFO[0] < 4)); then
     exit 1
 fi
 
+# Python provides portable session isolation for unattended test children.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "test_runner: python3 is required for isolated test execution" >&2
+    exit 3
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -105,20 +111,21 @@ _run_test_file() {
         # Select the shell engine, not binary ptrace/personality tracing.
         cmd=(kcov --bash-method=DEBUG --bash-parser="$(command -v bash)" --include-path="$ROOT_DIR/lib" "$KCOV_DIR" "$test_dir/$test_name")
     fi
-    # Give this test its own process group, including its descendants. Preserve
-    # the caller's monitor setting; never signal the runner's process group.
+    # A new session gives the test its own process group and no controlling
+    # terminal. Merely backgrounding a process group can stop interactive shell
+    # startup probes with SIGTTIN even when stdin is /dev/null.
     local monitor_was_set=0
     [[ $- == *m* ]] && monitor_was_set=1
-    set -m
+    set +m
     (
         cd "$test_dir" && \
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            "${cmd[@]}"
+            exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "${cmd[@]}"
     ) </dev/null >"$out_file" 2>&1 &
     pid=$!
-    (( monitor_was_set )) || set +m
+    (( ! monitor_was_set )) || set -m
     while kill -0 "$pid" 2>/dev/null; do
         if (( waited_ms >= limit_ms )); then
             timed_out=1

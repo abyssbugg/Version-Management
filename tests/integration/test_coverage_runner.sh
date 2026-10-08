@@ -10,6 +10,15 @@ mkdir -p "$S/repo/tests/unit" "$S/repo/lib" "$S/bin" "$S/home"
 cp "$ROOT/tests/test_runner.sh" "$S/repo/tests/"
 export HOME="$S/home" TMPDIR="$S" XDG_CONFIG_HOME="$S/home/.config" XDG_CACHE_HOME="$S/home/.cache"
 export PATH="$S/bin:$PATH"
+# Reject a missing isolation prerequisite before creating runner resources.
+mkdir -p "$S/no-tools"
+bash_bin=$(command -v bash)
+if PATH="$S/no-tools" "$bash_bin" "$S/repo/tests/test_runner.sh" unit >"$S/no-python.log" 2>&1; then
+    echo 'FAIL: runner accepted missing python3'; exit 1
+else
+    [[ $? -eq 3 ]] || { echo 'FAIL: wrong missing-python exit'; exit 1; }
+fi
+grep -q 'python3 is required' "$S/no-python.log"
 cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
 #!/usr/bin/env bash
 [[ "$PWD" == */tests/unit ]] || exit 42
@@ -67,25 +76,49 @@ cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
 #!/usr/bin/env bash
 [[ ! -t 0 ]] || { echo 'FAIL: inherited terminal stdin'; exit 1; }
 if read -r _; then echo 'FAIL: inherited input'; exit 1; fi
+# Interactive Bash startup must not stop on a background controlling terminal.
+bash --noprofile --norc -i -c exit
 TEST
 python3 - "$S/repo" <<'PY'
 import os
 import pty
-import subprocess
+import select
+import signal
 import sys
+import time
 
-master, slave = pty.openpty()
+pid, fd = pty.fork()
+if pid == 0:
+    try:
+        os.chdir(sys.argv[1])
+        os.environ['VMS_TEST_FILE_TIMEOUT'] = '3'
+        os.execvp('bash', ['bash', 'tests/test_runner.sh', 'unit'])
+    except OSError:
+        os._exit(127)
+output = bytearray()
+status = None
 try:
-    result = subprocess.run(
-        ['bash', 'tests/test_runner.sh', 'unit'], cwd=sys.argv[1],
-        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, timeout=20,
-    )
-    if result.returncode:
-        print(result.stdout)
-        raise SystemExit(result.returncode)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if select.select([fd], [], [], 0.1)[0]:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                chunk = b''
+            output.extend(chunk)
+        done, code = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = code
+            break
+    if status is None:
+        raise RuntimeError('runner did not finish under controlling terminal')
+    if os.waitstatus_to_exitcode(status):
+        print(output.decode(errors='replace'))
+        raise SystemExit(1)
 finally:
-    os.close(master)
-    os.close(slave)
+    if status is None:
+        os.killpg(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    os.close(fd)
 PY
 echo 'coverage runner: tracing, failures, reports, descendant cleanup and noninteractive stdin PASS'
