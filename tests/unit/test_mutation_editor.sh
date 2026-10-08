@@ -68,7 +68,7 @@ check mutation_block_has "$file" alpha
 check mutation_block_has "$file" beta
 
 start_case mode
-chmod 600 "$file"
+command chmod 600 "$file"
 printf 'X\n' >"$content"
 check mutation_block_write "$file" gamma "$content"
 mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
@@ -77,7 +77,7 @@ check test "$mode" = 600
 # A failed stat dialect may print to stdout before returning nonzero. Its
 # output must not contaminate the successful fallback or publish mode 600.
 start_case noisy_mode_probe
-chmod 640 "$file"
+command chmod 640 "$file"
 transaction_add_file "$file"
 printf 'NOISY\n' >"$content"
 stat() {
@@ -94,7 +94,7 @@ check mutation_block_write "$file" noisy "$content"
 unset -f stat
 mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
 check test "$mode" = 640
-chmod 640 "$file"
+command chmod 640 "$file"
 stat() {
     if [[ "$1" == '-f' && "${2:-}" == '%Lp' ]]; then
         printf 'filesystem diagnostics from unsupported dialect\n'
