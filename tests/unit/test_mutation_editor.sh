@@ -34,6 +34,15 @@ start_case() {
     transaction_start mut_test
     check test "$(dirname "$_TRANSACTION_DIR")" = "$HOME/.config-backups/transactions"
 }
+# Define the test wrapper before all calls for older ShellCheck versions.
+MUTATION_TEST_CHMOD_FAIL=0
+chmod() {
+    if [[ "${MUTATION_TEST_CHMOD_FAIL:-0}" == 1 && "${*: -1}" == */.vms-mutation.* ]]; then
+        return 1
+    fi
+    command chmod "$@"
+}
+
 start_case idempotent
 mutation_nvm_block >"$content"
 check mutation_block_write "$file" nvm "$content"
@@ -115,10 +124,7 @@ printf 'GUARDED\n' >"$content"
 check mutation_block_write "$file" guarded "$content"
 before=$(_txn_sha256 "$file")
 printf 'REPLACEMENT\n' >"$content"
-chmod() {
-    if [[ "${*: -1}" == */.vms-mutation.* ]]; then return 1; fi
-    command chmod "$@"
-}
+MUTATION_TEST_CHMOD_FAIL=1
 if mutation_block_write "$file" guarded "$content"; then check false; fi
 check test "$before" = "$(_txn_sha256 "$file")"
 if mutation_block_remove "$file" guarded; then check false; fi
