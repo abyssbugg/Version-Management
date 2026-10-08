@@ -121,6 +121,19 @@ mutation_block_get() {
     ' "$file"
 }
 
+# Probe dialects in separate assignments: a failed stat can still emit stdout.
+# Existing file permissions must be readable and preserved before publication.
+_mutation_preserve_mode() {
+    local target="$1" tmp="$2" mode=644
+    if [[ -e "$target" ]]; then
+        if ! mode=$(stat -c '%a' "$target" 2>/dev/null); then
+            mode=$(stat -f '%Lp' "$target" 2>/dev/null) || return 1
+        fi
+        [[ "$mode" =~ ^[0-7]{1,4}$ ]] || return 1
+    fi
+    chmod "$mode" "$tmp"
+}
+
 # Write (insert or replace) a managed block atomically and idempotently.
 # Usage: mutation_block_write <file> <name> <content-file>
 mutation_block_write() {
@@ -221,9 +234,11 @@ PY
     fi
 
     # Preserve the resolved content-file mode, not a symlink's unrelated mode.
-    local mode
-    mode=$(stat -f '%Lp' "$write_target" 2>/dev/null || stat -c '%a' "$write_target" 2>/dev/null || echo 644)
-    chmod "$mode" "$tmp"
+    if ! _mutation_preserve_mode "$write_target" "$tmp"; then
+        rm -f "$tmp"
+        log_error "mutation_block_write: cannot preserve mode: $write_target"
+        return 1
+    fi
 
     # Idempotency: if the composed result equals the current file, skip.
     if [[ -f "$file" ]] && mutation_files_identical "$tmp" "$file"; then
@@ -323,9 +338,11 @@ mutation_block_remove() {
         return 0
     fi
 
-    local mode
-    mode=$(stat -f '%Lp' "$write_target" 2>/dev/null || stat -c '%a' "$write_target" 2>/dev/null || echo 644)
-    chmod "$mode" "$tmp"
+    if ! _mutation_preserve_mode "$write_target" "$tmp"; then
+        rm -f "$tmp"
+        log_error "mutation_block_remove: cannot preserve mode: $write_target"
+        return 1
+    fi
     if ! mv "$tmp" "$write_target"; then
         rm -f "$tmp"
         log_error "mutation_block_remove: atomic rename failed: $write_target"

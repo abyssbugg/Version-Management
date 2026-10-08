@@ -274,6 +274,19 @@ Make lint target supplies `--shell=bash`, whereas the hosted lint invocation
 does not. An explicit `# shellcheck shell=bash` directive supplies the dialect
 without restoring executable permissions or suppressing the finding.
 
+Buildkite #41 exposed two further environment-dependent defects. Its terminal
+stdin made the shell-experience test wait for interactive confirmation; the
+noninteractive refusal scenario now explicitly clears confirmation and closes
+stdin, verified with a pseudo-terminal regression. GNU `stat -f` can emit
+filesystem details before failing, contaminating the editor's fallback mode.
+The editor now captures dialect probes separately, validates octal modes, and
+refuses publication on mode lookup or chmod failure. New regressions reproduce
+noisy probes and verify byte-identical targets after injected permission errors.
+The unattended runner also explicitly redirects child stdin from `/dev/null`:
+a pseudo-terminal regression proved it previously exposed terminal input,
+allowing confirmation or immutable-file utilities to block CI. Tests needing
+interactive input must allocate their own fixture terminal.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its

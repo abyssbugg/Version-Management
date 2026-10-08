@@ -74,6 +74,63 @@ check mutation_block_write "$file" gamma "$content"
 mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
 check test "$mode" = 600
 
+# A failed stat dialect may print to stdout before returning nonzero. Its
+# output must not contaminate the successful fallback or publish mode 600.
+start_case noisy_mode_probe
+chmod 640 "$file"
+transaction_add_file "$file"
+printf 'NOISY\n' >"$content"
+stat() {
+    if [[ "$1" == '-f' && "${2:-}" == '%Lp' ]]; then
+        printf 'filesystem diagnostics from unsupported dialect\n'
+        return 1
+    elif [[ "$1" == '-c' && "${2:-}" == '%a' ]]; then
+        printf '640\n'
+    else
+        command stat "$@"
+    fi
+}
+check mutation_block_write "$file" noisy "$content"
+unset -f stat
+mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
+check test "$mode" = 640
+chmod 640 "$file"
+stat() {
+    if [[ "$1" == '-f' && "${2:-}" == '%Lp' ]]; then
+        printf 'filesystem diagnostics from unsupported dialect\n'
+        return 1
+    elif [[ "$1" == '-c' && "${2:-}" == '%a' ]]; then
+        printf '640\n'
+    else
+        command stat "$@"
+    fi
+}
+check mutation_block_remove "$file" noisy
+unset -f stat
+mode=$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")
+check test "$mode" = 640
+
+start_case permission_failure
+printf 'GUARDED\n' >"$content"
+check mutation_block_write "$file" guarded "$content"
+before=$(_txn_sha256 "$file")
+printf 'REPLACEMENT\n' >"$content"
+chmod() {
+    if [[ "${*: -1}" == */.vms-mutation.* ]]; then return 1; fi
+    command chmod "$@"
+}
+if mutation_block_write "$file" guarded "$content"; then check false; fi
+check test "$before" = "$(_txn_sha256 "$file")"
+if mutation_block_remove "$file" guarded; then check false; fi
+check test "$before" = "$(_txn_sha256 "$file")"
+unset -f chmod
+stat() { printf 'unavailable\n'; return 1; }
+if mutation_block_write "$file" guarded "$content"; then check false; fi
+check test "$before" = "$(_txn_sha256 "$file")"
+if mutation_block_remove "$file" guarded; then check false; fi
+check test "$before" = "$(_txn_sha256 "$file")"
+unset -f stat
+
 start_case required_transaction
 transaction_rollback
 printf 'Y\n' >"$content"

@@ -62,4 +62,30 @@ if [[ -n "$state" && "$state" != *Z* ]]; then
     kill "$child" 2>/dev/null || true
     echo 'FAIL: timeout left a running descendant'; exit 1
 fi
-echo 'coverage runner: script tracing, failures, fresh reports, empty selection and descendant cleanup PASS'
+# Hosted agents may allocate a terminal. Unattended tests must not inherit it.
+cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
+#!/usr/bin/env bash
+[[ ! -t 0 ]] || { echo 'FAIL: inherited terminal stdin'; exit 1; }
+if read -r _; then echo 'FAIL: inherited input'; exit 1; fi
+TEST
+python3 - "$S/repo" <<'PY'
+import os
+import pty
+import subprocess
+import sys
+
+master, slave = pty.openpty()
+try:
+    result = subprocess.run(
+        ['bash', 'tests/test_runner.sh', 'unit'], cwd=sys.argv[1],
+        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, timeout=20,
+    )
+    if result.returncode:
+        print(result.stdout)
+        raise SystemExit(result.returncode)
+finally:
+    os.close(master)
+    os.close(slave)
+PY
+echo 'coverage runner: tracing, failures, reports, descendant cleanup and noninteractive stdin PASS'

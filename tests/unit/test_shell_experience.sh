@@ -173,7 +173,7 @@ test_apt_confirm_gate() {
     local out rc
 
     # Non-interactive without VMS_CONFIRM: refuse loudly, install nothing.
-    out=$(_shellxp_apply_apt direnv direnv 2>&1)
+    out=$(VMS_CONFIRM='' _shellxp_apply_apt direnv direnv </dev/null 2>&1)
     rc=$?
     _chk "1" "$rc" "apt apply without confirmation refuses (nonzero)"
     _chk_contains "Confirmation required" "$out" "refusal names the confirmation requirement"

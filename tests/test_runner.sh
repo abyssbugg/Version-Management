@@ -116,7 +116,7 @@ _run_test_file() {
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
             "${cmd[@]}"
-    ) >"$out_file" 2>&1 &
+    ) </dev/null >"$out_file" 2>&1 &
     pid=$!
     (( monitor_was_set )) || set +m
     while kill -0 "$pid" 2>/dev/null; do
