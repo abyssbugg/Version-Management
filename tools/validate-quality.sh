@@ -48,7 +48,9 @@ validate_shellcheck() {
         return 0
     else
         echo -e "${RED} ShellCheck: $findings findings (ZERO-TOLERANCE GATE FAILED)${NC}"
-        printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: (error|warning|note):' | head -20
+        # Preserve every diagnostic: truncation can hide the failing file and
+        # cause upstream SIGPIPE under pipefail when output exceeds the buffer.
+        printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: (error|warning|note):'
         return 1
     fi
 }

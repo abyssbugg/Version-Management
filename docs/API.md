@@ -322,6 +322,22 @@ PowerLevel10k theme management.
 
 ---
 
+## auto-activate.sh - Runtime Hooks and Trust
+
+`auto_activate_setup` installs the zsh runtime hook into `${ZDOTDIR:-$HOME}/.zshrc`;
+`auto_activate_remove` removes only its managed block. Both retain their no-argument
+API. Set `TRANSACTION_DRY_RUN=1` for a console-only, zero-write plan.
+
+Apply mode requires the shared `workstation-config` lock and uses the existing
+backup transaction plus managed-block editor. Generated and resulting files are
+checked with `zsh -n`; failures roll back registered content and symlinks. Nested
+transactions, non-regular targets, duplicate/unbalanced markers and old
+`# >>> dev auto-activate hook <<<` delimiters are refused without changing the rc
+file. Legacy blocks require explicit review/migration; they are never silently
+removed. Trust-registry APIs and runtime capability decisions are unchanged.
+Dependencies: logger, backup, mutation, validation and lock libraries; zsh for
+apply verification. Nonzero status means refusal or failed application/rollback.
+
 ## Usage Example
 
 ```bash

@@ -74,6 +74,17 @@ modes, failed edits, malformed markers, new rc files and zero-write previews.
 Installer directories, project version files and auto-switch adoption remain
 outside this slice; this is not closure of every `version-manager.sh` sink.
 
+## Auto-activation rc follow-up (2026-10-06)
+
+`auto_activate_setup` and `auto_activate_remove` now share locked,
+transactional managed-block publication with syntax verification and rollback.
+Preview returns a console-only plan before locks, temporary files or journals.
+Legacy `# >>> dev auto-activate hook <<<` blocks and malformed managed markers
+are refused unchanged rather than silently migrated. The existing trust
+registry and runtime capability gates are unchanged. The 44-assertion regression
+covers partial-write and failed-verification rollback, links/modes, reruns,
+marker refusal, lock denial, caller traps and zero-write previews.
+
 ## Per-operation metadata contract (M2 exit criterion)
 
 Every adoption must record: target, mode (dry-run/apply), backup ID, result,

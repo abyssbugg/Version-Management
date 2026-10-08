@@ -103,8 +103,13 @@ _run_test_file() {
     local -a cmd=(bash "./$test_name")
     if [[ "$KCOV_MODE" == "true" ]]; then
         # Select the shell engine, not binary ptrace/personality tracing.
-        cmd=(kcov --bash-parser="$(command -v bash)" --include-path="$ROOT_DIR/lib" "$KCOV_DIR" "$test_dir/$test_name")
+        cmd=(kcov --bash-method=DEBUG --bash-parser="$(command -v bash)" --include-path="$ROOT_DIR/lib" "$KCOV_DIR" "$test_dir/$test_name")
     fi
+    # Give this test its own process group, including its descendants. Preserve
+    # the caller's monitor setting; never signal the runner's process group.
+    local monitor_was_set=0
+    [[ $- == *m* ]] && monitor_was_set=1
+    set -m
     (
         cd "$test_dir" && \
             HOME="$sandbox" \
@@ -113,23 +118,25 @@ _run_test_file() {
             "${cmd[@]}"
     ) >"$out_file" 2>&1 &
     pid=$!
+    (( monitor_was_set )) || set +m
     while kill -0 "$pid" 2>/dev/null; do
         if (( waited_ms >= limit_ms )); then
             timed_out=1
-            kill "$pid" 2>/dev/null
+            kill -TERM -- "-$pid" 2>/dev/null || true
             break
         fi
         sleep 0.1
         waited_ms=$((waited_ms + 100))
     done
     if (( timed_out )); then
-        # Grace period for SIGTERM, then SIGKILL; reap either way.
+        # Wait for the whole group, not only the parent: a descendant may ignore
+        # SIGTERM and hold an inherited coverage pipe after its parent exits.
         local grace=0
-        while kill -0 "$pid" 2>/dev/null && (( grace < 20 )); do
+        while kill -0 -- "-$pid" 2>/dev/null && (( grace < 20 )); do
             sleep 0.1
             grace=$((grace + 1))
         done
-        kill -9 "$pid" 2>/dev/null || true
+        kill -KILL -- "-$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
         exit_code=124
         printf '%s\n' \
@@ -229,6 +236,8 @@ main() {
     fi
     if [[ "$KCOV_MODE" == "true" ]]; then
         mkdir -p "$KCOV_DIR"
+        # Isolate this invocation; old or parallel runs cannot satisfy its gate.
+        KCOV_DIR=$(mktemp -d "$KCOV_DIR/run.XXXXXX")
     fi
 
     mkdir -p "$RESULTS_DIR"

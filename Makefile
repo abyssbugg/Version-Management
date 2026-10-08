@@ -105,7 +105,7 @@ coverage-kcov:
 	@rm -rf coverage
 	@echo "=== Running Unit Suite under kcov (--include-path=lib) ==="
 	@bash tests/test_runner.sh coverage
-	@echo "=== kcov coverage written to coverage/ (index: coverage/index.html) ==="
+	@echo "=== kcov coverage written to coverage/run.*/ (per-run HTML and Cobertura reports) ==="
 
 # ============================================================================
 # Quality Assurance

@@ -23,6 +23,10 @@ check grep -q '^# BEGIN version-management-setup:dev-auto-activate-hook$' "$rc"
 cp "$rc" "$SANDBOX/applied"
 check auto_activate_setup
 check cmp -s "$rc" "$SANDBOX/applied"
+# Repair an obsolete but syntactically valid managed payload on rerun.
+printf '# canary\nexport KEEP_ME=yes\n# BEGIN version-management-setup:dev-auto-activate-hook\n# obsolete payload\n# END version-management-setup:dev-auto-activate-hook\n' > "$rc"
+check auto_activate_setup
+check cmp -s "$rc" "$SANDBOX/applied"
 check auto_activate_remove
 check cmp -s "$rc" "$SANDBOX/original"
 check auto_activate_remove

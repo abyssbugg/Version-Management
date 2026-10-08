@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # P1-11: exercise the real runner with a recording coverage executable.
 set -euo pipefail
+# The outer per-file runner's filter must not select inside this fixture repo.
+unset TEST_FILTER
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 S=$(mktemp -d "$ROOT/tmp_rovodev_coverage.XXXXXX")
 trap 'rm -rf -- "$S"' EXIT
@@ -16,6 +18,8 @@ TEST
 cat > "$S/bin/kcov" <<'KCOV'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$1" == --bash-method=DEBUG ]] || exit 38
+shift
 [[ "$1" == --bash-parser=/* ]] || exit 39
 shift
 [[ "$1" == --include-path=/*/lib ]] || exit 40
@@ -32,11 +36,30 @@ bash "$S/repo/tests/test_runner.sh" coverage > "$S/pass.log" 2>&1
 if SEEDED_EXIT=7 bash "$S/repo/tests/test_runner.sh" coverage > "$S/fail.log" 2>&1; then
  echo 'FAIL: seeded test failure passed coverage'; exit 1
 fi
-rm -rf -- "$S/repo/coverage"
+# Previous successful output must not make a later empty run pass.
 if EMPTY_REPORT=1 bash "$S/repo/tests/test_runner.sh" coverage > "$S/empty.log" 2>&1; then
  echo 'FAIL: no coverage report was treated as success'; exit 1
 fi
 if TEST_FILTER=absent bash "$S/repo/tests/test_runner.sh" coverage > "$S/no-tests.log" 2>&1; then
  echo 'FAIL: no tests was treated as coverage success'; exit 1
 fi
-echo 'coverage runner: direct script, cwd, seeded failure, missing report and empty selection PASS'
+# B1.8: timeout must stop descendants too; inherited tracer pipes otherwise hang.
+cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
+#!/usr/bin/env bash
+sleep 600 &
+child=$!
+printf '%s\n' "$child" > "$DESCENDANT_PID_FILE"
+wait "$child"
+TEST
+if DESCENDANT_PID_FILE="$S/child.pid" VMS_TEST_FILE_TIMEOUT=1 \
+    bash "$S/repo/tests/test_runner.sh" unit > "$S/timeout.log" 2>&1; then
+    echo 'FAIL: timed-out test passed'; exit 1
+fi
+grep -q 'exit 124' "$S/timeout.log"
+child=$(cat "$S/child.pid")
+state=$(ps -o stat= -p "$child" 2>/dev/null || true)
+if [[ -n "$state" && "$state" != *Z* ]]; then
+    kill "$child" 2>/dev/null || true
+    echo 'FAIL: timeout left a running descendant'; exit 1
+fi
+echo 'coverage runner: script tracing, failures, fresh reports, empty selection and descendant cleanup PASS'

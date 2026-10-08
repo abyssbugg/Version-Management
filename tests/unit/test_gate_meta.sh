@@ -140,12 +140,40 @@ test_meta_quality_red() {
     printf '%s\n' "$meta_out" | grep -E 'Score|ShellCheck:|findings|FAILS CLOSED|FAIL:|Excellent|syntax' >&2
     printf '%s\n' "shellcheck-in-clone: $( cd "$clone" && command -v shellcheck || echo MISSING )" >&2
     printf '%s\n' "seeded-file-in-clone: $( ls -la "$clone/scripts/__meta_lint__.sh" 2>&1 | head -1 )" >&2
-    if printf '%s' "$meta_out" | grep -q "SC2086"; then
+    if printf '%s' "$meta_out" | grep 'scripts/__meta_lint__.sh:.*SC2086' >/dev/null; then
         assert_equals "found" "found" "B1.7: gate output cites the seeded SC2086 finding (red for the right reason)" || f=$((f + 1))
     else
         assert_equals "found" "missing" "B1.7: gate output must cite the seeded SC2086 finding — fail-closed masking is not a pass" || f=$((f + 1))
     fi
     rm -rf "$clone"
+    return "$f"
+}
+
+# Findings after the twentieth diagnostic must remain observable. A truncated
+# log can hide the seeded cause (and used to trip pipefail via grep's SIGPIPE).
+test_meta_quality_diagnostics() {
+    local fixture rc output f=0
+    fixture=$(mktemp -d "${TMPDIR:-/tmp}/vms-meta-diagnostics.XXXXXX") || return 1
+    mkdir -p "$fixture/bin"
+    printf '#!/usr/bin/env bash\ntrue\n' > "$fixture/seed.sh"
+    cat > "$fixture/bin/shellcheck" <<'SH'
+#!/usr/bin/env bash
+for ((i=1; i<=25; i++)); do
+    printf './seed.sh:%s:1: note: earlier diagnostic [SC2034]\n' "$i"
+done
+printf './seed.sh:26:1: note: decisive finding [SC2086]\n'
+exit 1
+SH
+    chmod +x "$fixture/bin/shellcheck"
+    output=$(cd "$fixture" && PATH="$fixture/bin:$PATH" bash "$ROOT_DIR/tools/validate-quality.sh" 2>&1)
+    rc=$?
+    _assert_red "$rc" 'B1.7: many findings still fail the quality gate' || f=$((f + 1))
+    if [[ "$output" == *'decisive finding [SC2086]'* ]]; then
+        assert_equals found found 'B1.7: diagnostics beyond line 20 remain visible' || f=$((f + 1))
+    else
+        assert_equals found missing 'B1.7: diagnostics beyond line 20 remain visible' || f=$((f + 1))
+    fi
+    rm -rf "$fixture"
     return "$f"
 }
 
@@ -244,6 +272,7 @@ test_meta_routing_red || failures=$((failures + 1))
 test_meta_syntax_bash_red || failures=$((failures + 1))
 test_meta_syntax_zsh_red || failures=$((failures + 1))
 test_meta_quality_red || failures=$((failures + 1))
+test_meta_quality_diagnostics || failures=$((failures + 1))
 test_meta_comparator || failures=$((failures + 1))
 test_meta_watchdog_red || failures=$((failures + 1))
 

@@ -249,6 +249,25 @@ CLI preview initialization. NVM hooks only switch installed versions; missing
 versions require explicit installation. The broader finding stays PARTIAL:
 installer directories, version files and auto-switch are not closed here.
 
+**Auto-activation/coverage follow-up (2026-10-06):** `ae1fd83` adds a
+42-assertion rc safety matrix after 17 failures were reproduced against the
+first delegated patch. Setup/removal use the shared workstation lock,
+transactions, scoped cleanup and syntax verification. Malformed or legacy
+markers fail closed; explicit legacy migration remains a user action. The
+shared editor now reads permissions from the resolved symlink content target.
+`514d9d4` selects kcov's Bash-script engine instead of tracing the Bash binary,
+and rejects missing/empty reports or an empty test selection. Hosted coverage
+verification remains pending; a skipped instrumentation run is not coverage.
+
+Coverage verification also exposed B1.8 watchdog descendant leaks and B1.7
+truncated diagnostics. The runner now terminates only its dedicated test
+process group; a regression reproduced a surviving descendant before the fix.
+The quality gate retains every finding rather than hiding entries after line
+20, with a deterministic regression reproducing the missing diagnostic.
+Coverage output is isolated per invocation so stale reports cannot pass a new
+run. Existing managed auto-activation blocks refresh rather than silently
+retaining obsolete payloads.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its

@@ -657,9 +657,6 @@ _aa_mutate_hook() (
         ' "$target" || { log_error "Malformed auto-activation markers; unchanged"; return 1; }
     fi
     command -v zsh >/dev/null 2>&1 || { log_error "zsh is required to verify rc changes"; return 1; }
-    if [[ "$action" == setup ]] && mutation_block_has "$target" "$_AA_BLOCK_NAME"; then
-        zsh -n "$target"; return $?
-    fi
     if [[ "$action" == remove ]] && ! mutation_block_has "$target" "$_AA_BLOCK_NAME"; then
         return 0
     fi
