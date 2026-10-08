@@ -65,15 +65,22 @@ test_restore_point_no_collision() {
 }
 
 # Regression (transaction integrity): if the rollback record cannot be written,
-# transaction_add_file must FAIL CLOSED (nonzero), never return 0.
+# transaction_add_file must FAIL CLOSED (nonzero), never return 0. Root-proof:
+# we replace the transaction dir's record files with DIRECTORIES, so the `>>`
+# append fails with EISDIR for any user (chmod a-w is a no-op under root/CI).
 test_transaction_add_file_fail_closed() {
   local sb; sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-txn-fc.XXXXXX")
   HOME="$sb" transaction_start probe >/dev/null 2>&1
   printf 'orig\n' > "$sb/t.txt"
-  chmod -R a-w "$_TRANSACTION_DIR" 2>/dev/null
+  # Make both rollback-record targets un-appendable regardless of uid:
+  # a directory in place of the expected regular file -> `>>` fails (EISDIR).
+  rm -f "$_TRANSACTION_DIR/files.tsv" "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null
+  mkdir -p "$_TRANSACTION_DIR/files.tsv" "$_TRANSACTION_DIR/new_files.txt"
   HOME="$sb" transaction_add_file "$sb/t.txt" >/dev/null 2>&1; local rc_e=$?
   HOME="$sb" transaction_add_file "$sb/new.txt" >/dev/null 2>&1; local rc_n=$?
-  chmod -R u+w "$_TRANSACTION_DIR" 2>/dev/null
+  # Restore writable record files so rollback/cleanup don't wedge.
+  rmdir "$_TRANSACTION_DIR/files.tsv" "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null
+  : > "$_TRANSACTION_DIR/files.tsv" 2>/dev/null; : > "$_TRANSACTION_DIR/new_files.txt" 2>/dev/null
   transaction_rollback >/dev/null 2>&1 || true
   if [[ "$rc_e" -ne 0 && "$rc_n" -ne 0 ]]; then
     echo -e "${GREEN}✓ transaction_add_file fails closed on unwritable record${NC}"; rm -rf "$sb"; return 0
