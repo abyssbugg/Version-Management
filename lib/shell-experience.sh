@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # shellcheck disable=SC1091,SC2034,SC2155
 # =============================================================================
 # Shell-Experience Provisioning + Managed plugins=() Editor (M5 layer)

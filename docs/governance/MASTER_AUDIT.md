@@ -268,6 +268,12 @@ Coverage output is isolated per invocation so stale reports cannot pass a new
 run. Existing managed auto-activation blocks refresh rather than silently
 retaining obsolete payloads.
 
+Hosted verification on 2026-10-08 (Buildkite #40) exposed SC2148 in the sourced
+`lib/shell-experience.sh` after removal of its executable shebang. The local
+Make lint target supplies `--shell=bash`, whereas the hosted lint invocation
+does not. An explicit `# shellcheck shell=bash` directive supplies the dialect
+without restoring executable permissions or suppressing the finding.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its
