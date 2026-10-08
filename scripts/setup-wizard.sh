@@ -79,7 +79,7 @@ show_progress() {
 show_step() {
     local step_num=$1
     local step_title=$2
-    ((CURRENT_STEP++))
+    CURRENT_STEP=$((CURRENT_STEP + 1))  # not ((x++)): pre-inc returns 0-value, aborts under set -e (B1.5 class)
 
     echo
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -421,14 +421,17 @@ step_confirmation() {
             TOTAL_STEPS=8
             ;;
         custom)
-            [[ "$INSTALL_THEME" == "true" ]] && echo -e "    ${GREEN}✓${NC} PowerLevel10k Theme" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_NVM" == "true" ]] && echo -e "    ${GREEN}✓${NC} NVM" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_PYENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} pyenv" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_GOENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} goenv" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_RUSTUP" == "true" ]] && echo -e "    ${GREEN}✓${NC} rustup" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_JENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} jenv" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_VSCODE" == "true" ]] && echo -e "    ${GREEN}✓${NC} VS Code" && ((TOTAL_STEPS++))
-            [[ "$INSTALL_FONTS" == "true" ]] && echo -e "    ${GREEN}✓${NC} Nerd Fonts" && ((TOTAL_STEPS++))
+            # Use var=$((var + 1)) not ((var++)): under `set -e`, ((x++))
+            # returns the PRE-increment value, so the first bump from 0 exits 1
+            # and aborts the wizard. Assignment form always returns 0. (B1.5 class)
+            [[ "$INSTALL_THEME" == "true" ]] && echo -e "    ${GREEN}✓${NC} PowerLevel10k Theme" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_NVM" == "true" ]] && echo -e "    ${GREEN}✓${NC} NVM" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_PYENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} pyenv" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_GOENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} goenv" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_RUSTUP" == "true" ]] && echo -e "    ${GREEN}✓${NC} rustup" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_JENV" == "true" ]] && echo -e "    ${GREEN}✓${NC} jenv" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_VSCODE" == "true" ]] && echo -e "    ${GREEN}✓${NC} VS Code" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
+            [[ "$INSTALL_FONTS" == "true" ]] && echo -e "    ${GREEN}✓${NC} Nerd Fonts" && TOTAL_STEPS=$((TOTAL_STEPS + 1))
             ;;
     esac
 
@@ -496,7 +499,7 @@ step_install() {
 # Install a single component
 install_component() {
     local component="$1"
-    ((CURRENT_STEP++))
+    CURRENT_STEP=$((CURRENT_STEP + 1))  # not ((x++)): pre-inc returns 0-value, aborts under set -e (B1.5 class)
 
     echo
     show_progress "$CURRENT_STEP" "$TOTAL_STEPS"

@@ -556,7 +556,13 @@ main() {
     esac
 
     case "$command" in
-        install-*|configure-nvm)
+        configure-nvm)
+            # Writes the managed NVM block in $HOME/.zshrc — the SAME target
+            # version-manager.sh and lib/auto-activate.sh guard. Share one lock
+            # name so concurrent rc writers actually exclude each other. (lock-contract)
+            lock_with_trap "workstation-config" 30 || exit 1
+            ;;
+        install-*)
             lock_with_trap "workstation-mutation" 30 || exit 1
             ;;
     esac

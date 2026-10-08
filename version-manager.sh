@@ -1568,7 +1568,12 @@ parse_args() {
         esac
     done
 
-    echo "$@"
+    # Emit remaining positional args ONE PER LINE so the caller's
+    # `mapfile -t args` preserves argument boundaries. A plain `echo "$@"`
+    # space-joins them onto a single line, collapsing e.g.
+    # `install-node 20.0.0` into args[0] and leaving args[1] unset — which
+    # breaks every command that takes a version argument. (P2/CLI fix)
+    [[ $# -gt 0 ]] && printf '%s\n' "$@"
 }
 
 # Main function

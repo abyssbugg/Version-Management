@@ -238,6 +238,50 @@ network; no assertion semantics change. Proven: `rustup --version` under an
 empty HOME goes from `rc=124` (timeout) to instant; the test file runs 13/13 in
 ~0s; unit suite 37/37.
 
+### External audit findings — safety primitives (2026-10-08)
+
+An independent risk-focused audit of `6729325`/`d261e9d` surfaced six
+code-level findings beyond the HOME-sandbox one above. Each was reproduced
+read-only, then fixed on `fix/managed-manager-config` with the full gate green
+(lint 0 · syntax 124/124 · unit 37/37 · integration 20/20).
+
+- **AX-1 CLI arg boundaries (CONFIRMED, FIXED).** `version-manager.sh:parse_args`
+  ended with `echo "$@"` and the caller does `mapfile -t args < <(parse_args …)`.
+  `echo` space-joins remaining positionals onto one line, so `install-node 20.0.0`
+  collapsed into `args[0]` with `args[1]` unset — every version-taking command
+  mis-dispatched (and tripped `set -u`). Fixed: emit one arg per line
+  (`printf '%s\n' "$@"`), empty-safe. Verified: `install-node 20.0.0` → count 2,
+  cmd `install-node`, ver `20.0.0`; no-arg → count 0 (defaults to `help`).
+- **AX-2 wizard increments under set -e (CONFIRMED, FIXED).** `scripts/setup-wizard.sh`
+  used `((TOTAL_STEPS++))`/`((CURRENT_STEP++))` (10 sites). From 0 the pre-increment
+  returns status 1 and aborts under `set -euo pipefail`, killing the custom-profile
+  summary at the first item. Fixed with the `var=$((var + 1))` form (B1.5 class);
+  verified the custom path completes.
+- **AX-3 transaction register fail-open (CONFIRMED, FIXED).** `lib/backup.sh:transaction_add_file`
+  appended the rollback record (`files.tsv` / `new_files.txt`) without checking the
+  write, returning 0 even if it failed — a mutation could proceed with no usable
+  rollback record. Fixed: both appends fail closed (return 1 + error). Commit's
+  informational `metadata.json` write now warns on failure instead of silently
+  claiming a clean commit (rollback never reads it, so the mutation is not failed).
+  Regression pinned in `tests/unit/test_backup.sh`.
+- **AX-4 restore-point collision + non-atomic replace (CONFIRMED, FIXED).**
+  `create_restore_point` named payloads via `tr '/' '_'`, mapping `/a/b_c` and
+  `/a_b/c` to the same file (one backup clobbered the other), and removed the old
+  restore point before building the replacement. Fixed: collision-free index-keyed
+  payloads (`f0000`, `f0001`, …; mapping file keeps the real path, so
+  `restore_from_point` is unchanged) and atomic publish (build in a staging dir,
+  then swap). Regression pinned in `tests/unit/test_backup.sh`.
+- **AX-5 shared-rc lock contract (CONFIRMED, FIXED).** `setup-versions.sh`'s
+  `configure-nvm` wrote `$HOME/.zshrc` under `workstation-mutation` while
+  `version-manager.sh` and `lib/auto-activate.sh` write the same file under
+  `workstation-config` — no mutual exclusion between concurrent rc writers.
+  Fixed: `configure-nvm` now uses `workstation-config`; `install-*` keeps
+  `workstation-mutation` (different targets). All three `.zshrc` writers share one lock.
+- **AX-6 mutation adoption breadth (OPEN — tracked as P3-1/P3-2).** `version-manager.sh`
+  project-version writes, `scripts/patch-font.sh`, `lib/pyvm.sh` move/privilege paths
+  are not yet transaction-routed. This is the ongoing registry adoption program, not
+  a regression; see ROADMAP 3.1/3.4 and the adoption lanes.
+
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
 - **P3-1-vscode:** `scripts/generate-vscode-settings.sh` used raw

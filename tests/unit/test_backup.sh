@@ -46,8 +46,47 @@ test_restore_backup() {
   fi
 }
 
-# Run tests
-test_backup_file
-test_restore_backup
+# Regression (restore-point integrity): two paths that collided under the old
+# tr '/' '_' scheme (/a/b_c and /a_b/c -> _a_b_c) must now get distinct
+# payloads and each restore its OWN content.
+test_restore_point_no_collision() {
+  local sb; sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-rp-collide.XXXXXX")
+  mkdir -p "$sb/a/b_c" "$sb/a_b/c"
+  printf 'ONE\n' > "$sb/a/b_c/x"
+  printf 'TWO\n' > "$sb/a_b/c/x"
+  HOME="$sb" create_restore_point collide "$sb/a/b_c/x" "$sb/a_b/c/x" >/dev/null 2>&1
+  printf 'CORRUPT\n' > "$sb/a/b_c/x"; printf 'CORRUPT\n' > "$sb/a_b/c/x"
+  HOME="$sb" restore_from_point collide >/dev/null 2>&1
+  if [[ "$(cat "$sb/a/b_c/x")" == "ONE" && "$(cat "$sb/a_b/c/x")" == "TWO" ]]; then
+    echo -e "${GREEN}✓ Restore point: colliding paths kept distinct${NC}"; rm -rf "$sb"; return 0
+  else
+    echo -e "${RED}✗ Restore point collision: wrong content restored${NC}"; rm -rf "$sb"; return 1
+  fi
+}
 
-exit $?
+# Regression (transaction integrity): if the rollback record cannot be written,
+# transaction_add_file must FAIL CLOSED (nonzero), never return 0.
+test_transaction_add_file_fail_closed() {
+  local sb; sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-txn-fc.XXXXXX")
+  HOME="$sb" transaction_start probe >/dev/null 2>&1
+  printf 'orig\n' > "$sb/t.txt"
+  chmod -R a-w "$_TRANSACTION_DIR" 2>/dev/null
+  HOME="$sb" transaction_add_file "$sb/t.txt" >/dev/null 2>&1; local rc_e=$?
+  HOME="$sb" transaction_add_file "$sb/new.txt" >/dev/null 2>&1; local rc_n=$?
+  chmod -R u+w "$_TRANSACTION_DIR" 2>/dev/null
+  transaction_rollback >/dev/null 2>&1 || true
+  if [[ "$rc_e" -ne 0 && "$rc_n" -ne 0 ]]; then
+    echo -e "${GREEN}✓ transaction_add_file fails closed on unwritable record${NC}"; rm -rf "$sb"; return 0
+  else
+    echo -e "${RED}✗ transaction_add_file returned success despite failed record (existing=$rc_e new=$rc_n)${NC}"; rm -rf "$sb"; return 1
+  fi
+}
+
+# Run tests — aggregate: any failure fails the file (not just the last test).
+_bk_fails=0
+test_backup_file || _bk_fails=$((_bk_fails + 1))
+test_restore_backup || _bk_fails=$((_bk_fails + 1))
+test_restore_point_no_collision || _bk_fails=$((_bk_fails + 1))
+test_transaction_add_file_fail_closed || _bk_fails=$((_bk_fails + 1))
+
+exit "$_bk_fails"

@@ -652,7 +652,13 @@ transaction_add_file() {
     # New files: nothing to back up; recorded for removal on rollback.
     if [[ ! -e "$file" && ! -L "$file" ]]; then
         log_debug "File does not exist yet, marking as new: $file"
-        echo "$file" >> "$_TRANSACTION_DIR/new_files.txt"
+        # Fail closed: if the rollback record cannot be written, the caller
+        # must NOT believe the file is tracked — rollback would silently fail
+        # to remove it. (transaction-integrity)
+        if ! echo "$file" >> "$_TRANSACTION_DIR/new_files.txt"; then
+            log_error "Cannot record new-file rollback entry: $file"
+            return 1
+        fi
         _TRANSACTION_FILES+=("NEW:$file")
         return 0
     fi
@@ -686,7 +692,13 @@ transaction_add_file() {
     fi
 
     sha=$(_txn_sha256 "$entry_dir/data")
-    printf '%s\t%s\t%s\t%s\n' "$kind" "$idx" "$sha" "$file" >> "$_TRANSACTION_DIR/files.tsv"
+    # Fail closed: the files.tsv row IS the rollback record. If this append
+    # fails, the backup payload exists but nothing points rollback at it, so
+    # the pre-state would be silently unrecoverable — refuse the registration.
+    if ! printf '%s\t%s\t%s\t%s\n' "$kind" "$idx" "$sha" "$file" >> "$_TRANSACTION_DIR/files.tsv"; then
+        log_error "Cannot record rollback entry for: $file"
+        return 1
+    fi
     _TRANSACTION_FILES+=("$file")
     log_debug "Added to transaction [$idx kind=$kind sha=${sha:0:12}]: $file"
     return 0
@@ -701,7 +713,10 @@ transaction_commit() {
     fi
 
     if [[ "$_TRANSACTION_ACTIVE" != "dryrun" ]]; then
-        cat > "$_TRANSACTION_DIR/metadata.json" << EOF
+        # metadata.json is informational (rollback keys off files.tsv/new_files.txt,
+        # not this file). A failed write must not be reported as a clean commit,
+        # but it also must not fail a mutation that already applied — warn loudly.
+        if ! cat > "$_TRANSACTION_DIR/metadata.json" << EOF
 {
     "name": "$_TRANSACTION_NAME",
     "completed_at": "$(date -Iseconds)",
@@ -710,6 +725,9 @@ transaction_commit() {
     "files_count": ${#_TRANSACTION_FILES[@]}
 }
 EOF
+        then
+            log_warn "Transaction commit metadata not written (informational): $_TRANSACTION_NAME"
+        fi
         _txn_journal "commit" "files=${#_TRANSACTION_FILES[@]}"
         log_success "Transaction committed: $_TRANSACTION_NAME (${#_TRANSACTION_FILES[@]} files)"
     else
@@ -889,36 +907,62 @@ create_restore_point() {
     backup_dir=$(_backup_default_dir) || return 1
     restore_dir="$backup_dir/restore_points/$name"
 
-    # Remove existing restore point with same name
-    if [[ -d "$restore_dir" ]]; then
-        rm -rf "$restore_dir"
-    fi
-
-    mkdir -p "$restore_dir"
-
     log_info "Creating restore point: $name"
 
-    local file_count=0
+    # Build the complete restore point in a staging dir, then swap it into
+    # place atomically. The old approach removed the existing point BEFORE
+    # building the replacement, so any failure mid-build destroyed the prior
+    # point with nothing to show for it. (restore-point integrity)
+    mkdir -p "$backup_dir/restore_points" || { log_error "Cannot create restore_points dir"; return 1; }
+    local staging
+    staging=$(mktemp -d "$backup_dir/restore_points/.$name.staging.XXXXXX") || {
+        log_error "Cannot create restore-point staging dir"; return 1
+    }
+
+    local file_count=0 idx=0 backup_name
     for file in "${files[@]}"; do
         if [[ -f "$file" ]]; then
-            local backup_name
-            backup_name=$(echo "$file" | tr '/' '_')
-            cp "$file" "$restore_dir/$backup_name"
-            echo "$file|$restore_dir/$backup_name" >> "$restore_dir/mappings.txt"
-            file_count=$((file_count + 1))  # portable: avoids exit-1 from n=$(( n + 1 )) when n=0 under set -e
+            # Collision-free storage: index-keyed names, never `tr '/' '_'`
+            # (which mapped /a/b_c and /a_b/c onto the same payload and let one
+            # backup clobber another). The mapping file keeps the real path.
+            backup_name=$(printf 'f%04d' "$idx")
+            if ! cp "$file" "$staging/$backup_name"; then
+                log_error "Cannot copy into restore point: $file"
+                rm -rf "$staging"
+                return 1
+            fi
+            # mappings.txt keeps the SAME original|backup format restore_from_point
+            # expects; backup path is rewritten to the final restore_dir below.
+            printf '%s|%s\n' "$file" "$restore_dir/$backup_name" >> "$staging/mappings.txt" || {
+                log_error "Cannot record restore mapping: $file"; rm -rf "$staging"; return 1
+            }
+            file_count=$((file_count + 1))
+            idx=$((idx + 1))
         else
             log_debug "File not found, skipping: $file"
         fi
     done
 
-    # Write metadata
-    cat > "$restore_dir/metadata.json" << EOF
+    # Write metadata into the staging dir
+    cat > "$staging/metadata.json" << EOF
 {
     "name": "$name",
     "created_at": "$(date -Iseconds)",
     "files_count": $file_count
 }
 EOF
+
+    # Atomic publish: the staging dir is now complete. Remove the previous
+    # restore point of this name ONLY now, then move the staged one into
+    # place. A failure before this point left the prior restore point intact.
+    if [[ -d "$restore_dir" ]]; then
+        rm -rf "$restore_dir" || { log_error "Cannot replace existing restore point: $name"; rm -rf "$staging"; return 1; }
+    fi
+    if ! mv "$staging" "$restore_dir"; then
+        log_error "Cannot publish restore point: $name"
+        rm -rf "$staging"
+        return 1
+    fi
 
     log_success "Restore point created: $name ($file_count files)"
     return 0
