@@ -212,15 +212,12 @@ if [[ "$HAVE_PY" -eq 1 ]]; then
         printf '  ✗ [diag] python.expected=%q python.active=%q\n' \
             "$(json_get "$OUT" runtime python expected)" \
             "$(json_get "$OUT" runtime python active)"
-        # Reproduce the status API's exact capture: python3 --version 2>&1
-        # from a bash child started under env -i (so stderr startup noise,
-        # e.g. a locale warning, would be folded in by 2>&1).
-        _diag_full="$(env -i HOME="$HOME_DIR" PATH="$MOCKBIN:$STRICTBIN" \
-            bash -c 'python3 --version 2>&1 | head -n 3')"
-        printf '  ✗ [diag] env -i bash child, full 2>&1: %q\n' "$_diag_full"
-        _diag_clean="$(env -i HOME="$HOME_DIR" PATH="$MOCKBIN:$STRICTBIN" \
-            bash -c 'python3 --version 2>/dev/null | head -n 1')"
-        printf '  ✗ [diag] env -i bash child, stdout only: %q\n' "$_diag_clean"
+        # The CLI's own stderr is the faithful source: whatever the status
+        # run wrote to fd2 (e.g. a bash startup warning folded into active
+        # via 2>&1) lands here.
+        printf '  ✗ [diag] CLI stderr: %q\n' "$(cat "$SB/err.txt" 2>&1 | head -n 5)"
+        printf '  ✗ [diag] shim first line: %q\n' "$(head -n 1 "$MOCKBIN/python3")"
+        printf '  ✗ [diag] LANG=%q LC_ALL=%q (test env)\n' "${LANG:-}" "${LC_ALL:-}"
     fi
     assert_eq "happy path: go.active (toolchain-reported form)" "go1.22.0" "$(json_get "$OUT" runtime go active)"
     assert_eq "happy path: go.match (go-prefix normalized)" "true" "$(json_get "$OUT" runtime go match)"
