@@ -20,10 +20,40 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+
+# AX-6a/P3-1: --dry-run must be zero-write, so it is resolved from argv
+# BEFORE any library is sourced: lib/cache.sh runs cache_init at source time
+# (creates cache directories under $HOME) and an inherited LOG_FILE would be
+# appended to by every log call. Mirrors main's parsing (the value after
+# --report is a path, never a flag). An exported TRANSACTION_DRY_RUN=1 is
+# honored the same way.
+_diag_skip_value=false
+for _diag_arg in "$@"; do
+    if [[ "$_diag_skip_value" == true ]]; then
+        _diag_skip_value=false
+        continue
+    fi
+    case "$_diag_arg" in
+        --report) _diag_skip_value=true ;;
+        --dry-run) TRANSACTION_DRY_RUN=1 ;;
+    esac
+done
+unset _diag_arg _diag_skip_value
+if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+    export TRANSACTION_DRY_RUN
+    CACHE_ENABLED=0
+    LOG_FILE=''
+    export LOG_FILE
+fi
+
 source "${REPO_ROOT}/lib/logger.sh"
 source "${REPO_ROOT}/lib/env.sh"
 source "${REPO_ROOT}/lib/cache.sh"
-source "${REPO_ROOT}/lib/backup.sh"
+# Managed rc mutations share the canonical transaction/editor implementation
+# (lib/mutation.sh sources lib/backup.sh and lib/validation.sh itself) and the
+# shared rc-writer lock.
+source "${REPO_ROOT}/lib/mutation.sh"
+source "${REPO_ROOT}/lib/lock.sh"
 
 # Configuration with defaults
 ENABLE_COLORS="${ENABLE_COLORS:-true}"
@@ -67,6 +97,26 @@ track_result() {
     esac
 }
 
+# Shell config file every diagnose_*/fix_* path inspects. It was called here
+# but never defined (it lives in version-manager.sh, which this tool does not
+# source — docs/analysis SYN-008), so --fix died on an empty path. Same
+# selection as version-manager.sh:get_shell_config, built on the canonical
+# lib/env.sh get_shell (login shell); fish and others fall through to
+# ~/.profile because the managed blocks are POSIX/bash-flavored.
+get_shell_config() {
+    case "$(get_shell)" in
+        zsh)  echo "$HOME/.zshrc" ;;
+        bash)
+            if [[ -f "$HOME/.bashrc" ]]; then
+                echo "$HOME/.bashrc"
+            else
+                echo "$HOME/.bash_profile"
+            fi
+            ;;
+        *)    echo "$HOME/.profile" ;;
+    esac
+}
+
 # Show usage information
 show_usage() {
     cat << EOF
@@ -79,6 +129,7 @@ ${GREEN}Options:${NC}
   --quick              Perform quick 30-second diagnostics
   --full               Perform comprehensive full diagnostics
   --fix                Apply safe remediations for detected issues
+  --dry-run            With --fix: print the planned changes, write nothing
   --silent             Run in silent mode with minimal output
   --debug              Enable debug logging for troubleshooting
   --json               Output results in JSON format
@@ -91,6 +142,9 @@ ${GREEN}Examples:${NC}
 
   # Full diagnostics with fixes
   $SCRIPT_NAME --full --fix
+
+  # Preview the fixes without changing any file
+  $SCRIPT_NAME --fix --dry-run
 
   # Silent mode with JSON output
   $SCRIPT_NAME --silent --json
@@ -440,63 +494,158 @@ diagnose_dependencies() {
 }
 
 # Apply fixes for detected issues
+# A manager that is not installed is a skip, not a failure. A refused or
+# rolled-back write is a failure: every fix still runs, then this returns
+# non-zero so main fails the run. Each fix_* is called in a || list (errexit
+# is suspended there), so each one returns its own status explicitly.
 apply_fixes() {
+    local fix_status=0
+
     log_info " Applying Safe Remediations"
     log_info "============================="
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        log_info "   Dry-run: planning only, no file will be changed"
+    fi
 
     # Fix NVM configuration if missing
-    fix_nvm_config
+    fix_nvm_config || fix_status=1
 
     # Fix pyenv configuration if missing
-    fix_pyenv_config
+    fix_pyenv_config || fix_status=1
 
     # Clear cache to refresh configuration
-    fix_clear_cache
+    fix_clear_cache || fix_status=1
 
     echo
+    return "$fix_status"
+}
+
+# P3-1/AX-6a: the ONE writer for every --fix shell-rc mutation. Mirrors
+# version-manager.sh:_vm_configure_block: shared workstation-config lock,
+# backup transaction, managed block via lib/mutation.sh, syntax verification,
+# rollback on any failure, zero-write dry-run preview.
+# Usage: _diag_configure_block <block-name> <rc-file> <generator-function>
+# The generator prints the block body; it is one of this file's hard-coded
+# generators (trusted literal content, never user text). Subshell scope keeps
+# transaction state and the cleanup traps out of the caller; the EXIT trap
+# rolls back and releases the lock on every exit path. No here-documents in
+# this path (AX-7): bodies are produced with printf.
+_diag_configure_block() (
+    local block="$1" file="$2" generator="$3"
+    local content='' target="$file" active=0 locked=0
+    # shellcheck disable=SC2030 # Deliberately isolate preview logging from the caller.
+    local LOG_FILE=''  # Planning and diagnostics must never initialize file logging.
+    export LOG_FILE
+    if [[ -n "${_TRANSACTION_ACTIVE:-}" ]]; then
+        log_error 'Configuration requires its own transaction; nested mutation refused'
+        return 1
+    fi
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        target="$_MUTATION_RESOLVED_TARGET"
+    fi
+    if [[ -e "$target" && ! -f "$target" ]]; then
+        log_error "Not a regular shell configuration: $file"
+        return 1
+    fi
+    if [[ -f "$file" ]]; then
+        # Fail closed for partial/duplicate markers: the editor would drop
+        # every line after an unterminated BEGIN. Never discard unknown rc text.
+        awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
+            $0 == b { if (inside || starts++) bad=1; inside=1; next }
+            $0 == e { if (!inside) bad=1; inside=0; next }
+            END { exit (bad || inside) ? 1 : 0 }
+        ' "$file" || { log_error "Malformed managed block $block in $file; repair markers before retrying (left unchanged)"; return 1; }
+    fi
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        printf '[dry-run] Would write managed block %s to %s (backup, verify, rollback on failure):\n' "$block" "$file"
+        "$generator" | sed 's/^/[dry-run]     /'
+        return 0
+    fi
+    [[ -d "$(dirname "$target")" ]] || { log_error "Shell configuration parent missing: $file"; return 1; }
+    _diag_config_cleanup() {
+        local status=$?
+        trap - EXIT
+        if [[ "$active" == 1 ]]; then
+            transaction_rollback || status=1
+        fi
+        [[ -z "$content" ]] || rm -f -- "$content"
+        if [[ "$locked" == 1 ]]; then lock_release workstation-config || status=1; fi
+        exit "$status"
+    }
+    trap _diag_config_cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-config 30 || return 1
+    locked=1
+    content=$(mktemp "${TMPDIR:-/tmp}/vms-diag-block.XXXXXX") || return 1
+    "$generator" > "$content" || return 1
+    bash -n "$content" || return 1
+    transaction_start "version_diagnostic_fix" || return 1
+    active=1
+    transaction_add_file "$file" || return 1
+    if [[ "$target" != "$file" ]]; then transaction_add_file "$target" || return 1; fi
+    mutation_block_write "$file" "$block" "$content" || return 1
+    # Same decision as _vm_configure_block (login shell from $SHELL); an unset
+    # SHELL defaults like lib/env.sh get_shell instead of tripping set -u.
+    local login_shell="${SHELL:-/bin/bash}"
+    if [[ "${login_shell##*/}" == zsh ]]; then
+        command -v zsh >/dev/null 2>&1 || { log_error 'zsh is required to verify zsh configuration'; return 1; }
+        zsh -n "$file" || return 1
+    else
+        bash -n "$file" || return 1
+    fi
+    transaction_commit || return 1
+    active=0
+    log_success "Managed $block configuration verified: $file"
+)
+
+# The four functional pyenv lines (the old decorative banner is dropped; the
+# managed BEGIN/END markers identify the block). Hard-coded init literals are
+# the accepted trusted pattern (ENGINEERING_RULES 2.2).
+_diag_pyenv_block() {
+    printf '%s\n' \
+        'export PYENV_ROOT="$HOME/.pyenv"' \
+        'export PATH="$PYENV_ROOT/bin:$PATH"' \
+        'eval "$(pyenv init --path)"' \
+        'eval "$(pyenv init -)"'
 }
 
 # Fix NVM configuration
+# Writes the canonical lib/mutation.sh NVM block under the managed name `nvm`
+# (the block scripts/fix-nvm-issues.sh converges on). Existing NVM_DIR
+# configuration is never edited or appended to.
 fix_nvm_config() {
     log_info " Fixing NVM Configuration"
 
     if ! check_nvm_installed; then
         log_warn "  NVM not installed. Skipping configuration fix."
-        return 1
+        return 0
     fi
 
     local shell_config=$(get_shell_config)
     if [[ ! -f "$shell_config" ]] || ! grep -q "NVM_DIR" "$shell_config"; then
-        log_info "   Adding NVM configuration to $shell_config"
-
-        # Backup current configuration
-        create_backup "$shell_config"
-
-        # Add NVM configuration
-        cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# NVM Configuration - Added by version-diagnostic-enhanced.sh
-# ============================================================================
-
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-EOF
-
-        log_success " NVM configuration added to $shell_config"
-    else
-        log_info " NVM already configured correctly"
+        log_info "   NVM configuration missing from $shell_config"
+        if ! _diag_configure_block nvm "$shell_config" mutation_nvm_block; then
+            log_error " NVM configuration NOT applied to $shell_config (left unchanged)"
+            return 1
+        fi
+        if [[ "${TRANSACTION_DRY_RUN:-0}" != 1 ]]; then
+            log_success " NVM configuration added to $shell_config"
+        fi
+        return 0
     fi
 
-    # Check for silent mode configuration
-    if [[ -f "$shell_config" ]] && ! grep -q "NVM_SILENT" "$shell_config"; then
-        log_info "   Adding NVM silent mode configuration"
+    log_info " NVM already configured correctly"
 
-        # Add silent mode configuration
-        echo 'export NVM_SILENT=true' >> "$shell_config"
-        log_success " NVM silent mode configured"
+    # Silent mode is part of the canonical managed block; an existing
+    # unmanaged NVM setup is left as-is (no bare appends).
+    if ! grep -q "NVM_SILENT" "$shell_config"; then
+        log_warn "  NVM_SILENT is not set in $shell_config (left unchanged)."
+        log_warn "   To converge on the canonical managed NVM block (NVM_SILENT=true), run: ${REPO_ROOT}/scripts/fix-nvm-issues.sh --silent"
+        log_warn "   (that command manages \$HOME/.zshrc; preview it first with --dry-run --silent)"
     fi
+    return 0
 }
 
 # Fix pyenv configuration
@@ -505,38 +654,33 @@ fix_pyenv_config() {
 
     if ! check_pyenv_installed; then
         log_warn "  pyenv not installed. Skipping configuration fix."
-        return 1
+        return 0
     fi
 
     local shell_config=$(get_shell_config)
     if [[ ! -f "$shell_config" ]] || ! grep -q "pyenv init" "$shell_config"; then
-        log_info "   Adding pyenv configuration to $shell_config"
-
-        # Backup current configuration
-        create_backup "$shell_config"
-
-        # Add pyenv configuration
-        cat >> "$shell_config" << 'EOF'
-
-# ============================================================================
-# pyenv Configuration - Added by version-diagnostic-enhanced.sh
-# ============================================================================
-
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init --path)"
-eval "$(pyenv init -)"
-EOF
-
-        log_success " pyenv configuration added to $shell_config"
+        log_info "   pyenv configuration missing from $shell_config"
+        if ! _diag_configure_block version-diagnostic-pyenv "$shell_config" _diag_pyenv_block; then
+            log_error " pyenv configuration NOT applied to $shell_config (left unchanged)"
+            return 1
+        fi
+        if [[ "${TRANSACTION_DRY_RUN:-0}" != 1 ]]; then
+            log_success " pyenv configuration added to $shell_config"
+        fi
     else
         log_info " pyenv already configured correctly"
     fi
+    return 0
 }
 
 # Fix cache issues
 fix_clear_cache() {
     log_info "🧹 Clearing Diagnostic Cache"
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        printf '[dry-run] Would clear the diagnostic cache (nothing is removed in dry-run)\n'
+        return 0
+    fi
 
     # This would clear cache if needed
     # For now, just log that cache clearing is available
@@ -655,6 +799,11 @@ main() {
                 FIX_MODE=true
                 shift
                 ;;
+            --dry-run)
+                TRANSACTION_DRY_RUN=1
+                export TRANSACTION_DRY_RUN
+                shift
+                ;;
             --silent)
                 SILENT_MODE=true
                 shift
@@ -697,9 +846,11 @@ main() {
             ;;
     esac
 
-    # Apply fixes if requested
+    # Apply fixes if requested. A failed write (refused or rolled back) does
+    # not stop the report, but it fails the run (exit status below).
+    local fix_failed=0
     if [[ "$FIX_MODE" == "true" ]]; then
-        apply_fixes
+        apply_fixes || fix_failed=1
     fi
 
     # Generate report
@@ -716,6 +867,9 @@ main() {
     else
         log_error " Found $DIAGNOSTIC_ERRORS error(s) and $DIAGNOSTIC_WARNINGS warning(s). Fixes recommended."
     fi
+    if [[ $fix_failed -ne 0 ]]; then
+        log_error " One or more remediations failed (refused or rolled back); see the errors above."
+    fi
 
     echo
     log_info " Next steps:"
@@ -726,7 +880,7 @@ main() {
     log_info "   • Run with --full for comprehensive diagnostics"
 
     # Exit with appropriate code
-    if [[ $DIAGNOSTIC_ERRORS -gt 0 ]]; then
+    if [[ $DIAGNOSTIC_ERRORS -gt 0 ]] || [[ $fix_failed -ne 0 ]]; then
         exit 1
     else
         exit 0
