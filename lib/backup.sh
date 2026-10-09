@@ -716,16 +716,18 @@ transaction_commit() {
         # metadata.json is informational (rollback keys off files.tsv/new_files.txt,
         # not this file). A failed write must not be reported as a clean commit,
         # but it also must not fail a mutation that already applied — warn loudly.
-        if ! cat > "$_TRANSACTION_DIR/metadata.json" << EOF
-{
-    "name": "$_TRANSACTION_NAME",
-    "completed_at": "$(date -Iseconds)",
-    "status": "committed",
-    "layout": 2,
-    "files_count": ${#_TRANSACTION_FILES[@]}
-}
-EOF
-        then
+        #
+        # NOTE: assembled with printf, NOT a here-doc. transaction_commit is
+        # export -f'd (see end of file); bash serializes exported functions
+        # into the environment and child shells re-parse them. A here-doc body
+        # inside an `if ! cat <<EOF ...; then` does not round-trip through that
+        # serialization on every bash build — the hosted Linux agent re-parsed
+        # it as a syntax error, which broke EVERY child bash the function's
+        # process spawned. printf keeps the body a single well-formed command.
+        local _txn_meta
+        printf -v _txn_meta '{\n    "name": "%s",\n    "completed_at": "%s",\n    "status": "committed",\n    "layout": 2,\n    "files_count": %s\n}\n' \
+            "$_TRANSACTION_NAME" "$(date -Iseconds)" "${#_TRANSACTION_FILES[@]}"
+        if ! printf '%s' "$_txn_meta" > "$_TRANSACTION_DIR/metadata.json"; then
             log_warn "Transaction commit metadata not written (informational): $_TRANSACTION_NAME"
         fi
         _txn_journal "commit" "files=${#_TRANSACTION_FILES[@]}"

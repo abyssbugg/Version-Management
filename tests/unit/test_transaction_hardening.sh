@@ -298,10 +298,43 @@ test_symlink_rollback_hostile_unlink() {
     return "$_T_CASE_FAILS"
 }
 
+# Regression: the transaction primitives are export -f'd, so bash serializes
+# them into the environment (BASH_FUNC_*) and every child shell re-parses
+# them at startup. A here-doc nested inside an `if ! cat <<EOF ...; then`
+# compound (as transaction_commit once had) does not round-trip through that
+# serialization on all bash builds — the hosted Linux agent re-parsed it as a
+# syntax error, breaking EVERY child bash the process spawned (observed as a
+# "bash: ... syntax error near unexpected token \`fi'" leaking into
+# `python3 --version 2>&1` and flipping an unrelated status match). Assert a
+# clean child bash start with the functions exported.
+test_exported_functions_reparse() {
+    local out rc
+    # A child bash that merely echoes: if any exported BASH_FUNC_* fails to
+    # re-parse, bash prints the error to stderr before running the command.
+    out="$(bash -c 'echo child-ok' 2>&1)"
+    rc=$?
+    chk 0 "$rc" "exported transaction fns: child bash exits 0"
+    chk "child-ok" "$out" "exported transaction fns: child bash is noise-free"
+    # Belt-and-braces: no exported transaction function body carries a here-doc
+    # inside a conditional (the specific shape that broke serialization).
+    local fn had=0
+    for fn in transaction_commit transaction_start transaction_rollback \
+        transaction_add_file; do
+        if declare -f "$fn" >/dev/null 2>&1; then
+            if declare -f "$fn" | grep -qE 'if ![^#]*<<'; then
+                had=1
+            fi
+        fi
+    done
+    chk 0 "$had" "no transaction fn has a here-doc in an if-condition"
+    return "$_T_CASE_FAILS"
+}
+
 # ── Run — explicit failure accumulation (A5) ─────────────────────────────────
 failures=0
 run_tcase() { _T_CASE_FAILS=0; "$@" || failures=$((failures + 1)); }
 run_tcase test_name_grammar
+run_tcase test_exported_functions_reparse
 run_tcase test_same_basename_rollback
 run_tcase test_concurrent_same_name_isolation
 run_tcase test_new_and_deleted_files

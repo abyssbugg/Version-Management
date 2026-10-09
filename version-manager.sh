@@ -1245,23 +1245,13 @@ _vm_status_active_version() {
         python)
             command -v python3 >/dev/null 2>&1 || return 1
             raw="$(python3 --version 2>&1 | head -n 1 || true)"
-            if [[ -n "${VMS_DIAG:-}" ]]; then
-                {
-                    printf 'VMS_DIAG python: raw=%q\n' "$raw"
-                    printf 'VMS_DIAG python: PATH=%q\n' "$PATH"
-                    printf 'VMS_DIAG python: cv=%q\n' "$(command -v python3 2>&1)"
-                    printf 'VMS_DIAG python: type=%q\n' "$(type python3 2>&1)"
-                } >>"${VMS_DIAG}" 2>/dev/null || true
-            fi
-            # Portable extraction: "Python 3.12.0" -> "3.12.0".
-            # Prior forms each failed the hosted Linux agent while passing
-            # macOS: ${raw#*[[:space:]]} used POSIX-class globbing inside
-            # #-expansion (build-dependent), and `read -r _ raw _ <<<"$raw"`
-            # left python.active empty there (exact mechanism unconfirmed —
-            # cannot repro on the macOS host). This form uses only literal
-            # parameter expansion: strip a leading "Python " label, then take
-            # the first space-delimited field. No globbing, subshell, pipe, or
-            # here-string, so it evaluates identically on every bash build.
+            # Extract "Python 3.12.0" -> "3.12.0" with literal parameter
+            # expansion only (no glob, subshell, pipe, or here-string), so it
+            # evaluates identically on every bash build. (The Linux-only
+            # python.match regression that surfaced here was ultimately an
+            # export -f serialization bug in transaction_commit poisoning
+            # child bash via BASH_FUNC_*, fixed in lib/backup.sh; this parse
+            # is kept as defensive hardening regardless.)
             raw="${raw#Python }"
             raw="${raw%% *}"
             ;;
