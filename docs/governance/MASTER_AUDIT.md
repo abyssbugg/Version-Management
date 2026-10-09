@@ -281,6 +281,25 @@ read-only, then fixed on `fix/managed-manager-config` with the full gate green
   project-version writes, `scripts/patch-font.sh`, `lib/pyvm.sh` move/privilege paths
   are not yet transaction-routed. This is the ongoing registry adoption program, not
   a regression; see ROADMAP 3.1/3.4 and the adoption lanes.
+- **AX-7 export -f here-doc poisoned child bash (CONFIRMED, FIXED — `ef75bda`).**
+  Regression introduced by the AX-3 hardening: `transaction_commit`'s metadata
+  write was wrapped in an `if ! cat > file <<EOF ... EOF; then` compound. The
+  transaction primitives are `export -f`'d (same hazard class as B1.13-new), so
+  bash serializes them into `BASH_FUNC_*` and every child shell re-parses them at
+  startup. A here-doc nested inside an if-condition does NOT round-trip through
+  that serialization on the hosted Linux bash build (parsed clean on macOS bash
+  5.3), so each child raised `bash: transaction_commit: line 16: syntax error near
+  unexpected token 'fi'`. This broke every child bash the status CLI spawned; the
+  python branch folded the child's stderr into its value via `python3 --version
+  2>&1`, so `python.active` became `"bash:"` and `python.match` flipped false —
+  the Linux-only, macOS-green failure that reddened builds #46–#57. Fixed by
+  assembling the metadata with `printf -v` + a plain `printf > file` (no here-doc
+  in the function body). Pinned by `test_transaction_hardening.sh`
+  `test_exported_functions_reparse` (child bash starts noise-free with the fns
+  exported; no exported transaction fn carries a here-doc in an if-condition).
+  Lesson: an `export -f`'d function body must stay serialization-safe — no
+  here-doc inside a compound command. main CI green at `ef75bda` (build #58:
+  Tests Linux + macOS + Coverage all passed).
 
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
