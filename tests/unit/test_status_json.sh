@@ -212,9 +212,13 @@ if [[ "$HAVE_PY" -eq 1 ]]; then
         printf '  ✗ [diag] python.expected=%q python.active=%q\n' \
             "$(json_get "$OUT" runtime python expected)" \
             "$(json_get "$OUT" runtime python active)"
-        printf '  ✗ [diag] shim python3 --version => %q\n' \
+        printf '  ✗ [diag] shim --version (harness env) => %q\n' \
             "$(PATH="$MOCKBIN:$STRICTBIN" python3 --version 2>&1 | head -n1)"
-        printf '  ✗ [diag] raw JSON: %s\n' "$(cat "$OUT")"
+        printf '  ✗ [diag] shim --version (env -i, status PATH) => %q\n' \
+            "$(env -i HOME="$HOME_DIR" PATH="$MOCKBIN:$STRICTBIN" python3 --version 2>&1 | head -n1)"
+        printf '  ✗ [diag] cat shim: %q\n' "$(cat "$MOCKBIN/python3" 2>&1)"
+        printf '  ✗ [diag] env -i bash present => %q\n' \
+            "$(env -i PATH="$MOCKBIN:$STRICTBIN" command -v bash 2>&1 || echo MISSING)"
     fi
     assert_eq "happy path: go.active (toolchain-reported form)" "go1.22.0" "$(json_get "$OUT" runtime go active)"
     assert_eq "happy path: go.match (go-prefix normalized)" "true" "$(json_get "$OUT" runtime go match)"
