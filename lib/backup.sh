@@ -15,6 +15,8 @@
 #   - list_backups                    : List available backups
 #   - cleanup_old_backups             : Remove old backup files
 #   - validate_backup                 : Verify backup integrity
+#   - install_dir_stage               : Move an existing install dir aside (AX-6d)
+#   - install_dir_restore             : Undo install_dir_stage after a failed install
 #
 # Usage:
 #   source lib/backup.sh
@@ -27,11 +29,13 @@
 # shell options; callers own their strict-mode posture. Argument validation
 # and error propagation are explicit inside library functions.
 
-# Source logger utilities if available
-LIB_DIR="$(dirname "${BASH_SOURCE[0]}")"
-if [[ -f "$LIB_DIR/logger.sh" ]]; then
+# Source logger utilities if available. Private variable name: this file is
+# sourced unconditionally by many libraries (re-source contract below), so it
+# must not clobber a caller's LIB_DIR.
+_VMS_BACKUP_LIB_DIR="$(dirname "${BASH_SOURCE[0]}")"
+if [[ -f "$_VMS_BACKUP_LIB_DIR/logger.sh" ]]; then
     # shellcheck source=lib/logger.sh
-    source "$LIB_DIR/logger.sh"
+    source "$_VMS_BACKUP_LIB_DIR/logger.sh"
 else
     # Fallback logging functions
     log_info() { echo "[INFO] $1"; }
@@ -509,11 +513,18 @@ validate_backup() {
 #   # ... make changes ...
 #   transaction_commit   # or transaction_rollback on failure
 
-# Transaction state
-_TRANSACTION_ACTIVE=""
-_TRANSACTION_NAME=""
-_TRANSACTION_DIR=""
-_TRANSACTION_FILES=()
+# Transaction state. Re-source safety: libraries source this file
+# UNCONDITIONALLY (B1.13-new), possibly while a caller's transaction is
+# active — e.g. a lazily sourced installer library inside a transactional
+# function. Re-sourcing must therefore PRESERVE live state; resetting it here
+# would silently orphan the active transaction's rollback record. These
+# variables are never exported, so a fresh process always starts empty.
+_TRANSACTION_ACTIVE="${_TRANSACTION_ACTIVE:-}"
+_TRANSACTION_NAME="${_TRANSACTION_NAME:-}"
+_TRANSACTION_DIR="${_TRANSACTION_DIR:-}"
+if [[ -z "$_TRANSACTION_ACTIVE" ]] || ! declare -p _TRANSACTION_FILES >/dev/null 2>&1; then
+    _TRANSACTION_FILES=()
+fi
 
 # Name grammar (A3): restrictive identifier — letters, digits, underscore,
 # hyphen only, 1-63 chars. Names are interpolated into filesystem paths and
@@ -1197,6 +1208,210 @@ delete_restore_point() {
     return 0
 }
 
+# =============================================================================
+# Install-directory staging (AX-6d)
+# =============================================================================
+# Installers that replace a whole version-manager tree (~/.pyenv, ~/.nvm, ...)
+# move the user's existing tree aside before cloning a fresh one. These two
+# primitives make that move reversible:
+#
+#   install_dir_stage   <target_dir> <staged_path>
+#   install_dir_restore <target_dir> <staged_path>
+#
+# Callers stage IMMEDIATELY before the clone/install sequence and call
+# install_dir_restore on ANY failure of that sequence, so the user is never
+# left without their previous install. On success the staged copy is kept
+# (it is the backup).
+#
+# Both validate their inputs before any rm/mv (ENGINEERING_RULES 1.5):
+#   target_dir : non-empty, absolute, no newline/tab, no '.'/'..' component,
+#                not '/', not $HOME itself, and strictly under $HOME or
+#                $TMPDIR (version-manager trees live under $HOME).
+#   staged_path: non-empty, absolute, no newline/tab, no '.'/'..' component,
+#                not '/', not $HOME/$TMPDIR themselves, and neither equal to,
+#                inside, nor an ancestor of target_dir.
+# Under TRANSACTION_DRY_RUN=1 both print their plan and touch nothing.
+# Every real move/removal is recorded in the audit journal (_txn_journal is
+# safe outside a transaction: it only reads ${_TRANSACTION_NAME:-}).
+#
+# NOTE (AX-7): these functions are export -f'd. No here-documents inside them.
+
+# Strip trailing slashes into the variable named by $2 ("/" becomes "").
+_install_dir_strip() {
+    local _p="$1"
+    while [[ "$_p" == */ ]]; do
+        _p="${_p%/}"
+    done
+    printf -v "$2" '%s' "$_p"
+}
+
+# Shared shape checks for both arguments. $1 = path, $2 = role (for messages).
+_install_dir_check_shape() {
+    local path="$1" role="$2" norm=""
+    if [[ -z "$path" ]]; then
+        log_error "install-dir: $role path is empty — refusing"
+        return 1
+    fi
+    if [[ "$path" == *$'\n'* || "$path" == *$'\t'* ]]; then
+        log_error "install-dir: $role path contains a newline/tab — refusing"
+        return 1
+    fi
+    if [[ "$path" != /* ]]; then
+        log_error "install-dir: $role path is not absolute — refusing: $path"
+        return 1
+    fi
+    if [[ "$path/" == */../* || "$path/" == */./* ]]; then
+        log_error "install-dir: $role path has a '.' or '..' component — refusing: $path"
+        return 1
+    fi
+    _install_dir_strip "$path" norm
+    if [[ -z "$norm" ]]; then
+        log_error "install-dir: $role path is '/' — refusing"
+        return 1
+    fi
+    return 0
+}
+
+# Validate an install target (see contract above).
+_install_dir_validate_target() {
+    local target="$1" norm home_n="" tmp_n="" inside=0
+    _install_dir_check_shape "$target" "target" || return 1
+    _install_dir_strip "$target" norm
+    if [[ -n "${HOME:-}" && "$HOME" == /* ]]; then
+        _install_dir_strip "$HOME" home_n
+    fi
+    if [[ -n "${TMPDIR:-}" && "$TMPDIR" == /* ]]; then
+        _install_dir_strip "$TMPDIR" tmp_n
+    fi
+    if [[ -n "$home_n" && "$norm" == "$home_n" ]] || [[ -n "$tmp_n" && "$norm" == "$tmp_n" ]]; then
+        log_error "install-dir: target is \$HOME/\$TMPDIR itself — refusing: $target"
+        return 1
+    fi
+    if [[ -n "$home_n" && "$norm" == "$home_n"/* ]]; then
+        inside=1
+    elif [[ -n "$tmp_n" && "$norm" == "$tmp_n"/* ]]; then
+        inside=1
+    fi
+    if [[ "$inside" != 1 ]]; then
+        log_error "install-dir: target is outside \$HOME and \$TMPDIR — refusing to move/remove it: $target"
+        return 1
+    fi
+    return 0
+}
+
+# Validate a staging path against an (already validated) target.
+_install_dir_validate_staged() {
+    local staged="$1" target="$2" s_norm t_norm home_n="" tmp_n=""
+    _install_dir_check_shape "$staged" "staging" || return 1
+    _install_dir_strip "$staged" s_norm
+    _install_dir_strip "$target" t_norm
+    [[ -n "${HOME:-}" ]] && _install_dir_strip "$HOME" home_n
+    [[ -n "${TMPDIR:-}" ]] && _install_dir_strip "$TMPDIR" tmp_n
+    if [[ -n "$home_n" && "$s_norm" == "$home_n" ]] || [[ -n "$tmp_n" && "$s_norm" == "$tmp_n" ]]; then
+        log_error "install-dir: staging path is \$HOME/\$TMPDIR itself — refusing: $staged"
+        return 1
+    fi
+    if [[ "$s_norm" == "$t_norm" || "$s_norm" == "$t_norm"/* || "$t_norm" == "$s_norm"/* ]]; then
+        log_error "install-dir: staging path overlaps the target — refusing: $staged (target: $target)"
+        return 1
+    fi
+    return 0
+}
+
+# Best-effort audit record; never blocks the safety path.
+_install_dir_journal() {
+    [[ -n "${TXN_AUDIT_LOG:-}" || -n "${HOME:-}" ]] || return 0
+    if declare -F _txn_journal >/dev/null 2>&1; then
+        _txn_journal "$1" "$2"
+    fi
+    return 0
+}
+
+# Move an existing install directory aside before a fresh install.
+# Usage: install_dir_stage <target_dir> <staged_path>
+# Returns 0 when the target was moved (or was absent — nothing to do, or
+# dry-run), 1 on invalid input, an already-existing staged_path, or mv failure
+# (the target is left exactly where it was).
+install_dir_stage() {
+    local target="${1:-}" staged="${2:-}"
+    _install_dir_validate_target "$target" || return 1
+    _install_dir_validate_staged "$staged" "$target" || return 1
+
+    if [[ ! -e "$target" && ! -L "$target" ]]; then
+        log_debug "install_dir_stage: nothing to stage (absent): $target"
+        return 0
+    fi
+    if [[ -e "$staged" || -L "$staged" ]]; then
+        log_error "install_dir_stage: staging path already exists — refusing to overwrite it: $staged"
+        return 1
+    fi
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] would move existing $target aside to $staged (restored automatically if the install fails)"
+        return 0
+    fi
+
+    local parent
+    parent=$(dirname -- "$staged")
+    if [[ ! -d "$parent" ]] && ! mkdir -p -- "$parent"; then
+        log_error "install_dir_stage: cannot create staging parent: $parent — $target left in place"
+        return 1
+    fi
+    if ! mv -- "$target" "$staged"; then
+        log_error "install_dir_stage: failed to move $target aside to $staged — install aborted"
+        return 1
+    fi
+    _install_dir_journal "install_dir_stage" "target=$target staged=$staged"
+    log_info "Existing install moved aside: $target -> $staged"
+    return 0
+}
+
+# Undo install_dir_stage after a failed install: remove the partial target
+# (if any) and move the staged directory back (if staged_path is non-empty
+# and exists). Usage: install_dir_restore <target_dir> <staged_path>
+# Returns 0 when the pre-install state is back, non-zero (loudly) otherwise —
+# the staged copy is never deleted, so a failed restore leaves it in place.
+install_dir_restore() {
+    local target="${1:-}" staged="${2:-}" have_staged=0
+    _install_dir_validate_target "$target" || return 1
+    if [[ -n "$staged" ]]; then
+        _install_dir_validate_staged "$staged" "$target" || return 1
+        if [[ -e "$staged" || -L "$staged" ]]; then
+            have_staged=1
+        fi
+    fi
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if [[ "$have_staged" == 1 ]]; then
+            LOG_FILE='' log_info "[dry-run] would remove partial $target and move $staged back"
+        else
+            LOG_FILE='' log_info "[dry-run] would remove partial $target (nothing was staged)"
+        fi
+        return 0
+    fi
+
+    if [[ -e "$target" || -L "$target" ]]; then
+        if ! rm -rf -- "$target"; then
+            if [[ "$have_staged" == 1 ]]; then
+                log_error "install_dir_restore: cannot remove partial install $target — your previous install is preserved at $staged"
+            else
+                log_error "install_dir_restore: cannot remove partial install $target"
+            fi
+            return 1
+        fi
+        _install_dir_journal "install_dir_remove_partial" "target=$target"
+    fi
+
+    if [[ "$have_staged" == 1 ]]; then
+        if ! mv -- "$staged" "$target"; then
+            log_error "install_dir_restore: FAILED to move $staged back to $target — your previous install is preserved at $staged; move it back manually"
+            return 1
+        fi
+        _install_dir_journal "install_dir_restore" "target=$target staged=$staged"
+        log_warn "Install failed — previous install restored: $target"
+    fi
+    return 0
+}
+
 # Export functions for use in other scripts
 export -f _backup_default_dir
 export -f create_backup create_zshrc_backup create_p10k_backup create_vscode_backup
@@ -1204,3 +1419,5 @@ export -f restore_backup list_backups cleanup_old_backups validate_backup
 export -f transaction_start transaction_add_file transaction_commit transaction_rollback
 export -f transaction_is_active transaction_get_name
 export -f create_restore_point restore_from_point list_restore_points delete_restore_point
+export -f _install_dir_strip _install_dir_check_shape _install_dir_validate_target
+export -f _install_dir_validate_staged _install_dir_journal install_dir_stage install_dir_restore

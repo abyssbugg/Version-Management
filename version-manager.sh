@@ -440,10 +440,19 @@ install_nvm() {
         return 1
     fi
 
-    # Backup existing installation
+    # AX-6d: move any existing installation aside IMMEDIATELY before the
+    # clone; every failure of the clone sequence restores it.
+    local staged
+    staged="$BACKUP_DIR/nvm_$(date +%Y%m%d_%H%M%S)"
     if [[ -d "$install_dir" ]]; then
         log_warn "NVM directory already exists. Creating backup..."
-        mv "$install_dir" "$BACKUP_DIR/nvm_$(date +%Y%m%d_%H%M%S)"
+    fi
+    install_dir_stage "$install_dir" "$staged" || return 1
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would git clone $repo_url ($nvm_version) -> $install_dir"
+        configure_nvm
+        return 0
     fi
 
     # Clone requested version
@@ -453,10 +462,12 @@ install_nvm() {
         log_warn "Shallow clone failed, attempting full clone..."
         if ! git clone "$repo_url" "$install_dir"; then
             log_error "Failed to clone NVM repository"
+            install_dir_restore "$install_dir" "$staged" || true
             return 1
         fi
         if ! git -C "$install_dir" checkout "$nvm_version"; then
             log_error "Unable to checkout NVM version $nvm_version"
+            install_dir_restore "$install_dir" "$staged" || true
             return 1
         fi
     fi
@@ -591,12 +602,6 @@ install_pyenv() {
         return 1
     fi
 
-    # Backup existing installation
-    if [[ -d "$HOME/.pyenv" ]]; then
-        log_warn "Pyenv directory already exists. Creating backup..."
-        mv "$HOME/.pyenv" "$BACKUP_DIR/pyenv_$(date +%Y%m%d_%H%M%S)"
-    fi
-
     if ! command_exists git; then
         log_error "Git is required to install pyenv"
         return 1
@@ -608,39 +613,68 @@ install_pyenv() {
 
     export PYENV_ROOT="$target_dir"
 
-    if [[ -d "$target_dir" ]]; then
-        log_warn "Pyenv directory already exists. Creating backup..."
-        mv "$target_dir" "$BACKUP_DIR/pyenv_$(date +%Y%m%d_%H%M%S)"
-    fi
-
     # Install dependencies when available
     # "wsl" keeps the linux branch (P1-9): the pre-conversion get_os answered
     # "linux" under WSL, so build dependencies were installed there.
+    # AX-6e: privileged (rule 1.2) — plan + explicit confirmation; declining
+    # still installs pyenv itself (the clone is user-space).
+    local deps_rc=0
     case "$os" in
         linux|wsl)
             if command_exists apt-get; then
-                sudo apt-get update
-                sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
+                _vms_privileged_steps "pyenv build dependencies via apt (sudo)" \
+                    "Skipped pyenv build dependencies; pyenv itself is still installed." -- \
+                    sudo apt-get update -- \
+                    sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
                     libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
                     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
-                    libffi-dev liblzma-dev
+                    libffi-dev liblzma-dev || deps_rc=$?
             elif command_exists yum; then
-                sudo yum install -y gcc zlib-devel bzip2 bzip2-devel readline-devel \
-                    sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel
+                _vms_privileged_steps "pyenv build dependencies via yum (sudo)" \
+                    "Skipped pyenv build dependencies; pyenv itself is still installed." -- \
+                    sudo yum install -y gcc zlib-devel bzip2 bzip2-devel readline-devel \
+                    sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel || deps_rc=$?
             fi
             ;;
     esac
+    # A confirmed-but-failed dependency install aborts, as before (set -e);
+    # a decline (3) continues with the user-space install.
+    if [[ "$deps_rc" -ne 0 && "$deps_rc" -ne 3 ]]; then
+        log_error "Failed to install pyenv build dependencies"
+        return 1
+    fi
 
     if command_exists brew; then
+        # Homebrew does not use $target_dir: it is never moved aside for this
+        # path (AX-6d brew-path displacement).
         brew install pyenv pyenv-virtualenv
     else
+        # AX-6d: stage IMMEDIATELY before the clone (single move — the former
+        # unconditional move of $HOME/.pyenv duplicated this one and also
+        # displaced ~/.pyenv when PYENV_ROOT pointed elsewhere); every failure
+        # of the clone sequence restores it.
+        local staged
+        staged="$BACKUP_DIR/pyenv_$(date +%Y%m%d_%H%M%S)"
+        if [[ -d "$target_dir" ]]; then
+            log_warn "Pyenv directory already exists. Creating backup..."
+        fi
+        install_dir_stage "$target_dir" "$staged" || return 1
+
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would git clone $repo_url -> $target_dir (+ pyenv-virtualenv)"
+            configure_pyenv
+            return 0
+        fi
+
         if ! git clone --depth 1 "$repo_url" "$target_dir"; then
             log_error "Failed to clone pyenv repository"
+            install_dir_restore "$target_dir" "$staged" || true
             return 1
         fi
-        mkdir -p "$target_dir/plugins"
-        if ! git clone --depth 1 "$plugin_url" "$target_dir/plugins/pyenv-virtualenv"; then
+        if ! mkdir -p "$target_dir/plugins" \
+            || ! git clone --depth 1 "$plugin_url" "$target_dir/plugins/pyenv-virtualenv"; then
             log_error "Failed to clone pyenv-virtualenv plugin"
+            install_dir_restore "$target_dir" "$staged" || true
             return 1
         fi
     fi
@@ -679,42 +713,52 @@ install_rbenv() {
         return 1
     fi
 
-    # Backup existing installation
-    if [[ -d "$HOME/.rbenv" ]]; then
-        log_warn "rbenv directory already exists. Creating backup..."
-        mv "$HOME/.rbenv" "$BACKUP_DIR/rbenv_$(date +%Y%m%d_%H%M%S)"
-    fi
+    local target_dir="$HOME/.rbenv"
 
     # "wsl" keeps the linux branch (P1-9): WSL previously matched via the old
     # get_os "linux" value — preserve that behavior.
     case "$os" in
-        macos)
-            if command_exists brew; then
-                brew install rbenv ruby-build
-            else
-                git clone https://github.com/rbenv/rbenv.git ~/.rbenv
-                git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
-            fi
-            ;;
-        linux|wsl)
-            git clone https://github.com/rbenv/rbenv.git ~/.rbenv
-            git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
-            ;;
+        macos|linux|wsl) ;;
         *)
             log_error "Unsupported OS for rbenv installation: $os"
             return 1
             ;;
     esac
 
-    # shellcheck disable=SC2181 # P2-9: $? reflects the case block above (rbenv install path)
-    if [[ $? -eq 0 ]]; then
-        log_success "rbenv installed successfully"
-        configure_rbenv
-        return 0
+    if [[ "$os" == "macos" ]] && command_exists brew; then
+        # Homebrew does not use ~/.rbenv: never moved aside (AX-6d).
+        if ! brew install rbenv ruby-build; then
+            log_error "Failed to install rbenv"
+            return 1
+        fi
     else
-        log_error "Failed to install rbenv"
-        return 1
+        # AX-6d: stage IMMEDIATELY before the clones; any failure of either
+        # clone restores the previous tree (the old code also reported
+        # success when only the second clone succeeded).
+        local staged
+        staged="$BACKUP_DIR/rbenv_$(date +%Y%m%d_%H%M%S)"
+        if [[ -d "$target_dir" ]]; then
+            log_warn "rbenv directory already exists. Creating backup..."
+        fi
+        install_dir_stage "$target_dir" "$staged" || return 1
+
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would git clone https://github.com/rbenv/rbenv.git -> $target_dir (+ ruby-build)"
+            configure_rbenv
+            return 0
+        fi
+
+        if ! git clone https://github.com/rbenv/rbenv.git "$target_dir" \
+            || ! git clone https://github.com/rbenv/ruby-build.git "$target_dir/plugins/ruby-build"; then
+            log_error "Failed to install rbenv"
+            install_dir_restore "$target_dir" "$staged" || true
+            return 1
+        fi
     fi
+
+    log_success "rbenv installed successfully"
+    configure_rbenv
+    return 0
 }
 
 configure_rbenv() {
@@ -763,42 +807,51 @@ install_phpenv() {
         return 1
     fi
 
-    # Backup existing installation
-    if [[ -d "$HOME/.phpenv" ]]; then
-        log_warn "phpenv directory already exists. Creating backup..."
-        mv "$HOME/.phpenv" "$BACKUP_DIR/phpenv_$(date +%Y%m%d_%H%M%S)"
-    fi
+    local target_dir="$HOME/.phpenv"
 
     # "wsl" keeps the linux branch (P1-9): WSL previously matched via the old
     # get_os "linux" value — preserve that behavior.
     case "$os" in
-        macos)
-            if command_exists brew; then
-                brew install phpenv php-build
-            else
-                git clone https://github.com/phpenv/phpenv.git ~/.phpenv
-                git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
-            fi
-            ;;
-        linux|wsl)
-            git clone https://github.com/phpenv/phpenv.git ~/.phpenv
-            git clone https://github.com/php-build/php-build.git ~/.phpenv/plugins/php-build
-            ;;
+        macos|linux|wsl) ;;
         *)
             log_error "Unsupported OS for phpenv installation: $os"
             return 1
             ;;
     esac
 
-    # shellcheck disable=SC2181 # P2-9: $? reflects the case block above (phpenv install path)
-    if [[ $? -eq 0 ]]; then
-        log_success "phpenv installed successfully"
-        configure_phpenv
-        return 0
+    if [[ "$os" == "macos" ]] && command_exists brew; then
+        # Homebrew does not use ~/.phpenv: never moved aside (AX-6d).
+        if ! brew install phpenv php-build; then
+            log_error "Failed to install phpenv"
+            return 1
+        fi
     else
-        log_error "Failed to install phpenv"
-        return 1
+        # AX-6d: stage IMMEDIATELY before the clones; any failure of either
+        # clone restores the previous tree.
+        local staged
+        staged="$BACKUP_DIR/phpenv_$(date +%Y%m%d_%H%M%S)"
+        if [[ -d "$target_dir" ]]; then
+            log_warn "phpenv directory already exists. Creating backup..."
+        fi
+        install_dir_stage "$target_dir" "$staged" || return 1
+
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would git clone https://github.com/phpenv/phpenv.git -> $target_dir (+ php-build)"
+            configure_phpenv
+            return 0
+        fi
+
+        if ! git clone https://github.com/phpenv/phpenv.git "$target_dir" \
+            || ! git clone https://github.com/php-build/php-build.git "$target_dir/plugins/php-build"; then
+            log_error "Failed to install phpenv"
+            install_dir_restore "$target_dir" "$staged" || true
+            return 1
+        fi
     fi
+
+    log_success "phpenv installed successfully"
+    configure_phpenv
+    return 0
 }
 
 configure_phpenv() {

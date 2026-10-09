@@ -11,6 +11,10 @@ _VMS_PYVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_PYVM_DIR}/env.sh"
 source "${_VMS_PYVM_DIR}/cache.sh"
 source "${_VMS_PYVM_DIR}/logger.sh"
+# Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
+# export -f'd, so inherited copies would defeat a declare -f guard.
+# backup.sh is re-source-safe (preserves live transaction state).
+source "${_VMS_PYVM_DIR}/backup.sh"
 
 # Python version management configuration
 PYVM_CACHE_PREFIX="pyvm"
@@ -58,14 +62,11 @@ pyvm_install() {
 
     export PYENV_ROOT="$target_dir"
 
-    if [[ -d "$target_dir" ]]; then
-        log_warn "Existing pyenv installation detected. Creating backup..."
-        mv "$target_dir" "$target_dir.bak.$(date +%Y%m%d_%H%M%S)"
-    fi
-
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
+                # Homebrew does not use $target_dir: it is never moved aside
+                # for this path (AX-6d brew-path displacement).
                 log_info "Installing pyenv via Homebrew"
                 if brew install pyenv pyenv-virtualenv; then
                     log_success "pyenv installed successfully via Homebrew"
@@ -76,27 +77,49 @@ pyvm_install() {
             fi
             ;;
         "linux")
+            # Build dependencies are privileged (rule 1.2): plan + explicit
+            # confirmation. Declining still clones pyenv (user-space).
             if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update
-                sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
+                _vms_privileged_steps "pyenv build dependencies via apt (sudo)" \
+                    "Skipped pyenv build dependencies; pyenv itself is still installed." -- \
+                    sudo apt-get update -- \
+                    sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
                     libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
                     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
-                    libffi-dev liblzma-dev
+                    libffi-dev liblzma-dev || true
             elif command -v yum >/dev/null 2>&1; then
-                sudo yum install -y gcc zlib-devel bzip2 bzip2-devel readline-devel \
-                    sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel
+                _vms_privileged_steps "pyenv build dependencies via yum (sudo)" \
+                    "Skipped pyenv build dependencies; pyenv itself is still installed." -- \
+                    sudo yum install -y gcc zlib-devel bzip2 bzip2-devel readline-devel \
+                    sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel || true
             fi
             ;;
     esac
 
+    # AX-6d: stage the existing tree IMMEDIATELY before the clone; any
+    # failure of the clone sequence restores it.
+    local staged
+    staged="$target_dir.bak.$(date +%Y%m%d_%H%M%S)"
+    if [[ -d "$target_dir" ]]; then
+        log_warn "Existing pyenv installation detected. Creating backup..."
+    fi
+    install_dir_stage "$target_dir" "$staged" || return 1
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would git clone $repo_url -> $target_dir (+ pyenv-virtualenv); nothing installed"
+        return 0
+    fi
+
     if ! git clone --depth 1 "$repo_url" "$target_dir"; then
         log_error "Failed to clone pyenv repository"
+        install_dir_restore "$target_dir" "$staged" || true
         return 1
     fi
 
-    mkdir -p "$target_dir/plugins"
-    if ! git clone --depth 1 "$plugin_url" "$target_dir/plugins/pyenv-virtualenv"; then
+    if ! mkdir -p "$target_dir/plugins" \
+        || ! git clone --depth 1 "$plugin_url" "$target_dir/plugins/pyenv-virtualenv"; then
         log_error "Failed to clone pyenv-virtualenv plugin"
+        install_dir_restore "$target_dir" "$staged" || true
         return 1
     fi
 

@@ -11,6 +11,10 @@ _VMS_NVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_NVM_DIR}/env.sh"
 source "${_VMS_NVM_DIR}/cache.sh"
 source "${_VMS_NVM_DIR}/logger.sh"
+# Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
+# export -f'd, so inherited copies would defeat a declare -f guard.
+# backup.sh is re-source-safe (preserves live transaction state).
+source "${_VMS_NVM_DIR}/backup.sh"
 
 # Node.js version management configuration
 NVM_CACHE_PREFIX="nvm"
@@ -95,9 +99,17 @@ nvm_install() {
     local target_dir="${NVM_DIR:-$HOME/.nvm}"
     local version="$NVM_VERSION"  # P2-6: consume the single env-overridable pin
 
+    # AX-6d: stage IMMEDIATELY before the clone; restore on failure.
+    local staged
+    staged="${target_dir}.bak.$(date +%Y%m%d_%H%M%S)"
     if [[ -d "$target_dir" ]]; then
         log_warn "Existing nvm installation detected. Creating backup..."
-        mv "$target_dir" "${target_dir}.bak.$(date +%Y%m%d_%H%M%S)"
+    fi
+    install_dir_stage "$target_dir" "$staged" || return 1
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would git clone $repo_url ($version) -> $target_dir; nothing installed"
+        return 0
     fi
 
     if git clone --depth 1 --branch "$version" "$repo_url" "$target_dir" 2>/dev/null || \
@@ -109,6 +121,7 @@ nvm_install() {
         return 0
     fi
 
+    install_dir_restore "$target_dir" "$staged" || true
     log_error "Failed to install nvm"
     return 1
 }

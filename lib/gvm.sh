@@ -11,6 +11,10 @@ _VMS_GVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_GVM_DIR}/env.sh"
 source "${_VMS_GVM_DIR}/cache.sh"
 source "${_VMS_GVM_DIR}/logger.sh"
+# Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
+# export -f'd, so inherited copies would defeat a declare -f guard.
+# backup.sh is re-source-safe (preserves live transaction state).
+source "${_VMS_GVM_DIR}/backup.sh"
 
 # Go version management configuration
 GVM_CACHE_PREFIX="gvm"
@@ -57,14 +61,10 @@ gvm_install() {
 
     export GOENV_ROOT="$target_dir"
 
-    if [[ -d "$target_dir" ]]; then
-        log_warn "Existing goenv installation detected. Creating backup..."
-        mv "$target_dir" "$target_dir.bak.$(date +%Y%m%d_%H%M%S)"
-    fi
-
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
+                # Homebrew does not use $target_dir: never moved aside (AX-6d).
                 log_info "Installing goenv via Homebrew"
                 if brew install goenv; then
                     log_success "goenv installed successfully via Homebrew"
@@ -76,8 +76,22 @@ gvm_install() {
             ;;
     esac
 
+    # AX-6d: stage IMMEDIATELY before the clone; restore on failure.
+    local staged
+    staged="$target_dir.bak.$(date +%Y%m%d_%H%M%S)"
+    if [[ -d "$target_dir" ]]; then
+        log_warn "Existing goenv installation detected. Creating backup..."
+    fi
+    install_dir_stage "$target_dir" "$staged" || return 1
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would git clone $repo_url -> $target_dir; nothing installed"
+        return 0
+    fi
+
     if ! git clone --depth 1 "$repo_url" "$target_dir"; then
         log_error "Failed to clone goenv repository"
+        install_dir_restore "$target_dir" "$staged" || true
         return 1
     fi
 

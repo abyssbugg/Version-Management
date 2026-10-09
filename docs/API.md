@@ -60,6 +60,31 @@ Detects OS, shell, and environment characteristics.
 | `is_macos` | Check if running on macOS | 0 (true) or 1 (false) |
 | `is_linux` | Check if running on Linux | 0 (true) or 1 (false) |
 | `validate_env_var` | Validate environment variable exists | 0 or 1 |
+| `vms_confirm_privileged` | Canonical consent gate for privileged (sudo) operations | 0 (confirmed) or 1 (declined) |
+
+### `vms_confirm_privileged <subject> [<tag>]`
+
+Canonical consent gate for anything that runs under `sudo`
+(ENGINEERING_RULES 1.2: passwordless sudo is not consent; AX-6e). Used by the
+installer libraries' build-dependency steps and the Composer publish step;
+`lib/shell-experience.sh` delegates its apt gate to it.
+
+- `<subject>` completes the interactive prompt `Install <subject> on this system? [y/N]:`.
+- `<tag>` (optional) prefixes the interactive-decline message (`<tag>: skipped <subject>`;
+  without a tag: `Skipped <subject>`).
+
+| Condition | Result |
+|-----------|--------|
+| `VMS_CONFIRM=1` | returns 0, no prompt, no output |
+| stdin is a TTY | prompts; `y`/`yes` (any case) returns 0, anything else (including EOF) logs the skip at INFO and returns 1 |
+| stdin is not a TTY | `log_warn "Confirmation required to install <subject>; re-run with --confirm or VMS_CONFIRM=1"`, returns 1 |
+| empty `<subject>` | logs an error, returns 1 (fails closed) |
+
+Callers must treat any non-zero return as "do not run the privileged
+command"; installers then log the exact command for the user to run
+themselves and continue with the user-space part of the install. Under
+`TRANSACTION_DRY_RUN=1` callers print the planned command instead of calling
+the gate.
 
 ---
 
@@ -91,6 +116,47 @@ default storage path is required.
 | `restore_backup` | Restore from backup | `restore_backup "/path/to/backup"` |
 | `list_backups` | List available backups | `list_backups` |
 | `verify_backup` | Verify backup integrity (SHA-256) | `verify_backup "/path/to/backup"` |
+| `install_dir_stage` | Move an existing install directory aside before a fresh install (AX-6d) | `install_dir_stage "$HOME/.pyenv" "$HOME/.pyenv.bak.$ts"` |
+| `install_dir_restore` | Undo `install_dir_stage` after a failed install (AX-6d) | `install_dir_restore "$HOME/.pyenv" "$HOME/.pyenv.bak.$ts"` |
+
+### `install_dir_stage <target_dir> <staged_path>` / `install_dir_restore <target_dir> <staged_path>`
+
+Reversible move-aside for installers that replace a whole version-manager
+tree (`~/.pyenv`, `~/.nvm`, `~/.goenv`, `~/.jenv`, `~/.phpenv`, `~/.rbenv`).
+Installers stage immediately before their git-clone sequence (never before a
+Homebrew path, which does not use the directory) and call
+`install_dir_restore` on any failure of that sequence. On success the staged
+copy is kept as the backup.
+
+- `install_dir_stage`: if `target_dir` exists it is moved to `staged_path`
+  (the parent of `staged_path` is created if needed); if it is absent nothing
+  happens. Returns 0 on move, absent target, or dry-run; 1 on invalid input,
+  an already-existing `staged_path` (never overwritten), or a failed move —
+  in every failure case `target_dir` is left exactly where it was.
+- `install_dir_restore`: removes a partial `target_dir` (if present), then
+  moves `staged_path` back (if `staged_path` is non-empty and exists; an empty
+  or missing `staged_path` means nothing was staged). Returns 0 when the
+  pre-install state is back; non-zero with a loud error otherwise. The staged
+  copy is never deleted, so a failed restore leaves it in place and the error
+  names its path.
+
+Validation (both functions, before any `rm`/`mv`; ENGINEERING_RULES 1.5):
+`target_dir` must be non-empty, absolute, free of newline/tab and of `.`/`..`
+components, not `/`, not `$HOME` or `$TMPDIR` themselves (trailing slashes
+normalized), and strictly under `$HOME` or `$TMPDIR` — installers therefore
+refuse a custom root such as `PYENV_ROOT=/opt/pyenv`. `staged_path` must be
+non-empty, absolute, free of newline/tab and `.`/`..` components, not `/`,
+not `$HOME`/`$TMPDIR`, and must not equal, contain, or lie inside
+`target_dir`.
+
+Under `TRANSACTION_DRY_RUN=1` both print their plan and touch nothing. Every
+real move/removal is appended to the audit journal (`TXN_AUDIT_LOG`, default
+`$HOME/.config/version-manager/audit.log`) as `install_dir_stage`,
+`install_dir_remove_partial` or `install_dir_restore`; journaling works with
+or without an active transaction and never blocks the operation.
+
+`lib/backup.sh` is re-source-safe: sourcing it again (the installer libraries
+source it unconditionally) preserves an active transaction's state.
 
 ---
 

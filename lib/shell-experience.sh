@@ -220,26 +220,12 @@ shellxp_status() {
 # =============================================================================
 # Confirm gate (exact fix-terminal-issues /etc/shells pattern)
 # =============================================================================
+# Thin delegate (AX-6e): the canonical gate is lib/env.sh
+# vms_confirm_privileged; the "shellxp" tag keeps the interactive-decline
+# message ("shellxp: skipped <subject>") byte-identical.
 
 _shellxp_confirm_system_change() {
-    local subject="$1"
-
-    if [[ "${VMS_CONFIRM:-}" == "1" ]]; then
-        return 0
-    fi
-
-    local response=""
-    if [[ -t 0 ]]; then
-        read -r -p "Install $subject on this system? [y/N]: " response
-        if [[ "$response" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
-            return 0
-        fi
-        log_info "shellxp: skipped $subject"
-        return 1
-    fi
-
-    log_warn "Confirmation required to install $subject; re-run with --confirm or VMS_CONFIRM=1"
-    return 1
+    vms_confirm_privileged "$1" shellxp
 }
 
 # =============================================================================

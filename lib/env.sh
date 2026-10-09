@@ -20,6 +20,7 @@ _ENV_SH_LOADED=1
 #   - detect_pyenv        : Check if pyenv is installed and available
 #   - setup_path_mod      : Setup PATH modification utilities
 #   - setup_nvm_silent    : Configure NVM_SILENT based on .nvmrc-config
+#   - vms_confirm_privileged : Canonical sudo consent gate (rule 1.2, AX-6e)
 #
 # Usage:
 #   source lib/env.sh
@@ -408,6 +409,104 @@ show_env_summary() {
     log_info "  NVM_SILENT: ${NVM_SILENT:-not set}"
 }
 
+# =============================================================================
+# Privileged-operation confirmation (ENGINEERING_RULES 1.2, AX-6e)
+# =============================================================================
+# Canonical consent gate for anything that runs under sudo. A passwordless
+# sudo is NOT consent. Semantics (identical to the historical shell-experience
+# gate, which now delegates here, and to scripts/fix-terminal-issues.sh's
+# /etc/shells gate):
+#   VMS_CONFIRM=1           -> confirmed (return 0), no prompt
+#   interactive stdin (TTY) -> "[y/N]" prompt; y/yes confirms, anything else
+#                              declines (return 1, logged at INFO)
+#   non-interactive stdin   -> log_warn naming "--confirm or VMS_CONFIRM=1",
+#                              decline (return 1)
+# Usage: vms_confirm_privileged <subject> [<tag>]
+#   <subject> completes the prompt "Install <subject> on this system?"
+#   <tag>     optional log prefix for the interactive-decline message
+# NOTE (AX-7): export -f'd — no here-documents inside.
+vms_confirm_privileged() {
+    local subject="${1:-}" tag="${2:-}"
+    if [[ -z "$subject" ]]; then
+        log_error "vms_confirm_privileged: a subject is required (declining)"
+        return 1
+    fi
+
+    if [[ "${VMS_CONFIRM:-}" == "1" ]]; then
+        return 0
+    fi
+
+    local response=""
+    if [[ -t 0 ]]; then
+        read -r -p "Install $subject on this system? [y/N]: " response
+        if [[ "$response" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+            return 0
+        fi
+        if [[ -n "$tag" ]]; then
+            log_info "$tag: skipped $subject"
+        else
+            log_info "Skipped $subject"
+        fi
+        return 1
+    fi
+
+    log_warn "Confirmation required to install $subject; re-run with --confirm or VMS_CONFIRM=1"
+    return 1
+}
+
+# Private: plan -> confirm -> run for one or more privileged argv commands.
+# Usage: _vms_privileged_steps <subject> <decline-note> -- <argv...> [-- <argv...>]...
+# Commands run as argv arrays (never eval). Returns:
+#   0 all commands ran successfully, or TRANSACTION_DRY_RUN=1 (plan printed)
+#   1 at least one confirmed command failed (all are still attempted, in order)
+#   2 usage error
+#   3 declined — nothing ran; the exact command line was logged for the user
+_vms_privileged_steps() {
+    local subject="${1:-}" note="${2:-}"
+    if [[ $# -lt 4 || "${3:-}" != "--" ]]; then
+        log_error "_vms_privileged_steps: usage: <subject> <note> -- <argv...>"
+        return 2
+    fi
+    shift 3
+
+    local tok q display=""
+    for tok in "$@"; do
+        if [[ "$tok" == "--" ]]; then
+            display+=" &&"
+            continue
+        fi
+        printf -v q '%q' "$tok"
+        display+=" $q"
+    done
+    display="${display# }"
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] would run (privileged, requires confirmation): $display"
+        return 0
+    fi
+
+    log_info "Privileged step planned for $subject: $display"
+    if ! vms_confirm_privileged "$subject"; then
+        log_warn "${note:+$note }To do this yourself, run: $display"
+        return 3
+    fi
+
+    local -a cmd=()
+    local failed=0
+    for tok in "$@" "--"; do
+        if [[ "$tok" == "--" ]]; then
+            if [[ ${#cmd[@]} -gt 0 ]] && ! "${cmd[@]}"; then
+                log_error "Privileged command failed: ${cmd[*]}"
+                failed=1
+            fi
+            cmd=()
+            continue
+        fi
+        cmd+=("$tok")
+    done
+    return "$failed"
+}
+
 # ---------------------------------------------------------------------------
 # Shared shims (ROADMAP 4.2 / P2-9 §5.4): command_exists and the log() level
 # wrapper were defined identically in version-manager.sh and version-advanced.sh.
@@ -440,4 +539,5 @@ fi
 export -f detect_shell detect_os get_os get_shell validate_env_var detect_nvm detect_pyenv
 export -f setup_path_mod setup_nvm_silent show_env_summary
 export -f check_nvm_installed check_pyenv_installed check_nvm_silent_configured
+export -f vms_confirm_privileged _vms_privileged_steps
 export -f command_exists log
