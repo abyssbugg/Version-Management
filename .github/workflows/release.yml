@@ -11,6 +11,19 @@
 #     commit, or
 #   - a tag push carries a committed `.release-attested-<sha>` marker in
 #     its tree (content == name, sha an ancestor of the tag commit).
+#
+# Release-commit binding (REL-PROV): attest-guard also emits `release_sha`
+# (the release tag's commit). Every other job that checks out code checks
+# out exactly that SHA — never github.ref, which on workflow_dispatch is
+# the dispatching BRANCH — and the build job asserts HEAD == release_sha
+# before archiving, so the tree that is tested, archived, signed, and
+# published is the attested/tagged commit.
+#
+# Signing (P1-6): the `sign` job signs the final checksums.txt and both
+# SBOMs with cosign KEYLESS (GitHub OIDC, no stored key) and verifies the
+# signatures against this workflow's identity before the release job may
+# publish. Least privilege: contents: read everywhere except the release
+# job (contents: write); id-token: write only in the sign job.
 # Procedure: docs/RELEASE_CHECKLIST.md.
 # ============================================================================
 
@@ -37,7 +50,11 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  # Least privilege (P1-6): every job defaults to read-only. A job-level
+  # permissions block REPLACES this default entirely; only `release`
+  # (creates the GitHub Release: contents: write) and `sign` (cosign
+  # keyless OIDC token: id-token: write) declare more.
+  contents: read
 
 jobs:
   # ========================================
@@ -53,11 +70,15 @@ jobs:
   #      attested parent commit — a self-referential marker for the tag
   #      commit itself is impossible, since committing the file changes
   #      the SHA it would name. See docs/RELEASE_CHECKLIST.md.)
+  # It also emits `release_sha` (REL-PROV): the commit every downstream
+  # job checks out. Dispatch: the tag commit (== attested_sha). Tag push:
+  # the tag's peeled commit. Fails closed unless it is a full 40-hex SHA.
   attest-guard:
     name: Attestation Guard
     runs-on: ubuntu-latest
     outputs:
       attested_sha: ${{ steps.guard.outputs.attested_sha }}
+      release_sha: ${{ steps.guard.outputs.release_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -74,6 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
+          RELEASE_SHA=""
 
           if [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
             # Path 1: explicit attestation input, strict equality with the
@@ -91,10 +113,18 @@ jobs:
               fail "Attestation mismatch: tag v${GH_INPUT_VERSION} points at ${TAG_SHA} but attested_sha is ${GH_INPUT_ATTESTED_SHA}. Release refused."
             fi
             ATTESTED="$GH_INPUT_ATTESTED_SHA"
+            # REL-PROV: the release commit is the tag commit (== attested).
+            # github.ref here is the dispatching BRANCH and must not be
+            # what downstream jobs build.
+            RELEASE_SHA="$TAG_SHA"
           else
             # Path 2: tag push — attestation marker must exist in the tag's
             # tree, name itself consistently, and sit in the tag's history.
             RELEASE_SHA="$(git rev-parse "${GH_REF}^{commit}")"
+            # The marker scan below reads the working tree, so it must be
+            # the tag's tree (fails closed if the tag moved after the push).
+            [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] \
+              || fail "Checkout HEAD $(git rev-parse HEAD) is not the commit of ${GH_REF} (${RELEASE_SHA}). Release refused."
             ATTESTED=""
             for f in .release-attested-*; do
               [ -f "$f" ] || continue
@@ -116,6 +146,13 @@ jobs:
           echo "attested_sha=$ATTESTED" >> "$GITHUB_OUTPUT"
           echo "Release attested for SHA: $ATTESTED"
 
+          # REL-PROV: emit the release commit for every downstream checkout.
+          # Fail closed on anything that is not a full 40-hex commit SHA.
+          printf '%s' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+            || fail "release_sha is empty or not a full 40-hex commit SHA (got: '$RELEASE_SHA'). Release refused."
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release commit (built, tested, signed, published): $RELEASE_SHA"
+
   # ========================================
   # Validate Release
   # ========================================
@@ -129,6 +166,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
           fetch-depth: 0
 
       - name: Get version
@@ -173,6 +211,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
 
       - name: Install zsh
         run: sudo apt-get update && sudo apt-get install -y zsh
@@ -204,6 +244,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
           fetch-depth: 0
 
       - name: Run gitleaks
@@ -221,6 +262,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
@@ -249,7 +292,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
           fetch-depth: 0
+
+      - name: Assert checkout is the release commit
+        # REL-PROV: the archives below are made from the working tree, so
+        # the working tree must be exactly the attested release commit —
+        # HEAD equal to attest-guard's release_sha and no local changes.
+        # Fails closed before any archive exists.
+        env:
+          RELEASE_SHA: ${{ needs.attest-guard.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::release_sha from attest-guard is not a full 40-hex SHA (got: '$RELEASE_SHA'). Refusing to build."
+            exit 1
+          fi
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$RELEASE_SHA" ]; then
+            echo "::error::Checked-out HEAD ${HEAD_SHA} is not the release commit ${RELEASE_SHA}. Refusing to build."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            echo "::error::Working tree differs from release commit ${RELEASE_SHA}. Refusing to build."
+            git status --porcelain --untracked-files=all
+            exit 1
+          fi
+          echo "Building release commit: $HEAD_SHA"
 
       - name: Create release archive
         run: |
@@ -264,7 +333,9 @@ jobs:
           cp FontPatcher/ATTRIBUTION.md dist/ATTRIBUTION.md
           cp docs/SECURITY.md dist/SECURITY.md
 
-          # Create tarball (excluding dev files)
+          # Create tarball (excluding dev files). Agent scratch/evidence files
+          # (tmp_rovodev_*) and local outputs (coverage/, test-results/,
+          # patched-fonts/) never ship.
           tar -czf "dist/version-manager-suite-${VERSION}.tar.gz" \
             --exclude='.git' \
             --exclude='dist' \
@@ -275,6 +346,10 @@ jobs:
             --exclude='.cursor' \
             --exclude='.codacy' \
             --exclude='.vscode' \
+            --exclude='tmp_rovodev_*' \
+            --exclude='coverage' \
+            --exclude='test-results' \
+            --exclude='patched-fonts' \
             .
 
           # Create zip
@@ -287,7 +362,11 @@ jobs:
             -x 'alldocs/*' \
             -x '.cursor/*' \
             -x '.codacy/*' \
-            -x '.vscode/*'
+            -x '.vscode/*' \
+            -x 'tmp_rovodev_*' \
+            -x 'coverage/*' \
+            -x 'test-results/*' \
+            -x 'patched-fonts/*'
 
       - name: Generate SBOM
         # M5 "SBOM/signing" clause. Deterministic SPDX-lite SBOM (no
@@ -305,7 +384,10 @@ jobs:
           # attribution copy, the security policy, and the SBOM — so a
           # consumer can verify the whole set with one `sha256sum -c`
           # (procedure documented in docs/MAINTENANCE.md). checksums.txt
-          # itself is excluded: it cannot self-checksum.
+          # itself is excluded: it cannot self-checksum. This build-time
+          # manifest is regenerated over the complete set (adding the Syft
+          # SBOM) in the `sign` job, and that signed manifest is the one
+          # that ships.
           cd dist
           find . -maxdepth 1 -type f ! -name 'checksums.txt' -printf '%P\n' \
             | LC_ALL=C sort | xargs -r sha256sum > checksums.txt
@@ -328,7 +410,7 @@ jobs:
   # tool-generated SPDX SBOM of the BUILT artifacts, produced by Syft.
   # Syft is installed from a pinned release with an inline, verified
   # sha256 (ENGINEERING_RULES 7.1: pinned + checksum-verified + logged).
-  # The release job folds this SBOM into checksums.txt so the published
+  # The sign job folds this SBOM into checksums.txt so the published
   # checksum manifest still covers every published asset.
   sbom:
     name: SBOM (Syft SPDX)
@@ -337,6 +419,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
 
       - name: Download release artifacts
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806  # v4.1.9
@@ -385,65 +469,36 @@ jobs:
           if-no-files-found: error
 
   # ========================================
-  # Artifact Signing — DISABLED (owner decision pending) — P1-6 structure
+  # Artifact Signing — cosign KEYLESS (GitHub OIDC) — P1-6, ENABLED
   # ========================================
-  # Structure only: signing requires owner-owned keys / OIDC decisions and
-  # MUST NOT be enabled before those exist (docs/RELEASE_CHECKLIST.md,
-  # section "Artifact signing (owner decision)"). The job is hard-disabled
-  # with `if: false`; every step body is a commented template plus an inert
-  # echo, so nothing signs or uploads even if the guard were removed.
-  signing:
-    name: Artifact Signing (DISABLED — owner decision pending)
-    if: false
+  # Owner decision: keyless signing via the runner's GitHub OIDC token; no
+  # long-lived key exists anywhere. This job
+  #   1. finalizes checksums.txt over the complete published set (moved
+  #      here from the release job so the SIGNED manifest is the one that
+  #      ships),
+  #   2. signs checksums.txt (which transitively covers every archive and
+  #      document it lists) and both SBOMs, writing one Sigstore bundle
+  #      (certificate + signature + Rekor inclusion proof) per file,
+  #   3. verifies every bundle against this repository's release.yml
+  #      identity and the GitHub OIDC issuer — fail-closed, BEFORE the
+  #      signed set is handed to the release job.
+  # The .bundle files stay OUTSIDE checksums.txt by design: they sign it.
+  # Only this job holds id-token: write; it cannot write repository
+  # contents. Consumer procedure: docs/RELEASE_CHECKLIST.md.
+  sign:
+    name: Sign Release (cosign keyless)
     runs-on: ubuntu-latest
     needs: [attest-guard, validate, build, sbom]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-
-      - name: Download release artifacts — TEMPLATE
-        run: |
-          # Enable with the pinned actions/download-artifact SHA used in the
-          # release job, path: dist/
-          echo "Signing is disabled — owner decision pending (docs/RELEASE_CHECKLIST.md)."
-
-      - name: Sign artifacts with cosign keyless — TEMPLATE
-        run: |
-          # Prerequisites before enabling (docs/RELEASE_CHECKLIST.md):
-          #   1. Add `permissions: { id-token: write }` to this job (cosign
-          #      keyless signs with the runner's OIDC token — no stored key).
-          #   2. Install a pinned cosign release (pin by inline sha256, same
-          #      discipline as the sbom job's syft install).
-          #   3. Sign each published artifact and emit the certificate:
-          #        cosign sign-blob --yes \
-          #          --output-signature "dist/<artifact>.sig" \
-          #          --output-certificate "dist/<artifact>.pem" \
-          #          "dist/<artifact>"
-          #   4. Attach the Syft SBOM as a signed attestation:
-          #        cosign attest --yes --predicate dist/sbom-syft.spdx.json \
-          #          --type spdxjson "dist/<artifact>"
-          #   5. Publish the .sig/.pem sidecars in the release job files
-          #      list and update docs/RELEASE_CHECKLIST.md verification
-          #      instructions.
-          echo "Signing is disabled — owner decision pending (docs/RELEASE_CHECKLIST.md)."
-
-  # ========================================
-  # Create GitHub Release
-  # ========================================
-  release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [attest-guard, validate, build, sbom]
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
-          fetch-depth: 0
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
 
-      - name: Download artifacts
-        # Pin re-verified against upstream (git ls-remote, 2026-10-04, lane R):
-        # the previous SHA cc203385981b70fc5b5a049660dfcf82b0d4277c does not
-        # exist in the repo's history; this is the true v4.1.9 peeled commit.
+      - name: Download release artifacts
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806  # v4.1.9
         with:
           name: release-artifacts
@@ -456,17 +511,107 @@ jobs:
           path: dist/
 
       - name: Finalize checksums over the full published set
-        # checksums.txt must cover EVERY asset published next to it
+        # checksums.txt must cover EVERY asset published next to it except
+        # the .bundle files, which sign it
         # (M5 / ENGINEERING_RULES 7): the build job wrote checksums before
         # the Syft SBOM existed, so regenerate deterministically over the
-        # complete dist/ set here — same command, same sort order. This
-        # final manifest is what ships with the release and what the
-        # changelog embeds below.
+        # complete dist/ set here — same command, same sort order — BEFORE
+        # any .bundle exists. This final manifest is what gets signed, what
+        # ships with the release, and what the changelog embeds.
         run: |
           cd dist
           find . -maxdepth 1 -type f ! -name 'checksums.txt' -printf '%P\n' \
             | LC_ALL=C sort | xargs -r sha256sum > checksums.txt
           cat checksums.txt
+
+      - name: Install cosign
+        # Action pinned by full commit SHA (ENGINEERING_RULES 6.2), verified
+        # with `git ls-remote https://github.com/sigstore/cosign-installer
+        # 'refs/tags/v3.10.1*'` -> 7e8b541eb2e61bf99390e1afd4be13a184e9ebc5
+        # (lightweight tag: no ^{} entry, so this is the commit). The
+        # installer's action.yml at that SHA bootstraps cosign v2.6.1 and
+        # checks it against an inline sha256 embedded in the pinned action
+        # (cosign-linux-amd64: 064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a);
+        # pinning `cosign-release` to that same bootstrap version means the
+        # installed binary is exactly the inline-checksum-verified one
+        # (ENGINEERING_RULES 7.1). cosign v2.6.1 tag verified upstream
+        # (refs/tags/v2.6.1^{} -> 634fabe54f9fbbab55d821a83ba93b2d25bdba5f).
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5  # v3.10.1
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Sign checksums and SBOMs (cosign keyless)
+        # Fulcio issues a short-lived certificate bound to this workflow's
+        # identity (https://github.com/<owner>/<repo>/.github/workflows/
+        # release.yml@<ref>, issuer https://token.actions.githubusercontent.com);
+        # Rekor records the signature. Both land in <file>.bundle.
+        run: |
+          set -euo pipefail
+          cosign version
+          for f in checksums.txt sbom.spdx.txt sbom-syft.spdx.json; do
+            cosign sign-blob --yes --bundle "dist/${f}.bundle" "dist/${f}"
+          done
+
+      - name: Verify signatures (fail-closed self-check)
+        # The exact identity policy a consumer applies
+        # (docs/RELEASE_CHECKLIST.md "Artifact signing"): a bundle that does
+        # not verify against this repository's release.yml identity and the
+        # GitHub OIDC issuer fails the job, so nothing unverifiable reaches
+        # the release job.
+        env:
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Escape dots in owner/repo for regexp use (repo names may contain
+          # dots); the workflow path and issuer are fixed.
+          REPO_ESC="$(printf '%s' "$GH_REPOSITORY" | sed 's/\./\\./g')"
+          IDENTITY_REGEXP="^https://github\.com/${REPO_ESC}/\.github/workflows/release\.yml@"
+          for f in checksums.txt sbom.spdx.txt sbom-syft.spdx.json; do
+            cosign verify-blob \
+              --bundle "dist/${f}.bundle" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp "$IDENTITY_REGEXP" \
+              "dist/${f}"
+          done
+          echo "Signed release set:"
+          ls -la dist/
+
+      - name: Upload signed release set
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1  # v4.6.1
+        with:
+          name: release-signed
+          path: dist/
+          if-no-files-found: error
+
+  # ========================================
+  # Create GitHub Release
+  # ========================================
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    # Only job that mutates repository state: it creates the GitHub Release
+    # and uploads its assets. It publishes exactly the signed set produced
+    # (and self-verified) by the sign job.
+    permissions:
+      contents: write
+    needs: [attest-guard, validate, sign]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ needs.attest-guard.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Download signed release set
+        # Pin re-verified against upstream (git ls-remote, 2026-10-04, lane R):
+        # the previous SHA cc203385981b70fc5b5a049660dfcf82b0d4277c does not
+        # exist in the repo's history; this is the true v4.1.9 peeled commit.
+        # `release-signed` is the complete, signature-verified set from the
+        # sign job (checksums finalized there; bundles outside checksums).
+        uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806  # v4.1.9
+        with:
+          name: release-signed
+          path: dist/
 
       - name: Generate changelog
         id: changelog
@@ -527,6 +672,10 @@ jobs:
           body_path: release-notes.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease || false }}
+          # dist/*.bundle = the cosign keyless signature bundles (P1-6) for
+          # checksums.txt and both SBOMs. They are outside checksums.txt by
+          # design (they sign it); consumers verify them with
+          # `cosign verify-blob --bundle` (docs/RELEASE_CHECKLIST.md).
           files: |
             dist/*.tar.gz
             dist/*.zip
@@ -535,6 +684,7 @@ jobs:
             dist/sbom-syft.spdx.json
             dist/ATTRIBUTION.md
             dist/SECURITY.md
+            dist/*.bundle
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

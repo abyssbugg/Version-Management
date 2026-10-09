@@ -149,13 +149,16 @@ grep -c "rollback" ~/.config/version-manager/audit.log
 2. Trigger: push a tag `v*.*.*` (`.github/workflows/release.yml`), or
    dispatch the workflow manually with an explicit `version` input plus
    the `attested_sha` attestation input (see the checklist fallback).
-3. Artifacts ship with SHA-256 checksums covering every published asset,
+3. Artifacts ship with SHA-256 checksums covering every published asset
+   except the signature bundles (which sign the checksum file),
    and with two SBOMs: `sbom.spdx.txt` (deterministic source SBOM via
    `scripts/release-sbom.sh`) and `sbom-syft.spdx.json` (Syft SPDX SBOM
-   of the built artifacts, pinned + checksum-verified install). Signing
-   remains an owner decision: `release.yml` carries the disabled
-   `signing` job structure (P1-6) with prerequisites in
-   [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+   of the built artifacts, pinned + checksum-verified install).
+   `checksums.txt` and both SBOMs are signed with cosign keyless (GitHub
+   OIDC, no stored key) by the `sign` job, which self-verifies the
+   signatures fail-closed before the release publishes; the `.bundle`
+   files ship with the release (P1-6). Consumer verification:
+   [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), "Artifact signing".
 4. Post-publish, verify release ↔ SHA continuity with the dormant
    `release-attest` Buildkite step (manual build with `RELEASE_ATTEST_SHA`
    and `RELEASE_ATTEST_TAG`): it asserts the full gate set ran green on

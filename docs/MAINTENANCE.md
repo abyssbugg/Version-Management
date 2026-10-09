@@ -28,7 +28,8 @@ a version comment (ENGINEERING_RULES §6.2; adjudication in
 
 All third-party actions are pinned to full commit SHAs with a `# vX.Y.Z`
 version comment. Current set (verified against upstream via
-`git ls-remote` on 2026-10-04, M5 lane R):
+`git ls-remote` on 2026-10-04, M5 lane R, for the original set; the
+`sigstore/cosign-installer` row on 2026-10-09, lane L6 — evidence below):
 
 | Action | Pin | Version | Used in |
 |--------|-----|---------|---------|
@@ -38,7 +39,29 @@ version comment. Current set (verified against upstream via
 | `actions/upload-artifact` | `4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1` | v4.6.1 | `release.yml` |
 | `actions/download-artifact` | `cc203385981b70ca67e1cc392babf9cc229d5806` | v4.1.9 | `release.yml` |
 | `softprops/action-gh-release` | `da05d552573ad5aba039eaac05058a918a7bf631` | v2.2.2 | `release.yml` |
+| `sigstore/cosign-installer` | `7e8b541eb2e61bf99390e1afd4be13a184e9ebc5` | v3.10.1 | `release.yml` (`sign` job) |
 | `actions/upload-artifact` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | v7.0.1 | `test.yml` |
+
+cosign pin evidence (lane L6):
+
+- `git ls-remote https://github.com/sigstore/cosign-installer 'refs/tags/v3.10.1*'`
+  printed only `7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 refs/tags/v3.10.1`
+  — a lightweight tag (no `^{}` entry), so that SHA is the commit.
+- The installer's `action.yml` at that commit declares the
+  `cosign-release` input (default `v2.6.1`), downloads the bootstrap
+  cosign `v2.6.1` and compares it with an sha256 embedded in the action
+  itself, exiting early when `cosign-release` equals the bootstrap
+  version. `release.yml` pins `cosign-release: 'v2.6.1'`, so the installed
+  binary is exactly that inline-checksum-verified bootstrap (no runtime key
+  fetch). Any other `cosign-release` would instead be verified by a
+  detached `.sig` against cosign's release public key — re-check that path
+  before changing the version.
+- `git ls-remote https://github.com/sigstore/cosign 'refs/tags/v2.6.1' 'refs/tags/v2.6.1^{}'`
+  printed `aaff551af285e58f7b6d60695be04af1b55f2684` (tag object) and
+  `634fabe54f9fbbab55d821a83ba93b2d25bdba5f` (peeled commit).
+- Bumping the installer changes its bootstrap version and inline digests:
+  re-read its `action.yml` at the new SHA and keep `cosign-release` equal
+  to the new bootstrap version (or re-verify the `.sig` path).
 
 Note: the `actions/upload-artifact` major versions intentionally differ
 (v4.6.1 in `release.yml`, v7.0.1 in `test.yml`, as inherited from each
@@ -173,21 +196,30 @@ open — check [governance/ROADMAP.md](governance/ROADMAP.md) before tagging.
    gates the build job (M5 release-path clause).
 
 The `build` job declares
-`needs: [validate, test, secret-scan, pre-commit]`
+`needs: [attest-guard, validate, test, secret-scan, pre-commit]`
 (`.github/workflows/release.yml`), so a tagged push can no longer bypass
 the CI gate set.
 
+Release-commit binding (REL-PROV): every job that checks out code checks
+out `ref: needs.attest-guard.outputs.release_sha` (the release tag's
+commit), never `github.ref` (the dispatching branch on a manual run), and
+`build` asserts `HEAD == release_sha` with a clean tree before archiving
+(docs/RELEASE_CHECKLIST.md, "Release-commit binding").
+
 ### 5.2 Artifacts
 
-The build job produces and the release publishes:
+The `build`, `sbom`, and `sign` jobs produce, and the `release` job
+publishes unchanged:
 
 | Artifact | What it is |
 |----------|------------|
-| `version-manager-suite-<V>.tar.gz` / `.zip` | Source archives (include `FontPatcher/` with its bundled license files and `docs/`) |
+| `version-manager-suite-<V>.tar.gz` / `.zip` | Source archives (include `FontPatcher/` with its bundled license files and `docs/`; exclude dev/CI dirs, `tmp_rovodev_*` scratch files, and local `coverage/`, `test-results/`, `patched-fonts/` outputs) |
 | `ATTRIBUTION.md` | Copy of `FontPatcher/ATTRIBUTION.md` — the authoritative per-component glyph license table (P1-10) |
 | `SECURITY.md` | Copy of `docs/SECURITY.md` — trust boundaries and reporting path |
 | `sbom.spdx.txt` | Deterministic SPDX-lite SBOM (see 5.3) |
-| `checksums.txt` | SHA-256 of every other published artifact |
+| `sbom-syft.spdx.json` | Syft SPDX-2.3 SBOM of the built artifacts (`sbom` job) |
+| `checksums.txt` | SHA-256 of every other published artifact except the bundles below; finalized in the `sign` job |
+| `checksums.txt.bundle` / `sbom.spdx.txt.bundle` / `sbom-syft.spdx.json.bundle` | Cosign keyless signature bundles (see 5.5); outside `checksums.txt` by design — they sign it |
 
 ### 5.3 SBOM
 
@@ -203,6 +235,8 @@ The build job produces and the release publishes:
   guessed. An unparsable table fails closed (no SBOM emitted).
 - Also records: shell-script inventory counts (`git ls-files -- '*.sh'`)
   and the third-party action pins read from `.github/workflows/*.yml`.
+- The SBOM is itself **signed**: `sbom.spdx.txt.bundle` is the cosign
+  keyless signature published alongside it (see 5.5).
 
 Local regeneration check (must be byte-identical):
 
@@ -214,8 +248,9 @@ sha256sum /tmp/sbom-1.txt /tmp/sbom-2.txt
 
 ### 5.4 How a consumer verifies a release
 
-Download all release assets (including `checksums.txt`) into one directory,
-then verify every artifact against the published checksums:
+Download all release assets (including `checksums.txt` and the `.bundle`
+files) into one directory. First authenticate `checksums.txt` with cosign
+(5.5), then verify every artifact against it:
 
 ```bash
 sha256sum -c checksums.txt          # Linux / GNU coreutils
@@ -225,20 +260,31 @@ shasum -a 256 -c checksums.txt      # macOS
 Expected output: one `OK` line per artifact and exit code 0. `checksums.txt`
 is generated inside the `dist/` directory over the published filenames, so
 verification must run in the directory where the assets were downloaded.
-This checksum verification is the **current** integrity mechanism.
+This checksum verification checks each artifact's **integrity**; the cosign
+signature (5.5) authenticates `checksums.txt` **itself**, so together the
+two steps authenticate the whole release set.
 
-### 5.5 Signing — current state and follow-up decision
+### 5.5 Signing — cosign keyless (P1-6, implemented)
 
-- **Current mechanism:** SHA-256 `checksums.txt` only (5.4). There is **no
-  artifact signature today**.
-- **Deliberate decision (M5):** signing was NOT added, because signing that
-  the project cannot verify end-to-end is worse than none. Keyless signing
-  (e.g. Sigstore/cosign with OIDC keyless mode, or GitHub artifact
-  attestation) is a **documented follow-up decision for the repository
-  owner**: it requires choosing a verification story (who verifies, with
-  what identity policy) before it can be wired into `release.yml` and this
-  runbook. Until then, treat `checksums.txt` as the sole integrity
-  guarantee and do not add unverifiable signing.
+- **Mechanism:** the `sign` job signs `checksums.txt`, `sbom.spdx.txt`,
+  and `sbom-syft.spdx.json` with `cosign sign-blob --yes --bundle`
+  using the runner's GitHub OIDC token (keyless — no stored key). It is
+  the only job with `id-token: write`; only the `release` job has
+  `contents: write`; the workflow default is `contents: read`.
+- **Fail-closed self-check:** the same job runs `cosign verify-blob` on
+  every bundle with issuer `https://token.actions.githubusercontent.com`
+  and identity regexp
+  `^https://github\.com/<owner>/<repo>/\.github/workflows/release\.yml@`
+  (derived from `github.repository`, dots escaped) before uploading the
+  `release-signed` artifact the release job publishes.
+- **Consumer commands and identity policy:**
+  [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), "Artifact signing".
+- **Pins:** `sigstore/cosign-installer` v3.10.1 and `cosign-release`
+  v2.6.1 — table and evidence in 1.1.
+- **Live proof pending:** keyless signing cannot be exercised without a
+  real release; the first tagged release after this change is the first
+  end-to-end proof (OIDC, Fulcio, Rekor, certificate identity, consumer
+  verification).
 
 ## 6. Known risks and gaps
 

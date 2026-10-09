@@ -164,7 +164,7 @@ steps:
           import json, os, sys
           builds = json.load(open("/tmp/bk-builds.json"))
           sha = os.environ["RELEASE_ATTEST_SHA"]
-          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos"}
+          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov"}
           for b in builds:
               if b.get("commit") != sha or b.get("state") != "passed":
                   continue
@@ -175,7 +175,7 @@ steps:
                   sys.exit(0)
           sys.exit(1)
           PY
-          )" || fail "No passed Buildkite build with the full gate set (lint/syntax/pre-commit/secret-scan/test-linux/test-macos) found for SHA $SHA."
+          )" || fail "No passed Buildkite build with the full gate set (lint/syntax/pre-commit/secret-scan/test-linux/test-macos/coverage-kcov) found for SHA $SHA."
           echo "$BUILD_URL" > release-attestation/gate-build-url.txt
           echo "Full gate set green on $SHA: $BUILD_URL"
 
