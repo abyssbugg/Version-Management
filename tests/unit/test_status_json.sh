@@ -209,12 +209,12 @@ if [[ "$HAVE_PY" -eq 1 ]]; then
     # TEMP CI DIAGNOSTIC (remove once the Linux python.match regression is
     # root-caused): on failure, surface the values the macOS host cannot show.
     if [[ "$(json_get "$OUT" runtime python match)" != "true" ]]; then
-        printf '      [diag] python.expected=%q python.active=%q\n' \
+        printf '  ✗ [diag] python.expected=%q python.active=%q\n' \
             "$(json_get "$OUT" runtime python expected)" \
             "$(json_get "$OUT" runtime python active)"
-        printf '      [diag] shim python3 --version => %q\n' \
+        printf '  ✗ [diag] shim python3 --version => %q\n' \
             "$(PATH="$MOCKBIN:$STRICTBIN" python3 --version 2>&1 | head -n1)"
-        printf '      [diag] raw JSON: %s\n' "$(cat "$OUT")"
+        printf '  ✗ [diag] raw JSON: %s\n' "$(cat "$OUT")"
     fi
     assert_eq "happy path: go.active (toolchain-reported form)" "go1.22.0" "$(json_get "$OUT" runtime go active)"
     assert_eq "happy path: go.match (go-prefix normalized)" "true" "$(json_get "$OUT" runtime go match)"
