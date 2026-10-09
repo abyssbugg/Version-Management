@@ -254,6 +254,17 @@ lock_with_trap() {
 
     lock_acquire "$name" "$timeout" || return 1
 
+    # AX-10: inside a subshell, bash >= 4 keeps DISPLAYING the parent's traps
+    # via `trap -p` until the subshell modifies any trap, although they are no
+    # longer active there. Chaining that stale display would run the parent's
+    # EXIT command (e.g. a caller's cleanup) when this subshell exits.
+    # Resetting an otherwise-unused signal discards the stale display and
+    # leaves any EXIT trap the subshell set itself intact (bash 3.2 never
+    # shows the inherited display, so this is a no-op there).
+    if ((BASH_SUBSHELL > 0)) && [[ -z "$(trap -p SIGURG)" ]]; then
+        trap - SIGURG 2>/dev/null || true
+    fi
+
     local existing_trap existing_command release_command
     existing_trap=$(trap -p EXIT || true)
     release_command="lock_release '$name'"

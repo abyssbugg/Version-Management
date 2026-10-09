@@ -27,9 +27,9 @@
 #
 # Trap note: install_patched_fonts takes the workstation-mutation lock with
 # lock_with_trap in a subshell; `trap -p EXIT` inside a subshell reports the
-# PARENT's EXIT trap, which lock_with_trap would chain into the subshell's
-# trap. Each case therefore clears the inherited EXIT trap first, so this
-# file's cleanup trap can never fire mid-case.
+# PARENT's EXIT trap. lib/lock.sh discards that stale display since AX-10;
+# each case still clears the inherited EXIT trap first (belt and braces), so
+# this file's cleanup trap can never fire mid-case.
 # =============================================================================
 
 set -uo pipefail

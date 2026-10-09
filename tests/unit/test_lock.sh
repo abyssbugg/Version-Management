@@ -175,6 +175,37 @@ test_lock_with_trap_chains_existing_exit_trap() {
   teardown_lock_test
 }
 
+# AX-10: a lock taken with lock_with_trap inside a subshell must NOT chain the
+# parent's EXIT trap (bash >= 4 still displays it via `trap -p` there), yet a
+# trap the subshell set itself must still be chained.
+test_lock_with_trap_subshell_does_not_inherit_parent_exit_trap() {
+  setup_lock_test
+  track_coverage "lock_with_trap"
+
+  local parent_marker="$TEST_STATE_DIR/parent-fired" own_marker="$TEST_STATE_DIR/own-fired"
+  local log="$TEST_STATE_DIR/order.log"
+  bash -c '
+    log_info() { :; }
+    log_warn() { :; }
+    log_error() { :; }
+    log_debug() { :; }
+    source ../../lib/lock.sh
+    trap "printf \"parent\\n\" >>\"$3\"; touch \"$1\"" EXIT
+    ( lock_with_trap "subshell" 5 )
+    printf "after-plain-subshell\\n" >>"$3"
+    ( trap "touch \"$2\"" EXIT; lock_with_trap "subshell-own" 5 )
+    printf "after-own-subshell\\n" >>"$3"
+  ' bash "$parent_marker" "$own_marker" "$log"
+
+  assert_equals $'after-plain-subshell\nafter-own-subshell\nparent' "$(cat "$log")" "Parent EXIT trap fires once, only when the parent exits"
+  assert_file_exists "$own_marker" "Subshell's own EXIT trap is still chained"
+  local lock_left=0
+  [[ -d "$VMS_STATE_DIR/locks/subshell.lock.d" || -d "$VMS_STATE_DIR/locks/subshell-own.lock.d" ]] && lock_left=1
+  assert_equals "0" "$lock_left" "Subshell locks released on subshell exit"
+
+  teardown_lock_test
+}
+
 test_acquire_timeout_and_release
 test_concurrent_acquire_serializes_critical_section
 test_stale_lock_reclaimed
@@ -182,6 +213,7 @@ test_invalid_name_rejected
 test_release_refuses_other_pid
 test_orphaned_claiming_is_reclaimed
 test_lock_with_trap_chains_existing_exit_trap
+test_lock_with_trap_subshell_does_not_inherit_parent_exit_trap
 coverage_report
 
 exit 0
