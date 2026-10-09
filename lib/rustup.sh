@@ -45,7 +45,8 @@ rustup_install() {
         return 0
     fi
 
-    local os_type=$(detect_os)
+    local os_type
+    os_type=$(detect_os) || os_type="unknown"
 
     # Check if curl is available
     if ! command -v curl >/dev/null 2>&1; then
@@ -56,6 +57,10 @@ rustup_install() {
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    log_info "[DRY RUN] Would install rustup via Homebrew: brew install rustup"
+                    return 0
+                fi
                 log_info "Installing rustup via Homebrew"
                 if brew install rustup; then
                     log_success "rustup installed successfully via Homebrew"
@@ -67,56 +72,54 @@ rustup_install() {
             ;;
     esac
 
-    # Install via rustup-init.sh
-    local rustup_init_script="$HOME/.cargo/rustup-init.sh"
-    local rustup_dir="${RUSTUP_HOME:-$HOME/.rustup}"
-
-    # Create directory if it doesn't exist
-    mkdir -p "$(dirname "$rustup_init_script")"
-
-    # Download rustup-init.sh
-    log_info "Downloading rustup installer..."
-    if ! curl -fsSL -o "$rustup_init_script" "https://sh.rustup.rs"; then
-        log_error "Failed to download rustup installer"
+    # Pinned, checksum-verified rustup-init (AX-9; ENGINEERING_RULES 2.3/7.1):
+    # map host -> target triple, look up the pinned digest, then
+    # download -> verify -> execute inside a private temp dir. Nothing is
+    # written under $HOME before verification passes.
+    local triple
+    if ! triple=$(_rustup_target_triple); then
+        log_error "Unsupported host for the pinned rustup installer ($(uname -s 2>/dev/null || echo '?') $(uname -m 2>/dev/null || echo '?')); refusing to install. Install rustup manually: https://rustup.rs"
         return 1
     fi
 
-    # Validate the downloaded script before execution (supply-chain safety)
-    local script_size
-    script_size=$(wc -c < "$rustup_init_script" 2>/dev/null || echo 0)
-    if [[ ! -s "$rustup_init_script" ]]; then
-        log_error "Downloaded rustup installer is empty"
-        rm -f "$rustup_init_script"
+    local expected_sha256
+    if ! expected_sha256=$(_rustup_expected_sha256 "$triple") \
+        || [[ ! "$expected_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+        log_error "No pinned rustup-init checksum for target $triple; refusing to install"
         return 1
     fi
-    if [[ "$script_size" -lt 1024 ]]; then
-        log_error "Downloaded rustup installer is suspiciously small ($script_size bytes)"
-        rm -f "$rustup_init_script"
-        return 1
-    fi
-    if ! head -c 4 "$rustup_init_script" | grep -q '^#!'; then
-        log_error "Downloaded rustup installer does not begin with a shebang (#!); refusing to execute"
-        rm -f "$rustup_init_script"
-        return 1
-    fi
-    log_info "Downloaded rustup installer validated (${script_size} bytes, shebang present)"
-    chmod +x "$rustup_init_script"
 
-    # Install rustup with minimal profile and no modifications to shell files
-    log_info "Running rustup installer..."
-    if "$rustup_init_script" -y --no-modify-path --profile minimal 2>/dev/null; then
-        # Add cargo bin to PATH if not already there
-        local cargo_bin="$HOME/.cargo/bin"
-        if [[ ":$PATH:" != *":$cargo_bin:"* ]]; then
-            export PATH="$cargo_bin:$PATH"
-        fi
+    local init_version
+    init_version=$(_rustup_init_version) || init_version=""
+    if [[ -z "$init_version" ]]; then
+        log_error "No pinned rustup-init version; refusing to install"
+        return 1
+    fi
+    local init_url="https://static.rust-lang.org/rustup/archive/${init_version}/${triple}/rustup-init"
 
-        log_success "rustup installed successfully"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would download pinned rustup-init ${init_version} (${triple})"
+        log_info "[DRY RUN]   URL: ${init_url}"
+        log_info "[DRY RUN]   Expected sha256: ${expected_sha256}"
+        log_info "[DRY RUN] Would verify the checksum, then run: rustup-init -y --no-modify-path --profile minimal"
         return 0
-    else
-        log_error "Failed to install rustup"
+    fi
+
+    local tmp_root="${TMPDIR:-/tmp}"
+    tmp_root="${tmp_root%/}"
+    local work_dir
+    if ! work_dir=$(mktemp -d "${tmp_root}/vms-rustup-init.XXXXXX") || [[ -z "$work_dir" ]]; then
+        log_error "Failed to create a private temporary directory for the rustup installer"
         return 1
     fi
+
+    local install_rc=0
+    _rustup_install_verified "$work_dir" "$init_url" "$expected_sha256" \
+        "$init_version" "$triple" || install_rc=$?
+    # Always clean up the private dir, on success and on every failure path.
+    _rustup_remove_work_dir "$work_dir" "$tmp_root" \
+        || log_warn "Could not remove rustup installer temp dir: $work_dir"
+    return "$install_rc"
 }
 
 # ============================================================================
@@ -338,6 +341,191 @@ _rustup_validate_version() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Pinned rustup-init (AX-9, P3-1; ENGINEERING_RULES 2.3 + 7.1)
+# ----------------------------------------------------------------------------
+# The pin lives in function bodies as literals (not global variables) on
+# purpose: rustup_install is `export -f`'d, so a child bash re-imports the
+# functions but NOT unexported globals — a global pin would silently become
+# empty/attacker-chosen there. No environment variable can replace or bypass
+# the pinned version or digests; tests override these functions in their own
+# shell instead.
+#
+# Pin verified 2026-10-09 (lane L5). Version from
+# https://static.rust-lang.org/rustup/release-stable.toml (version = '1.29.1').
+# For EVERY target below the digest was cross-checked two ways, and both
+# matched the value pinned here:
+#   1. upstream-published
+#      https://static.rust-lang.org/rustup/archive/1.29.1/<target>/rustup-init.sha256
+#   2. `shasum -a 256` AND `sha256sum` of an independent download of
+#      https://static.rust-lang.org/rustup/archive/1.29.1/<target>/rustup-init
+#      (byte size equal to the served Content-Length) into a scratch dir
+#      under /tmp (binaries never executed; deleted after).
+# Bump procedure: change the version AND every digest together, repeating the
+# same two-source cross-check for each target.
+
+# Print the pinned rustup-init release version.
+_rustup_init_version() {
+    printf '%s\n' "1.29.1"
+}
+
+# Print the pinned sha256 of rustup-init for a target triple.
+# Args: triple. Returns: 0 + digest on stdout; 1 for an unpinned triple.
+_rustup_expected_sha256() {
+    case "${1:-}" in
+        x86_64-unknown-linux-gnu)   printf '%s\n' "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71" ;;
+        aarch64-unknown-linux-gnu)  printf '%s\n' "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433" ;;
+        x86_64-unknown-linux-musl)  printf '%s\n' "331228566cc931f32cd684f9bebc5956a5e5d7394c8d5de595f196a658ab98e6" ;;
+        aarch64-unknown-linux-musl) printf '%s\n' "1ddf36182ac5d1782dbeefcb9bea7f5f9412d88f4a0d5047b1564a223624e8c6" ;;
+        x86_64-apple-darwin)        printf '%s\n' "259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3" ;;
+        aarch64-apple-darwin)       printf '%s\n' "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Detect a musl-libc Linux host. Mirrors rustup's own rustup-init.sh probe
+# (`ldd --version` mentions musl), captured rather than piped so a caller's
+# pipefail cannot turn musl ldd's non-zero exit into a false negative.
+_rustup_host_is_musl() {
+    command -v ldd >/dev/null 2>&1 || return 1
+    local ldd_out=""
+    ldd_out=$(ldd --version 2>&1) || true
+    [[ "$ldd_out" == *musl* ]]
+}
+
+# Map the host to a pinned rustup target triple. OS family comes from the
+# canonical detect_os (lib/env.sh, P1-9: uname -s; WSL is Linux), the CPU from
+# uname -m. Returns: 0 + triple on stdout; 1 for any unmapped host (fail closed).
+_rustup_target_triple() {
+    local os="" arch="" libc="gnu"
+    os=$(detect_os 2>/dev/null) || return 1
+    arch=$(uname -m 2>/dev/null) || return 1
+    case "$arch" in
+        x86_64|amd64)  arch="x86_64" ;;
+        arm64|aarch64) arch="aarch64" ;;
+        *) return 1 ;;
+    esac
+    case "$os" in
+        macos)
+            printf '%s-apple-darwin\n' "$arch"
+            ;;
+        linux|wsl)
+            if _rustup_host_is_musl; then
+                libc="musl"
+            fi
+            printf '%s-unknown-linux-%s\n' "$arch" "$libc"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Print the lowercase sha256 of a file. Portable: sha256sum, else
+# `shasum -a 256`. Returns: 0 + digest; 1 on hashing failure; 2 when no
+# sha256 tool exists (callers fail closed).
+_rustup_sha256_file() {
+    local file="${1:-}" out=""
+    [[ -n "$file" && -f "$file" ]] || return 1
+    if command -v sha256sum >/dev/null 2>&1; then
+        out=$(sha256sum "$file" 2>/dev/null) || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        out=$(shasum -a 256 "$file" 2>/dev/null) || return 1
+    else
+        return 2
+    fi
+    out="${out%%[[:space:]]*}"
+    [[ "$out" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$out"
+}
+
+# Download -> verify -> execute rustup-init inside an already-created private
+# work dir. Never writes outside work_dir before the checksum matches.
+# Args: work_dir url expected_sha256 version triple. Returns: 0/1.
+_rustup_install_verified() {
+    local work_dir="${1:-}" url="${2:-}" expected="${3:-}"
+    local version="${4:-}" triple="${5:-}"
+    local init_bin="${work_dir}/rustup-init"
+
+    if [[ -z "$work_dir" || ! -d "$work_dir" || -z "$url" || -z "$expected" ]]; then
+        log_error "rustup installer: invalid internal arguments; refusing to install"
+        return 1
+    fi
+
+    log_info "Downloading rustup installer (rustup-init ${version}, ${triple})..."
+    if ! curl -fsSL -o "$init_bin" "$url"; then
+        log_error "Failed to download rustup installer"
+        return 1
+    fi
+
+    local actual="" sha_rc=0
+    actual=$(_rustup_sha256_file "$init_bin") || sha_rc=$?
+    if (( sha_rc == 2 )); then
+        log_error "Neither sha256sum nor shasum is available; refusing to execute an unverified rustup installer"
+        return 1
+    fi
+    if (( sha_rc != 0 )) || [[ -z "$actual" ]]; then
+        log_error "Could not compute the checksum of the downloaded rustup installer; refusing to execute"
+        return 1
+    fi
+    if [[ "$actual" != "$expected" ]]; then
+        log_error "rustup installer checksum mismatch (expected ${expected}, got ${actual}); refusing to execute"
+        return 1
+    fi
+    log_info "Downloaded rustup installer verified (sha256 ${actual})"
+
+    if ! chmod 700 "$init_bin"; then
+        log_error "Failed to mark the verified rustup installer executable"
+        return 1
+    fi
+
+    # Install rustup with minimal profile and no modifications to shell files
+    log_info "Running rustup installer..."
+    if "$init_bin" -y --no-modify-path --profile minimal 2>/dev/null; then
+        # Add cargo bin to PATH if not already there
+        local cargo_bin="$HOME/.cargo/bin"
+        if [[ ":$PATH:" != *":$cargo_bin:"* ]]; then
+            export PATH="$cargo_bin:$PATH"
+        fi
+
+        log_success "rustup installed successfully"
+        return 0
+    else
+        log_error "Failed to install rustup"
+        return 1
+    fi
+}
+
+# Remove the private installer work dir — only a real directory (not a
+# symlink) created by rustup_install under the expected temp root
+# (ENGINEERING_RULES 1.5: validated deletion path).
+# Args: work_dir tmp_root. Returns: 0 removed/absent; 1 refused.
+_rustup_remove_work_dir() {
+    local work_dir="${1:-}" tmp_root="${2:-}"
+    if [[ -z "$work_dir" || -z "$tmp_root" ]]; then
+        return 1
+    fi
+    case "$work_dir" in
+        "${tmp_root}/vms-rustup-init."?*) ;;
+        *)
+            log_warn "Refusing to remove unexpected rustup temp path: $work_dir"
+            return 1
+            ;;
+    esac
+    case "$work_dir" in
+        *..*)
+            log_warn "Refusing to remove unexpected rustup temp path: $work_dir"
+            return 1
+            ;;
+    esac
+    if [[ -L "$work_dir" ]]; then
+        log_warn "Refusing to remove symlinked rustup temp path: $work_dir"
+        return 1
+    fi
+    [[ -d "$work_dir" ]] || return 0
+    rm -rf -- "$work_dir"
+}
+
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -368,3 +556,9 @@ rustup_is_rust_project() {
 export -f rustup_detect rustup_install rustup_list_versions rustup_install_version
 export -f rustup_set_global rustup_set_local rustup_get_current rustup_validate_version
 export -f rustup_get_prompt_version rustup_is_rust_project
+# rustup_install's private helpers travel with it: an exported rustup_install
+# run in a child bash must find the pinned version/digests, not fail on
+# command-not-found. (Serialization-safe bodies: no here-docs — AX-7.)
+export -f _rustup_init_version _rustup_expected_sha256 _rustup_host_is_musl
+export -f _rustup_target_triple _rustup_sha256_file _rustup_install_verified
+export -f _rustup_remove_work_dir
