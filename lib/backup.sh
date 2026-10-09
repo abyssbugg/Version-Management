@@ -1225,8 +1225,17 @@ delete_restore_point() {
 #
 # Both validate their inputs before any rm/mv (ENGINEERING_RULES 1.5):
 #   target_dir : non-empty, absolute, no newline/tab, no '.'/'..' component,
-#                not '/', not $HOME itself, and strictly under $HOME or
-#                $TMPDIR (version-manager trees live under $HOME).
+#                not '/', not $HOME/$TMPDIR themselves.
+#                A target strictly under $HOME or $TMPDIR is the normal case.
+#                A custom root OUTSIDE them (PYENV_ROOT=/opt/pyenv,
+#                NVM_DIR=/usr/local/nvm) is supported conservatively:
+#                  - absent  -> nothing to stage (fresh install proceeds);
+#                  - present -> moved aside (mv is non-destructive) unless it
+#                               is a system root (see
+#                               _install_dir_is_system_root), which is refused;
+#                  - restore never rm -rf's outside $HOME/$TMPDIR: a partial
+#                    install there is left in place, the staged copy is kept,
+#                    and the manual steps are logged.
 #   staged_path: non-empty, absolute, no newline/tab, no '.'/'..' component,
 #                not '/', not $HOME/$TMPDIR themselves, and neither equal to,
 #                inside, nor an ancestor of target_dir.
@@ -1272,9 +1281,11 @@ _install_dir_check_shape() {
     return 0
 }
 
-# Validate an install target (see contract above).
+# Validate an install target (see contract above). When $2 is given, the
+# variable it names is set to "inside" (strictly under $HOME or $TMPDIR) or
+# "outside".
 _install_dir_validate_target() {
-    local target="$1" norm home_n="" tmp_n="" inside=0
+    local target="$1" _idv_out="${2:-}" norm home_n="" tmp_n="" _idv_where=outside
     _install_dir_check_shape "$target" "target" || return 1
     _install_dir_strip "$target" norm
     if [[ -n "${HOME:-}" && "$HOME" == /* ]]; then
@@ -1288,15 +1299,51 @@ _install_dir_validate_target() {
         return 1
     fi
     if [[ -n "$home_n" && "$norm" == "$home_n"/* ]]; then
-        inside=1
+        _idv_where=inside
     elif [[ -n "$tmp_n" && "$norm" == "$tmp_n"/* ]]; then
-        inside=1
+        _idv_where=inside
     fi
-    if [[ "$inside" != 1 ]]; then
-        log_error "install-dir: target is outside \$HOME and \$TMPDIR — refusing to move/remove it: $target"
-        return 1
+    if [[ -n "$_idv_out" ]]; then
+        printf -v "$_idv_out" '%s' "$_idv_where"
     fi
     return 0
+}
+
+# Is the (shape-validated) path a directory that must never be moved aside?
+# True for a top-level directory (/usr, /opt, /Users, ...), a second-level
+# directory under an OS-owned root (/usr/local, /usr/bin, /System/Library,
+# /private/var, ...), a package-manager prefix (/opt/homebrew,
+# /usr/local/Cellar, ...), and any ancestor of $HOME or $TMPDIR.
+_install_dir_is_system_root() {
+    local norm rest first home_n="" tmp_n=""
+    _install_dir_strip "$1" norm
+    [[ -n "$norm" ]] || return 0
+    [[ -n "${HOME:-}" && "$HOME" == /* ]] && _install_dir_strip "$HOME" home_n
+    [[ -n "${TMPDIR:-}" && "$TMPDIR" == /* ]] && _install_dir_strip "$TMPDIR" tmp_n
+    if [[ -n "$home_n" && "$home_n" == "$norm"/* ]] || [[ -n "$tmp_n" && "$tmp_n" == "$norm"/* ]]; then
+        return 0
+    fi
+    rest="${norm#/}"
+    [[ "$rest" == */* ]] || return 0
+    first="${rest%%/*}"
+    rest="${rest#*/}"
+    if [[ "$rest" != */* ]]; then
+        case "$first" in
+            usr | System | Library | private | bin | sbin | etc | var | dev | proc | sys | boot | \
+                lib | lib32 | lib64 | libx32 | run | snap | nix | Applications | Volumes | cores)
+                return 0
+                ;;
+        esac
+    fi
+    case "$norm" in
+        /opt/homebrew | /opt/local | /home/linuxbrew | /home/linuxbrew/.linuxbrew | \
+            /usr/local/bin | /usr/local/sbin | /usr/local/lib | /usr/local/include | \
+            /usr/local/share | /usr/local/etc | /usr/local/var | /usr/local/opt | \
+            /usr/local/Cellar | /usr/local/Caskroom | /usr/local/Homebrew)
+            return 0
+            ;;
+    esac
+    return 1
 }
 
 # Validate a staging path against an (already validated) target.
@@ -1341,6 +1388,10 @@ install_dir_stage() {
         log_debug "install_dir_stage: nothing to stage (absent): $target"
         return 0
     fi
+    if _install_dir_is_system_root "$target"; then
+        log_error "install_dir_stage: refusing to move a system directory aside: $target — point the install root at a dedicated directory (e.g. /opt/<tool>)"
+        return 1
+    fi
     if [[ -e "$staged" || -L "$staged" ]]; then
         log_error "install_dir_stage: staging path already exists — refusing to overwrite it: $staged"
         return 1
@@ -1370,18 +1421,25 @@ install_dir_stage() {
 # and exists). Usage: install_dir_restore <target_dir> <staged_path>
 # Returns 0 when the pre-install state is back, non-zero (loudly) otherwise —
 # the staged copy is never deleted, so a failed restore leaves it in place.
+# A partial install OUTSIDE $HOME/$TMPDIR is never rm -rf'd: it is left in
+# place with the staged copy, the manual steps are logged, and 1 is returned.
 install_dir_restore() {
-    local target="${1:-}" staged="${2:-}" have_staged=0
-    _install_dir_validate_target "$target" || return 1
+    local target="${1:-}" staged="${2:-}" have_staged=0 have_partial=0 t_where=""
+    _install_dir_validate_target "$target" t_where || return 1
     if [[ -n "$staged" ]]; then
         _install_dir_validate_staged "$staged" "$target" || return 1
         if [[ -e "$staged" || -L "$staged" ]]; then
             have_staged=1
         fi
     fi
+    if [[ -e "$target" || -L "$target" ]]; then
+        have_partial=1
+    fi
 
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
-        if [[ "$have_staged" == 1 ]]; then
+        if [[ "$t_where" == outside ]]; then
+            LOG_FILE='' log_info "[dry-run] would leave any partial $target in place (outside \$HOME/\$TMPDIR — never removed automatically) and keep ${staged:-nothing staged}"
+        elif [[ "$have_staged" == 1 ]]; then
             LOG_FILE='' log_info "[dry-run] would remove partial $target and move $staged back"
         else
             LOG_FILE='' log_info "[dry-run] would remove partial $target (nothing was staged)"
@@ -1389,7 +1447,16 @@ install_dir_restore() {
         return 0
     fi
 
-    if [[ -e "$target" || -L "$target" ]]; then
+    if [[ "$have_partial" == 1 && "$t_where" == outside ]]; then
+        if [[ "$have_staged" == 1 ]]; then
+            log_error "install_dir_restore: not removing the partial install at $target (outside \$HOME/\$TMPDIR). Your previous install is preserved at $staged — remove $target yourself, then: mv '$staged' '$target'"
+        else
+            log_error "install_dir_restore: not removing the partial install at $target (outside \$HOME/\$TMPDIR) — remove it yourself if it is unwanted"
+        fi
+        return 1
+    fi
+
+    if [[ "$have_partial" == 1 ]]; then
         if ! rm -rf -- "$target"; then
             if [[ "$have_staged" == 1 ]]; then
                 log_error "install_dir_restore: cannot remove partial install $target — your previous install is preserved at $staged"
@@ -1420,4 +1487,5 @@ export -f transaction_start transaction_add_file transaction_commit transaction_
 export -f transaction_is_active transaction_get_name
 export -f create_restore_point restore_from_point list_restore_points delete_restore_point
 export -f _install_dir_strip _install_dir_check_shape _install_dir_validate_target
+export -f _install_dir_is_system_root
 export -f _install_dir_validate_staged _install_dir_journal install_dir_stage install_dir_restore

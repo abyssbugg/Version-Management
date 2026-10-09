@@ -267,13 +267,12 @@ test_helpers_reject_unsafe_paths() {
         chk "defined" "missing" "install_dir_stage/install_dir_restore exist (AX-6d)"
         return "$_T_CASE_FAILS"
     fi
-    mkdir -p "$HOME/victim" "$_SBX/outside" "$HOME/a"
+    mkdir -p "$HOME/victim" "$HOME/a"
     printf 'v\n' > "$HOME/victim/keep"
-    printf 'o\n' > "$_SBX/outside/keep"
     local nl_dir="$HOME/new"$'\n'"line"
     mkdir -p "$nl_dir"
     local -a bad=("" "relative/dir" "/" "$HOME" "$HOME/" "$TMPDIR" "$HOME/a/../victim" \
-        "$HOME/./victim" "$nl_dir" "$_SBX/outside")
+        "$HOME/./victim" "$nl_dir")
     local p rc
     for p in "${bad[@]}"; do
         TXN_AUDIT_LOG="$LOGS/audit" install_dir_stage "$p" "$HOME/staged.x" >/dev/null 2>&1
@@ -285,7 +284,6 @@ test_helpers_reject_unsafe_paths() {
     done
     chk 0 "$(_count "$HOME/staged.x")" "nothing was staged for any rejected target"
     chk "v" "$(cat "$HOME/victim/keep" 2>/dev/null)" "'..'-target victim untouched"
-    chk "o" "$(cat "$_SBX/outside/keep" 2>/dev/null)" "outside-\$HOME target untouched"
     chk 1 "$(_count "$nl_dir")" "newline-named dir untouched"
     [[ -d "$HOME" && -d "$TMPDIR" ]] && chk ok ok "\$HOME and \$TMPDIR still exist"
 
@@ -345,6 +343,73 @@ test_helpers_round_trip() {
     chk 1 "$?" "stage refuses an existing staging path"
     chk identical "$(_identical "$target")" "target untouched when staging path exists"
     chk "older backup" "$(cat "$staged/keep")" "existing staging path untouched"
+    return "$_T_CASE_FAILS"
+}
+
+# AX-6d follow-up: install roots OUTSIDE $HOME/$TMPDIR (PYENV_ROOT=/opt/pyenv,
+# NVM_DIR=/usr/local/nvm). A fresh install proceeds; an existing tree is moved
+# aside and restored; a partial install there is never rm -rf'd; system roots
+# are never moved. Everything stays inside the sandbox ($_SBX/outside is
+# outside the sandbox HOME and TMPDIR).
+test_helpers_outside_home_roots() {
+    _clean_home
+    declare -F install_dir_stage >/dev/null || { chk "defined" "missing" "install_dir_stage exists"; return 1; }
+    local root="$_SBX/outside" target="$_SBX/outside/tool" staged="$_SBX/outside/tool.bak.1" out
+    rm -rf -- "$root" && mkdir -p "$root"
+
+    install_dir_stage "$target" "$staged" >/dev/null 2>&1
+    chk 0 "$?" "stage of an absent outside-\$HOME target succeeds (fresh custom-root install)"
+    chk 0 "$(_count "$target" "$staged")" "nothing created for an absent outside target"
+    install_dir_restore "$target" "$staged" >/dev/null 2>&1
+    chk 0 "$?" "restore with no partial and nothing staged succeeds outside \$HOME"
+
+    _mk_canary "$target" outside
+    install_dir_stage "$target" "$staged" >/dev/null 2>&1
+    chk 0 "$?" "existing outside-\$HOME tree is moved aside"
+    chk identical "$(_identical "$staged")" "staged outside copy is byte-identical"
+    install_dir_restore "$target" "$staged" >/dev/null 2>&1
+    chk 0 "$?" "restore moves the outside tree back when no partial exists"
+    chk identical "$(_identical "$target")" "outside tree restored byte-identically"
+    chk 0 "$(_count "$staged")" "staged path consumed"
+
+    install_dir_stage "$target" "$staged" >/dev/null 2>&1
+    mkdir -p "$target" && printf 'partial\n' > "$target/PARTIAL"
+    out=$(install_dir_restore "$target" "$staged" 2>&1)
+    chk 1 "$?" "restore refuses to rm -rf a partial install outside \$HOME"
+    chk partial "$(cat "$target/PARTIAL" 2>/dev/null)" "outside partial left in place"
+    chk identical "$(_identical "$staged")" "previous install kept at the staged path"
+    chk_contains "preserved at $staged" "$out" "manual restore steps are logged"
+    out=$(TRANSACTION_DRY_RUN=1 install_dir_restore "$target" "$staged" 2>&1)
+    chk_contains "never removed automatically" "$out" "dry-run states the outside partial is kept"
+    chk partial "$(cat "$target/PARTIAL" 2>/dev/null)" "dry-run removes nothing outside \$HOME"
+
+    # System roots are never moved aside. mv/rm/mkdir are shadowed in a
+    # subshell so a broken guard records instead of acting.
+    local sys_log="$LOGS/sysroot.log" p rc
+    : > "$sys_log"
+    for p in /usr /usr/bin /usr/local /etc; do
+        (
+            mv() { printf 'mv %s\n' "$*" >> "$sys_log"; return 1; }
+            rm() { printf 'rm %s\n' "$*" >> "$sys_log"; return 1; }
+            mkdir() { printf 'mkdir %s\n' "$*" >> "$sys_log"; return 1; }
+            install_dir_stage "$p" "$_SBX/staged.sys" >/dev/null 2>&1
+        )
+        rc=$?
+        chk 1 "$rc" "stage refuses system root '$p'"
+    done
+    chk "" "$(cat "$sys_log")" "no mv/rm/mkdir attempted for any system root"
+    local q verdict
+    for q in /opt /usr/share /opt/homebrew /usr/local/Cellar "$_SBX" "$(dirname "$TMPDIR")"; do
+        verdict=no
+        _install_dir_is_system_root "$q" && verdict=yes
+        chk yes "$verdict" "'$q' is classified as a system root"
+    done
+    for q in /opt/pyenv /usr/local/nvm "$target" "$HOME/.pyenv"; do
+        verdict=no
+        _install_dir_is_system_root "$q" && verdict=yes
+        chk no "$verdict" "'$q' is a dedicated install root"
+    done
+    rm -rf -- "$root"
     return "$_T_CASE_FAILS"
 }
 
@@ -549,6 +614,52 @@ test_privileged_installs_need_consent() {
     return "$_T_CASE_FAILS"
 }
 
+# AX-11: version-manager.sh's documented global flags were no-ops (parse_args
+# runs in a process substitution) and the consent warning named a --confirm
+# flag that did not exist. Exercised through the real CLI entry point.
+test_cli_confirm_and_global_flags() {
+    local out rc order apt_sudo=$'apt-get\tinstall\t-y\tmake\tbuild-essential'
+    local cli='exec "$BASH" "$1/version-manager.sh" "${@:2}"'
+    for order in trailing leading; do
+        _clean_home; _reset_logs
+        if [[ "$order" == trailing ]]; then
+            out=$(_child VMS_TEST_UNAME=Linux GIT_SHIM_MODE=ok PATH="$APTBIN:$BASE_PATH" -- \
+                "$cli" _ "$ROOT_DIR" install-pyenv --confirm 2>&1)
+        else
+            out=$(_child VMS_TEST_UNAME=Linux GIT_SHIM_MODE=ok PATH="$APTBIN:$BASE_PATH" -- \
+                "$cli" _ "$ROOT_DIR" --confirm install-pyenv 2>&1)
+        fi
+        rc=$?
+        chk 0 "$rc" "cli $order --confirm: install-pyenv succeeds"
+        chk_contains "$apt_sudo" "$(_logs sudo)" "cli $order --confirm: consented sudo argv runs"
+        chk_not_contains "Confirmation required" "$out" "cli $order --confirm: no consent warning"
+    done
+    _clean_home; _reset_logs
+    out=$(_child VMS_TEST_UNAME=Linux GIT_SHIM_MODE=ok PATH="$APTBIN:$BASE_PATH" -- \
+        "$cli" _ "$ROOT_DIR" install-pyenv 2>&1)
+    chk "" "$(_logs sudo)" "cli without --confirm: nothing under sudo"
+    chk_contains "re-run with --confirm or VMS_CONFIRM=1" "$out" "cli without --confirm: warning names the flag"
+    chk_contains "--confirm" "$(_child -- "$cli" _ "$ROOT_DIR" help 2>&1)" "help documents --confirm"
+
+    # --no-color only matters on a terminal: drive help through a pty (the
+    # driver is written by test_confirm_gate_contract, which runs first).
+    local py pty="$_SBX/vms_tty_driver.py"
+    if ! py=$(command -v python3) || [[ ! -f "$pty" ]]; then
+        echo "SKIP: python3/pty driver unavailable — --no-color not exercised"
+        return "$_T_CASE_FAILS"
+    fi
+    _clean_home
+    out=$(_child -- 'exec "$0" "$@"' "$py" "$pty" n "$BASH" "$ROOT_DIR/version-manager.sh" help 2>&1)
+    chk_contains $'\033[' "$out" "control: help on a tty is colored"
+    chk_not_contains '\033[' "$out" "help on a tty renders colors (no literal \\033 sequences)"
+    _clean_home
+    out=$(_child -- 'exec "$0" "$@"' "$py" "$pty" n "$BASH" "$ROOT_DIR/version-manager.sh" --no-color help 2>&1)
+    chk_contains "Options:" "$out" "--no-color help still prints usage"
+    chk_not_contains $'\033[' "$out" "--no-color strips ANSI escapes on a tty"
+    chk_not_contains '\033[' "$out" "--no-color leaves no literal \\033 sequences"
+    return "$_T_CASE_FAILS"
+}
+
 # vms_confirm_privileged contract + shell-experience delegate parity.
 test_confirm_gate_contract() {
     _clean_home; _reset_logs
@@ -721,6 +832,7 @@ failures=0
 run_tcase() { _T_CASE_FAILS=0; "$@" || failures=$((failures + 1)); }
 run_tcase test_helpers_reject_unsafe_paths
 run_tcase test_helpers_round_trip
+run_tcase test_helpers_outside_home_roots
 run_tcase test_helpers_dry_run
 run_tcase test_backup_resource_preserves_transaction
 run_tcase test_failed_clone_restores_libs
@@ -728,6 +840,7 @@ run_tcase test_failed_clone_restores_version_manager
 run_tcase test_brew_path_never_displaces
 run_tcase test_privileged_installs_need_consent
 run_tcase test_confirm_gate_contract
+run_tcase test_cli_confirm_and_global_flags
 run_tcase test_composer_fail_closed
 run_tcase test_composer_publish
 

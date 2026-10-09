@@ -49,21 +49,54 @@ CACHE_TTL="${CACHE_TTL:-3600}"  # 1 hour
 MAX_PARALLEL="${MAX_PARALLEL:-4}"
 TIMEOUT="${TIMEOUT:-30}"
 
+# Global flags (AX-11). parse_args runs inside a process substitution, so its
+# assignments never reached this shell: every documented global flag was a
+# silent no-op. Leading flags are applied HERE — before colors and logging
+# are configured — when the script is executed (a sourcing script's own argv
+# is ignored). --confirm (consent for privileged install steps, read by
+# vms_confirm_privileged) is honored anywhere on the command line because the
+# consent warning tells users to "re-run with --confirm"; parse_args strips it
+# from the command words.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    _vms_leading=1
+    for _vms_flag in "$@"; do
+        if [[ "$_vms_flag" == --confirm ]]; then
+            export VMS_CONFIRM=1
+            continue
+        fi
+        [[ "$_vms_leading" == 1 ]] || continue
+        case "$_vms_flag" in
+            --silent) SILENT_MODE=true ;;
+            --debug) DEBUG_MODE=true ;;
+            --no-color)
+                ENABLE_COLORS=false
+                export NO_COLOR=1
+                ;;
+            --auto-install) AUTO_INSTALL=true ;;
+            *) _vms_leading=0 ;;
+        esac
+    done
+    unset _vms_flag _vms_leading
+fi
+
 # ============================================================================
 # Color Definitions
 # ============================================================================
 
 if [[ "$ENABLE_COLORS" == "true" ]] && [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'
-    MAGENTA='\033[0;35m'
-    CYAN='\033[0;36m'
-    WHITE='\033[0;37m'
-    BOLD='\033[1m'
-    RESET='\033[0m'
-    NC='\033[0m'
+    # Real ESC bytes ($'...'): show_usage prints these through a plain
+    # here-document, where a '\033' literal is shown verbatim (AX-11). The
+    # logger's `echo -e` renders either form identically.
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    BLUE=$'\033[0;34m'
+    MAGENTA=$'\033[0;35m'
+    CYAN=$'\033[0;36m'
+    WHITE=$'\033[0;37m'
+    BOLD=$'\033[1m'
+    RESET=$'\033[0m'
+    NC=$'\033[0m'
 else
     RED=''
     GREEN=''
@@ -116,7 +149,7 @@ fi
 
 # Read-only status mode detection (P3 review, direction b): resolved from
 # argv BEFORE lib sourcing, mirroring parse_args' flag handling (the same
-# four flags are skipped; the first non-flag word is the command). When set,
+# global flags are skipped; the first non-flag word is the command). When set,
 # lib/nvm.sh below is NOT sourced: it pulls in lib/cache.sh, which runs
 # cache_init AT SOURCE TIME and creates cache directories — a write. The
 # status surface is contractually zero-write and needs none of nvm.sh's
@@ -124,7 +157,7 @@ fi
 _VMS_STATUS_MODE=false
 for _vms_arg in "$@"; do
     case "$_vms_arg" in
-        --silent|--debug|--no-color|--auto-install) continue ;;
+        --silent|--debug|--no-color|--auto-install|--confirm) continue ;;
         *) break ;;
     esac
 done
@@ -1797,7 +1830,9 @@ ${BOLD}Options:${RESET}
   --silent                  Run in silent mode
   --debug                   Enable debug output
   --no-color                Disable colored output
-  --auto-install            Auto-install missing dependencies
+  --auto-install            Reserved (accepted; currently has no effect)
+  --confirm                 Consent to privileged (sudo) install steps
+                            non-interactively (same as VMS_CONFIRM=1)
 
 ${BOLD}Examples:${RESET}
   # Install all version managers
@@ -1853,6 +1888,9 @@ parse_args() {
                 AUTO_INSTALL=true
                 shift
                 ;;
+            --confirm)
+                shift
+                ;;
             *)
                 break
                 ;;
@@ -1864,7 +1902,13 @@ parse_args() {
     # space-joins them onto a single line, collapsing e.g.
     # `install-node 20.0.0` into args[0] and leaving args[1] unset — which
     # breaks every command that takes a version argument. (P2/CLI fix)
-    [[ $# -gt 0 ]] && printf '%s\n' "$@"
+    # A --confirm after the command was already applied (AX-11) and is not a
+    # command word.
+    local word
+    for word in "$@"; do
+        [[ "$word" == --confirm ]] && continue
+        printf '%s\n' "$word"
+    done
 }
 
 # Main function
