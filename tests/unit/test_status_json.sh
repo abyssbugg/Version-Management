@@ -197,7 +197,7 @@ if [[ "$HAVE_PY" -eq 1 ]]; then
     write_pin ".go-version" "1.22.0"
     write_pin ".rust-toolchain" "1.79.0"
     write_pin ".php-version" "8.3.0"
-    run_status_json mock
+    run_status_json mock VMS_DIAG=1
     assert_eq "happy path: exit 0" "0" "$?"
     "$PY_REAL" -m json.tool "$OUT" >/dev/null 2>&1
     assert_eq "happy path: output is valid JSON (python3 -m json.tool)" "0" "$?"
@@ -215,7 +215,7 @@ if [[ "$HAVE_PY" -eq 1 ]]; then
         # The CLI's own stderr is the faithful source: whatever the status
         # run wrote to fd2 (e.g. a bash startup warning folded into active
         # via 2>&1) lands here.
-        printf '  ✗ [diag] CLI stderr: %q\n' "$(cat "$SB/err.txt" 2>&1 | head -n 5)"
+        printf '  ✗ [diag] CLI stderr: %q\n' "$(cat "$SB/err.txt" 2>&1 | head -n 8)"
         printf '  ✗ [diag] shim first line: %q\n' "$(head -n 1 "$MOCKBIN/python3")"
         printf '  ✗ [diag] LANG=%q LC_ALL=%q (test env)\n' "${LANG:-}" "${LC_ALL:-}"
     fi

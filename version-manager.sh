@@ -1245,6 +1245,14 @@ _vm_status_active_version() {
         python)
             command -v python3 >/dev/null 2>&1 || return 1
             raw="$(python3 --version 2>&1 | head -n 1 || true)"
+            if [[ -n "${VMS_DIAG:-}" ]]; then
+                {
+                    printf 'VMS_DIAG python: raw=%q\n' "$raw"
+                    printf 'VMS_DIAG python: PATH=%q\n' "$PATH"
+                    printf 'VMS_DIAG python: cv=%q\n' "$(command -v python3 2>&1)"
+                    printf 'VMS_DIAG python: type=%q\n' "$(type python3 2>&1)"
+                } >&2
+            fi
             # Portable extraction: "Python 3.12.0" -> "3.12.0".
             # Prior forms each failed the hosted Linux agent while passing
             # macOS: ${raw#*[[:space:]]} used POSIX-class globbing inside
