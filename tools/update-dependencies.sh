@@ -4,6 +4,17 @@
 # Part of Professional Development Terminal Setup
 # ============================================================================
 # Updates all version managers and their installed packages/versions.
+#
+# Safety (AX-6g, P3-1):
+#   --dry-run prints every planned mutating command (git pull, nvm install,
+#   rustup update, npm update) and executes none of them. Read-only version
+#   queries (nvm current / version-remote, pyenv/goenv/jenv version listings,
+#   rustc --version, rustup toolchain list) still run so the plan reflects the
+#   real state; `npm audit` is skipped under --dry-run (it uploads the
+#   dependency tree to the registry and writes npm logs).
+#   Version-manager self-updates use `git -C <dir> pull --ff-only`, so a
+#   diverged local clone is never merged into — the update is skipped with a
+#   warning instead.
 # ============================================================================
 
 set -euo pipefail
@@ -16,6 +27,58 @@ source "$SCRIPT_DIR/lib/logger.sh" 2>/dev/null || {
     log_success() { echo "[SUCCESS] $*"; }
     log_warn() { echo "[WARN] $*"; }
     log_error() { echo "[ERROR] $*" >&2; }
+}
+
+# Set by --dry-run: 1 = plan only, never execute a mutating command.
+DRY_RUN=0
+
+# Under --dry-run, print the planned mutating command and return 0 (the caller
+# then skips executing it); otherwise return 1 so the caller executes it.
+plan_only() {
+    if [[ "$DRY_RUN" != "1" ]]; then
+        return 1
+    fi
+    local plan
+    printf -v plan '%q ' "$@"
+    log_info "[DRY RUN] Would run: ${plan% }"
+    return 0
+}
+
+# Fast-forward-only self-update of a git-cloned version manager.
+# Args: name dir. Never merges; on failure warns with git's reason and returns
+# 0 so the remaining managers are still processed.
+update_git_clone() {
+    local name="$1" dir="$2"
+
+    if [[ ! -e "$dir/.git" ]]; then
+        log_info "$name at $dir is not a git clone; skipping self-update"
+        return 0
+    fi
+
+    if plan_only git -C "$dir" pull --ff-only --quiet; then
+        return 0
+    fi
+
+    local git_err="" line="" reason=""
+    if git_err=$(git -C "$dir" pull --ff-only --quiet 2>&1); then
+        return 0
+    fi
+
+    # Prefer git's fatal/error line (e.g. "fatal: Not possible to
+    # fast-forward, aborting."); fall back to its first non-empty line.
+    while IFS= read -r line; do
+        case "$line" in
+            fatal:*|error:*)
+                reason="$line"
+                break
+                ;;
+        esac
+        if [[ -z "$reason" && -n "$line" ]]; then
+            reason="$line"
+        fi
+    done <<< "$git_err"
+    log_warn "$name self-update skipped: 'git pull --ff-only' failed in $dir (local clone diverged / not fast-forward?): ${reason:-unknown error}"
+    return 0
 }
 
 # ============================================================================
@@ -46,10 +109,20 @@ update_nvm() {
             log_info "Latest LTS: $latest_lts"
 
             if [[ "$current" != "$latest_lts" ]]; then
-                read -r -p "   Upgrade to $latest_lts? [y/N]: " response
-                if [[ "$response" =~ ^[Yy] ]]; then
-                    nvm install --lts --reinstall-packages-from=current
-                    log_success "Node.js upgraded to LTS"
+                if [[ "$DRY_RUN" == "1" ]]; then
+                    log_info "[DRY RUN] Would ask to upgrade to $latest_lts"
+                    plan_only nvm install --lts --reinstall-packages-from=current
+                else
+                    # EOF / non-interactive stdin means "no" — never abort.
+                    local response=""
+                    if ! read -r -p "   Upgrade to $latest_lts? [y/N]: " response; then
+                        response=""
+                        log_info "No interactive input; Node.js upgrade to $latest_lts skipped"
+                    fi
+                    if [[ "$response" =~ ^[Yy] ]]; then
+                        nvm install --lts --reinstall-packages-from=current
+                        log_success "Node.js upgraded to LTS"
+                    fi
                 fi
             else
                 log_success "Already on latest LTS"
@@ -72,7 +145,7 @@ update_pyenv() {
         # Update pyenv itself
         if [[ -d "$HOME/.pyenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating pyenv..."
-            (cd "$HOME/.pyenv" && git pull --quiet 2>/dev/null) || true
+            update_git_clone "pyenv" "$HOME/.pyenv"
         fi
 
         # Check for newer Python versions
@@ -97,7 +170,7 @@ update_goenv() {
         # Update goenv itself
         if [[ -d "$HOME/.goenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating goenv..."
-            (cd "$HOME/.goenv" && git pull --quiet 2>/dev/null) || true
+            update_git_clone "goenv" "$HOME/.goenv"
         fi
 
         # Check for newer Go versions
@@ -121,13 +194,19 @@ update_rustup() {
 
         # Update rustup and toolchains
         log_info "Updating Rust toolchain..."
-        rustup update 2>/dev/null || log_warn "rustup update failed"
+        if ! plan_only rustup update; then
+            rustup update 2>/dev/null || log_warn "rustup update failed"
+        fi
 
         # Show installed toolchains
         log_info "Installed toolchains:"
         rustup toolchain list 2>/dev/null || true
 
-        log_success "Rust update complete"
+        if [[ "$DRY_RUN" == "1" ]]; then
+            log_success "Rust update planned (dry run)"
+        else
+            log_success "Rust update complete"
+        fi
     else
         log_warn "rustup not installed"
     fi
@@ -145,7 +224,7 @@ update_jenv() {
         # Update jenv itself
         if [[ -d "$HOME/.jenv" ]] && command -v git >/dev/null 2>&1; then
             log_info "Updating jenv..."
-            (cd "$HOME/.jenv" && git pull --quiet 2>/dev/null) || true
+            update_git_clone "jenv" "$HOME/.jenv"
         fi
 
         # Show installed Java versions
@@ -164,6 +243,15 @@ update_npm_packages() {
 
     if [[ -f "$SCRIPT_DIR/package.json" ]] && command -v npm >/dev/null 2>&1; then
         log_info "Updating npm packages in project..."
+        if [[ "$DRY_RUN" == "1" ]]; then
+            log_info "[DRY RUN] In $SCRIPT_DIR:"
+            plan_only npm update
+            log_info "Running security audit..."
+            plan_only npm audit --audit-level moderate
+            log_success "npm package update planned (dry run)"
+            echo
+            return 0
+        fi
         (cd "$SCRIPT_DIR" && npm update 2>/dev/null) || log_warn "npm update failed"
 
         log_info "Running security audit..."
@@ -182,11 +270,11 @@ update_npm_packages() {
 
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") [--dry-run] [TARGET]
 
 Update all version managers and their packages.
 
-Options:
+Targets (at most one):
     --all           Update all version managers (default)
     --nvm           Update Node.js via nvm
     --pyenv         Update Python via pyenv
@@ -194,23 +282,61 @@ Options:
     --rustup        Update Rust via rustup
     --jenv          Update Java via jenv
     --npm           Update npm packages only
+
+Options:
+    --dry-run       Print each planned mutating command (git pull, nvm install,
+                    rustup update, npm update/audit) without executing any of
+                    them. Read-only version queries still run.
     -h, --help      Show this help
 
 Examples:
-    $(basename "$0")              # Update all
-    $(basename "$0") --nvm        # Update Node.js only
-    $(basename "$0") --rustup     # Update Rust only
+    $(basename "$0")                    # Update all
+    $(basename "$0") --nvm              # Update Node.js only
+    $(basename "$0") --rustup           # Update Rust only
+    $(basename "$0") --dry-run          # Show what an update of all would do
+    $(basename "$0") --dry-run --pyenv  # Show what a pyenv update would do
 
 EOF
 }
 
 main() {
-    local target="${1:---all}"
+    local target="" arg
 
     echo "╔══════════════════════════════════════════════════════════════╗"
     echo "║            Dependency Update Utility                       ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo
+
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run)
+                DRY_RUN=1
+                ;;
+            --all|--nvm|--pyenv|--goenv|--rustup|--jenv|--npm)
+                if [[ -n "$target" && "$target" != "$arg" ]]; then
+                    log_error "Only one target may be given (got $target and $arg)"
+                    show_usage
+                    exit 1
+                fi
+                target="$arg"
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $arg"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+    target="${target:---all}"
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+        log_info "DRY RUN: planned mutating commands are printed, none are executed"
+        echo
+    fi
 
     case "$target" in
         --all)
@@ -239,18 +365,13 @@ main() {
         --npm)
             update_npm_packages
             ;;
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        *)
-            log_error "Unknown option: $target"
-            show_usage
-            exit 1
-            ;;
     esac
 
-    log_success "Dependency update complete"
+    if [[ "$DRY_RUN" == "1" ]]; then
+        log_success "Dry run complete — no changes made"
+    else
+        log_success "Dependency update complete"
+    fi
 }
 
 main "$@"
