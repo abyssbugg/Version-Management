@@ -67,6 +67,10 @@ pyvm_install() {
             if command -v brew >/dev/null 2>&1; then
                 # Homebrew does not use $target_dir: it is never moved aside
                 # for this path (AX-6d brew-path displacement).
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    log_info "[dry-run] would run: brew install pyenv pyenv-virtualenv; nothing installed"
+                    return 0
+                fi
                 log_info "Installing pyenv via Homebrew"
                 if brew install pyenv pyenv-virtualenv; then
                     log_success "pyenv installed successfully via Homebrew"

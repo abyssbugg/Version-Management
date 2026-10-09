@@ -680,6 +680,11 @@ install_pyenv() {
     if command_exists brew; then
         # Homebrew does not use $target_dir: it is never moved aside for this
         # path (AX-6d brew-path displacement).
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would run: brew install pyenv pyenv-virtualenv"
+            configure_pyenv
+            return 0
+        fi
         brew install pyenv pyenv-virtualenv
     else
         # AX-6d: stage IMMEDIATELY before the clone (single move — the former
@@ -760,6 +765,11 @@ install_rbenv() {
 
     if [[ "$os" == "macos" ]] && command_exists brew; then
         # Homebrew does not use ~/.rbenv: never moved aside (AX-6d).
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would run: brew install rbenv ruby-build"
+            configure_rbenv
+            return 0
+        fi
         if ! brew install rbenv ruby-build; then
             log_error "Failed to install rbenv"
             return 1
@@ -854,6 +864,11 @@ install_phpenv() {
 
     if [[ "$os" == "macos" ]] && command_exists brew; then
         # Homebrew does not use ~/.phpenv: never moved aside (AX-6d).
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            log_info "[dry-run] would run: brew install phpenv php-build"
+            configure_phpenv
+            return 0
+        fi
         if ! brew install phpenv php-build; then
             log_error "Failed to install phpenv"
             return 1

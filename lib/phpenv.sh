@@ -69,10 +69,14 @@ phpenv_install() {
         "macos")
             # Install build dependencies via Homebrew
             if command -v brew >/dev/null 2>&1; then
-                log_info "Installing PHP build dependencies via Homebrew"
-                brew install autoconf automake bison freetype gd gettext icu4c krb5 \
-                    libedit libiconv libjpeg libpng libxml2 libzip oniguruma openssl@3 \
-                    pkg-config re2c zlib 2>/dev/null || true
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    log_info "[dry-run] would run: brew install autoconf automake bison freetype gd gettext icu4c krb5 libedit libiconv libjpeg libpng libxml2 libzip oniguruma openssl@3 pkg-config re2c zlib"
+                else
+                    log_info "Installing PHP build dependencies via Homebrew"
+                    brew install autoconf automake bison freetype gd gettext icu4c krb5 \
+                        libedit libiconv libjpeg libpng libxml2 libzip oniguruma openssl@3 \
+                        pkg-config re2c zlib 2>/dev/null || true
+                fi
             fi
             ;;
         "linux")
@@ -403,6 +407,10 @@ composer_install() {
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    LOG_FILE='' log_info "[dry-run] would run: brew install composer (falling back to the verified official installer if it fails); nothing installed"
+                    return 0
+                fi
                 log_info "Installing Composer via Homebrew"
                 if brew install composer; then
                     log_success "Composer installed successfully via Homebrew"

@@ -65,6 +65,10 @@ jenv_install() {
         "macos")
             if command -v brew >/dev/null 2>&1; then
                 # Homebrew does not use $target_dir: never moved aside (AX-6d).
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    log_info "[dry-run] would run: brew install jenv; nothing installed"
+                    return 0
+                fi
                 log_info "Installing jenv via Homebrew"
                 if brew install jenv; then
                     log_success "jenv installed successfully via Homebrew"

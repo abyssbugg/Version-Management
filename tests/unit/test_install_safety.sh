@@ -547,6 +547,42 @@ test_brew_path_never_displaces() {
     return "$_T_CASE_FAILS"
 }
 
+# AX-15: functions that honor TRANSACTION_DRY_RUN on their clone/apt paths
+# ran `brew install` for real on the Homebrew path under dry-run.
+_brew_dry_case() {  # <label> <kind lib|vm> <lib file|-> <fn> <expected plan text>
+    local label="$1" kind="$2" lib="$3" fn="$4" expect="$5" out rc
+    local -a child
+    if [[ "$kind" == lib ]]; then
+        child=("$_LIB_CHILD" _ "$ROOT_DIR/lib/$lib" "$fn")
+    else
+        child=("$_VM_CHILD" _ "$ROOT_DIR" "$fn")
+    fi
+    _clean_home; _reset_logs
+    printf '# user rc\n' > "$HOME/.zshrc"
+    local before
+    before=$(cat "$HOME/.zshrc")
+    out=$(_child VMS_TEST_UNAME=Darwin TRANSACTION_DRY_RUN=1 PATH="$BREWBIN:$PHPBIN:$BASE_PATH" -- \
+        "${child[@]}" 2>&1)
+    rc=$?
+    chk 0 "$rc" "$label: dry-run returns 0"
+    chk "" "$(_logs brew)" "$label: dry-run runs no brew command"
+    chk_contains "$expect" "$out" "$label: dry-run prints the exact brew command"
+    chk "" "$(_logs git)" "$label: dry-run clones nothing"
+    chk "$before" "$(cat "$HOME/.zshrc")" "$label: dry-run leaves the rc file untouched"
+}
+
+test_brew_path_dry_run() {
+    _brew_dry_case "pyvm_install" lib pyvm.sh pyvm_install "[dry-run] would run: brew install pyenv pyenv-virtualenv"
+    _brew_dry_case "gvm_install" lib gvm.sh gvm_install "[dry-run] would run: brew install goenv"
+    _brew_dry_case "jenv_install" lib jenv.sh jenv_install "[dry-run] would run: brew install jenv"
+    _brew_dry_case "phpenv_install" lib phpenv.sh phpenv_install "[dry-run] would run: brew install autoconf automake"
+    _brew_dry_case "composer_install" lib phpenv.sh composer_install "[dry-run] would run: brew install composer"
+    _brew_dry_case "install_pyenv" vm - install_pyenv "[dry-run] would run: brew install pyenv pyenv-virtualenv"
+    _brew_dry_case "install_rbenv" vm - install_rbenv "[dry-run] would run: brew install rbenv ruby-build"
+    _brew_dry_case "install_phpenv" vm - install_phpenv "[dry-run] would run: brew install phpenv php-build"
+    return "$_T_CASE_FAILS"
+}
+
 # =============================================================================
 # (d) privileged build-dependency installs need explicit consent
 # =============================================================================
@@ -838,6 +874,7 @@ run_tcase test_backup_resource_preserves_transaction
 run_tcase test_failed_clone_restores_libs
 run_tcase test_failed_clone_restores_version_manager
 run_tcase test_brew_path_never_displaces
+run_tcase test_brew_path_dry_run
 run_tcase test_privileged_installs_need_consent
 run_tcase test_confirm_gate_contract
 run_tcase test_cli_confirm_and_global_flags
