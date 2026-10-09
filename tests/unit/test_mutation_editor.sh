@@ -165,6 +165,45 @@ for name in '../evil' 'a/b' 'a b' ''; do
     if mutation_block_write "$file" "$name" "$content"; then check false; fi
 done
 transaction_rollback
+
+# AX-8: malformed markers are refused unchanged (the strip pass used to drop
+# every line after a stray BEGIN — user data loss), by write AND remove.
+for shape in unterminated stray_end duplicate; do
+    start_case "malformed_$shape"
+    case "$shape" in
+        unterminated) printf '# user\n# BEGIN version-management-setup:mal\nold\nexport KEEP_ME=1\n' >"$file" ;;
+        stray_end) printf '# user\n# END version-management-setup:mal\nexport KEEP_ME=1\n' >"$file" ;;
+        duplicate) printf '# BEGIN version-management-setup:mal\na\n# END version-management-setup:mal\n# BEGIN version-management-setup:mal\nb\n# END version-management-setup:mal\nexport KEEP_ME=1\n' >"$file" ;;
+    esac
+    before=$(_txn_sha256 "$file")
+    printf 'NEW\n' >"$content"
+    if mutation_block_write "$file" mal "$content"; then check false; fi
+    check test "$before" = "$(_txn_sha256 "$file")"
+    if mutation_block_remove "$file" mal; then check false; fi
+    check test "$before" = "$(_txn_sha256 "$file")"
+    check grep -q 'export KEEP_ME=1' "$file"
+    transaction_rollback
+done
+
+# AX-8: replacing an existing block keeps it in place — a dependent user line
+# after the block must still run after it — and a body without a trailing
+# newline cannot glue the END marker onto its last line.
+start_case in_place
+printf '# top\n# BEGIN version-management-setup:order\nold\n# END version-management-setup:order\nnvm use 18\n\n# tail\n' >"$file"
+printf 'new-body' >"$content"
+check mutation_block_write "$file" order "$content"
+transaction_commit
+expected=$'# top\n# BEGIN version-management-setup:order\nnew-body\n# END version-management-setup:order\nnvm use 18\n\n# tail'
+check test "$(cat "$file")" = "$expected"
+before=$(_txn_sha256 "$file")
+transaction_start mut_test
+check mutation_block_write "$file" order "$content"
+transaction_commit
+check test "$before" = "$(_txn_sha256 "$file")"
+check grep -qx '# END version-management-setup:order' "$file"
+transaction_start mut_test
+transaction_rollback
+
 check test ! -d "$SB/source-home/.config-backups"
 printf 'Mutation editor: %s failure(s)\n' "$failures"
 [[ "$failures" == 0 ]]

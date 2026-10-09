@@ -51,8 +51,10 @@ mutation_files_identical() {
     local a="$1" b="$2"
     [[ -f "$a" && -f "$b" ]] || return 1
     if command -v cmp >/dev/null 2>&1; then
-        cmp -s "$a" "$b"   # verdict propagates — a return 0 here made every
-                           # skip unconditional (builds #22-#23, "block absent")
+        # The cmp verdict IS the answer when cmp exists; sha256 is only the
+        # fallback for hosts without diffutils (builds #22-#23 lesson).
+        cmp -s "$a" "$b"
+        return $?
     fi
     local ha hb
     ha=$(_txn_sha256 "$a")
@@ -108,6 +110,29 @@ mutation_resolve_content_target() {
     }
     _MUTATION_RESOLVED_TARGET="$resolved_dir/$(basename "$_MUTATION_RESOLVED_TARGET")"
     return 0
+}
+
+# Marker integrity (AX-8): every managed-block edit first audits the target's
+# markers for <name>. A BEGIN without its END, an END without a BEGIN, or a
+# second BEGIN is MALFORMED — the block-stripping pass would otherwise treat
+# every line after a stray BEGIN as block content and silently delete it.
+# Malformed files are refused unchanged; the user repairs the markers.
+# Prints "absent" or "present"; returns 1 when malformed or unreadable.
+_mutation_markers_state() {
+    local file="$1" name="$2" state=""
+    if [[ ! -e "$file" ]]; then
+        printf 'absent\n'
+        return 0
+    fi
+    state=$(awk -v b="$(mutation_begin_marker "$name")" -v e="$(mutation_end_marker "$name")" '
+        $0 == b { if (inside || starts) bad = 1; inside = 1; starts++; next }
+        $0 == e { if (!inside) bad = 1; inside = 0; next }
+        END {
+            if (bad || inside) { print "malformed"; exit 0 }
+            print (starts ? "present" : "absent")
+        }' "$file") || return 1
+    [[ "$state" == absent || "$state" == present ]] || return 1
+    printf '%s\n' "$state"
 }
 
 mutation_block_get() {
@@ -176,6 +201,13 @@ mutation_block_write() {
         dir=$(dirname "$write_target")
     fi
 
+    # AX-8: refuse malformed markers BEFORE anything is registered or written.
+    local marker_state
+    if ! marker_state=$(_mutation_markers_state "$file" "$name"); then
+        log_error "mutation_block_write: malformed managed-block markers for '$name' in $file (unterminated, stray or duplicate BEGIN/END) — refusing; file left unchanged. Repair the markers and retry."
+        return 1
+    fi
+
     # Existing target (or its not-yet-created state) is registered with the
     # transaction BEFORE any mutation so rollback restores the pre-state.
     # For a symlink target BOTH entries are registered: the link itself
@@ -194,37 +226,47 @@ mutation_block_write() {
     begin=$(mutation_begin_marker "$name")
     end=$(mutation_end_marker "$name")
 
-    # Compose the new file: everything except any existing <name> block,
-    # then the new block appended at the end (managed blocks live last;
-    # multiple distinct-name blocks coexist).
+    # Compose the new file. An existing <name> block is replaced IN PLACE
+    # (AX-8): moving it to the end of the file on every content change would
+    # reorder the user's rc — a later user line that depends on the block
+    # (e.g. `nvm use 18` after the NVM block) would then run before it. A new
+    # block is appended at the end; distinct-name blocks coexist. Block body
+    # lines are emitted by awk so a body without a trailing newline cannot
+    # glue the END marker onto its last line.
     local tmp
     tmp=$(mktemp "$dir/.vms-mutation.XXXXXX") || { log_error "mutation: cannot create temp file in $dir"; return 1; }
 
-    if [[ -f "$file" ]]; then
-        awk -v b="$begin" -v e="$end" '
-            $0 == b { inblock = 1; next }
-            $0 == e { inblock = 0; skip_blank_tail = 1; next }
+    if [[ "$marker_state" == present ]]; then
+        VMS_MUTATION_CONTENT="$content_file" awk -v b="$begin" -v e="$end" '
+            $0 == b {
+                print
+                while ((r = (getline line < ENVIRON["VMS_MUTATION_CONTENT"])) > 0) print line
+                if (r < 0) exit 2
+                close(ENVIRON["VMS_MUTATION_CONTENT"])
+                inblock = 1
+                next
+            }
+            $0 == e { inblock = 0; print; next }
             inblock { next }
             { print }
         ' "$file" > "$tmp" || { rm -f "$tmp"; log_error "mutation: read failed: $file"; return 1; }
-        # Drop the trailing blank lines the block removal left behind so
-        # idempotent rewrites do not accumulate blank lines.
-        python3 - "$tmp" <<'PY' 2>/dev/null || true
-import sys
-p = sys.argv[1]
-s = open(p).read()
-s = s.rstrip("\n")
-open(p, "w").write(s + "\n") if s else open(p, "w").write("")
-PY
     else
-        : > "$tmp"
+        if [[ -f "$file" ]]; then
+            # Copy, dropping trailing empty lines before appending so
+            # idempotent rewrites do not accumulate blank lines (empty lines
+            # inside the file are kept: they are buffered and re-emitted as
+            # soon as a non-empty line follows).
+            awk '$0 == "" { blanks++; next } { while (blanks > 0) { print ""; blanks-- } print }' \
+                "$file" > "$tmp" || { rm -f "$tmp"; log_error "mutation: read failed: $file"; return 1; }
+        else
+            : > "$tmp"
+        fi
+        {
+            printf '%s\n' "$begin"
+            awk '{ print }' "$content_file"
+            printf '%s\n' "$end"
+        } >> "$tmp" || { rm -f "$tmp"; log_error "mutation: cannot compose block: $file"; return 1; }
     fi
-
-    {
-        printf '%s\n' "$begin"
-        cat "$content_file"
-        printf '%s\n' "$end"
-    } >> "$tmp"
 
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
         rm -f "$tmp"
@@ -287,6 +329,13 @@ mutation_block_remove() {
             return 0
         fi
         log_error "mutation_block_remove: file missing: $file"
+        return 1
+    fi
+
+    # AX-8: a malformed block would make the strip pass delete every line
+    # after a stray BEGIN — refuse unchanged, before registering anything.
+    if ! _mutation_markers_state "$file" "$name" >/dev/null; then
+        log_error "mutation_block_remove: malformed managed-block markers for '$name' in $file (unterminated, stray or duplicate BEGIN/END) — refusing; file left unchanged. Repair the markers and retry."
         return 1
     fi
 
