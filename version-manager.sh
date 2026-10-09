@@ -131,6 +131,23 @@ done
 if [[ "${_vms_arg:-}" == "status" || "${_vms_arg:-}" == "status-json" ]]; then
     _VMS_STATUS_MODE=true
 fi
+# create-versions preview (AX-6b): resolved the same way. A preview
+# (`create-versions ... --dry-run`, or TRANSACTION_DRY_RUN=1) is zero-write,
+# but sourcing lib/nvm.sh below runs cache_init (cache directory creation)
+# at source time — the preview therefore takes the cache-disabled source
+# path the configuration-only commands use.
+_VMS_CREATE_PREVIEW=false
+if [[ "${_vms_arg:-}" == "create-versions" ]]; then
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        _VMS_CREATE_PREVIEW=true
+    fi
+    for _vms_word in "$@"; do
+        if [[ "$_vms_word" == --dry-run ]]; then
+            _VMS_CREATE_PREVIEW=true
+        fi
+    done
+    unset _vms_word
+fi
 unset _vms_arg
 
 # NVM release pin (P2-6): lib/nvm.sh is the SINGLE source of truth for the
@@ -144,8 +161,9 @@ unset _vms_arg
 if [[ "$_VMS_STATUS_MODE" == "true" ]]; then
     : # Read-only status needs neither NVM definitions nor cache initialization.
 elif [[ -f "$SCRIPT_DIR/lib/nvm.sh" ]]; then
-    if [[ "${BASH_SOURCE[0]}" == "$0" && ( "${1:-}" == configure || "${1:-}" == lazy-load ) ]]; then
-        # Configuration-only commands need definitions, not source-time cache writes.
+    if [[ "${BASH_SOURCE[0]}" == "$0" && ( "${1:-}" == configure || "${1:-}" == lazy-load || "$_VMS_CREATE_PREVIEW" == true ) ]]; then
+        # Configuration-only commands and the create-versions preview need
+        # definitions, not source-time cache writes.
         # The temporary assignment leaves the caller's cache preference unchanged.
         # shellcheck source=lib/nvm.sh
         CACHE_ENABLED=0 source "$SCRIPT_DIR/lib/nvm.sh"
@@ -983,43 +1001,248 @@ install_php_version() {
 # Project Management Functions
 # ============================================================================
 
-create_version_files() {
+# AX-6b (P3-1, P2-4): the project pin files (.nvmrc, .python-version,
+# .ruby-version, .tool-versions and — when jq is available — package.json
+# engines) are written through ONE transaction:
+#   - every target is registered BEFORE the first write;
+#   - planned content is staged in $TMPDIR (never in the project dir);
+#   - a byte-identical target is not rewritten (no mtime churn);
+#   - a changed target is published atomically: temp file in the target's
+#     own directory + rename; an existing file keeps its mode, a new file
+#     gets the umask-derived mode a plain `>` would have given it;
+#   - package.json is published only after jq exited 0 with non-empty,
+#     valid JSON that carries the requested engines.node value;
+#   - any failure rolls the WHOLE transaction back (every pin restored
+#     byte-identically) and returns non-zero; success messages are emitted
+#     only after the commit.
+# TRANSACTION_DRY_RUN=1 prints one plan line per target (create / replace /
+# unchanged) and performs zero writes in the project directory and HOME.
+# Subshell scope keeps transaction state and the cleanup trap out of the
+# caller (same posture as _vm_configure_block). No here-documents (AX-7).
+create_version_files() (
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        # Preview never initializes file logging (zero-write contract);
+        # subshell scope keeps the caller's LOG_FILE intact.
+        # shellcheck disable=SC2030 # Deliberately isolate preview logging from the caller.
+        LOG_FILE=''
+    fi
+
     log_info "Creating version files for current project..."
 
     local node_version="${1:-$(nvm version default 2>/dev/null || echo '20.0.0')}"
     local python_version="${2:-$(pyenv version-name 2>/dev/null || echo '3.12.0')}"
     local ruby_version="${3:-$(rbenv version-name 2>/dev/null || echo '3.0.0')}"
 
-    # Create .nvmrc
-    echo "${node_version#v}" > .nvmrc
-    log_success "Created .nvmrc with Node.js $node_version"
-
-    # Create .python-version
-    echo "$python_version" > .python-version
-    log_success "Created .python-version with Python $python_version"
-
-    # Create .ruby-version
-    echo "$ruby_version" > .ruby-version
-    log_success "Created .ruby-version with Ruby $ruby_version"
-
-    # Create .tool-versions (for asdf)
-    cat > .tool-versions << EOF
-nodejs ${node_version#v}
-python $python_version
-ruby $ruby_version
-EOF
-    log_success "Created .tool-versions for asdf compatibility"
-
-    # Update package.json if exists
-    if [[ -f "package.json" ]]; then
-        local node_major="${node_version%%.*}"
-        if command_exists jq; then
-            jq ".engines.node = \">=${node_major}\"" package.json > package.json.tmp
-            mv package.json.tmp package.json
-            log_success "Updated package.json engines"
+    # P2-4: each value is written verbatim as one line. Refuse empty values,
+    # whitespace/control characters (they would split or corrupt the line
+    # formats) and a leading '-' (an option typo, never a version) — before
+    # anything is staged or written.
+    _vm_cv_valid() {
+        if [[ -n "$2" && "$2" != *[[:space:][:cntrl:]]* && "$2" != -* ]]; then
+            return 0
         fi
+        log_error "create_version_files: refusing invalid $1 version $(printf '%q' "$2") (empty, whitespace, control characters or a leading '-')"
+        return 1
+    }
+    _vm_cv_valid Node.js "$node_version" || return 1
+    _vm_cv_valid Python "$python_version" || return 1
+    _vm_cv_valid Ruby "$ruby_version" || return 1
+
+    local dry_run=0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        dry_run=1
     fi
-}
+
+    local project_dir="$PWD" staging='' pub_tmp='' active=0
+    _vm_cv_cleanup() {
+        local status=$?
+        trap - EXIT
+        if [[ "$active" == 1 ]]; then
+            # Leaving with an open transaction is a failure by definition:
+            # restore every registered target to its pre-state.
+            if transaction_rollback; then
+                log_error "create_version_files FAILED — transaction rolled back; every target restored to its previous state"
+            else
+                log_error "create_version_files FAILED — rollback reported errors; inspect the transaction under \$HOME/.config-backups/transactions"
+            fi
+            [[ "$status" -ne 0 ]] || status=1
+        fi
+        if [[ -n "$pub_tmp" ]]; then
+            rm -f -- "$pub_tmp"
+        fi
+        if [[ -n "$staging" && -d "$staging" ]]; then
+            rm -rf -- "$staging"
+        fi
+        exit "$status"
+    }
+    trap _vm_cv_cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    staging=$(mktemp -d "${TMPDIR:-/tmp}/vms-create-versions.XXXXXX") || {
+        log_error "create_version_files: cannot create a staging directory in ${TMPDIR:-/tmp}"
+        return 1
+    }
+
+    # Planned content — same bytes the previous echo / cat writes produced.
+    if ! { printf '%s\n' "${node_version#v}" > "$staging/.nvmrc" \
+        && printf '%s\n' "$python_version" > "$staging/.python-version" \
+        && printf '%s\n' "$ruby_version" > "$staging/.ruby-version" \
+        && printf 'nodejs %s\npython %s\nruby %s\n' "${node_version#v}" "$python_version" "$ruby_version" > "$staging/.tool-versions"; }; then
+        log_error "create_version_files: cannot stage planned content in $staging"
+        return 1
+    fi
+
+    # package.json participates only when it exists and jq is available
+    # (jq absent keeps the historical silent skip).
+    local -a names=(.nvmrc .python-version .ruby-version .tool-versions)
+    local use_pkg=0
+    if [[ -f package.json ]] && command_exists jq; then
+        use_pkg=1
+        names+=(package.json)
+    fi
+
+    # Resolve every target before anything is registered or written. A
+    # symlinked pin keeps being a symlink: the rename lands on the resolved
+    # content file (mutation.sh semantics). Non-regular or read-only targets
+    # are refused here — a plain `>` failed on them too.
+    local -a links=() targets=()
+    local name path target
+    for name in "${names[@]}"; do
+        path="$project_dir/$name"
+        target="$path"
+        if [[ -L "$path" ]]; then
+            mutation_resolve_content_target "$path" || return 1
+            target="$_MUTATION_RESOLVED_TARGET"
+        fi
+        if [[ -e "$target" && ! -f "$target" ]]; then
+            log_error "create_version_files: not a regular file, refusing: $name"
+            return 1
+        fi
+        if [[ -e "$target" && ! -w "$target" ]]; then
+            log_error "create_version_files: not writable, refusing: $name"
+            return 1
+        fi
+        links+=("$path")
+        targets+=("$target")
+    done
+
+    _vm_cv_action() {
+        if [[ ! -e "$2" ]]; then
+            printf 'create'
+        elif mutation_files_identical "$1" "$2"; then
+            printf 'unchanged'
+        else
+            printf 'replace'
+        fi
+    }
+
+    # jq into the staging dir; publishable only if jq exited 0, the output
+    # is non-empty, parses as JSON and carries the requested engines value.
+    _vm_cv_stage_package_json() {
+        local expected=">=${node_version%%.*}" staged="$staging/package.json" readback=''
+        if ! jq --arg engines "$expected" '.engines.node = $engines' "$project_dir/package.json" > "$staged"; then
+            log_error "create_version_files: jq failed to update package.json engines"
+            return 1
+        fi
+        if [[ ! -s "$staged" ]]; then
+            log_error "create_version_files: jq produced empty output for package.json — refusing to publish it"
+            return 1
+        fi
+        if ! jq -e . "$staged" >/dev/null 2>&1; then
+            log_error "create_version_files: jq output for package.json is not valid JSON — refusing to publish it"
+            return 1
+        fi
+        readback=$(jq -r '.engines.node' "$staged" 2>/dev/null) || readback=''
+        if [[ "$readback" != "$expected" ]]; then
+            log_error "create_version_files: jq output for package.json does not carry engines.node \"$expected\" — refusing to publish it"
+            return 1
+        fi
+        return 0
+    }
+
+    # Same-directory temp + rename. pub_tmp is tracked so an interrupted
+    # publish never leaves a temp file behind (cleanup trap).
+    _vm_cv_publish() {
+        local staged="$1" target="$2" dir mode
+        if [[ -e "$target" ]] && mutation_files_identical "$staged" "$target"; then
+            log_debug "create_version_files: unchanged, not rewritten: $target"
+            return 0
+        fi
+        dir=$(dirname "$target")
+        pub_tmp=$(mktemp "$dir/.vms-create-versions.XXXXXX") || {
+            pub_tmp=''
+            log_error "create_version_files: cannot create a temp file in $dir"
+            return 1
+        }
+        if ! cp "$staged" "$pub_tmp"; then
+            log_error "create_version_files: cannot write temp file for $target"
+            return 1
+        fi
+        if [[ -e "$target" ]]; then
+            if ! _mutation_preserve_mode "$target" "$pub_tmp"; then
+                log_error "create_version_files: cannot preserve mode of $target"
+                return 1
+            fi
+        else
+            printf -v mode '%o' $(( 0666 & ~8#$(umask) ))
+            if ! chmod "$mode" "$pub_tmp"; then
+                log_error "create_version_files: cannot set mode $mode on new $target"
+                return 1
+            fi
+        fi
+        if ! mv "$pub_tmp" "$target"; then
+            log_error "create_version_files: atomic rename failed: $target"
+            return 1
+        fi
+        pub_tmp=''
+        return 0
+    }
+
+    local i
+    if [[ "$dry_run" == 1 ]]; then
+        for ((i = 0; i < 4; i++)); do
+            printf '[dry-run] %s: %s\n' "$(_vm_cv_action "$staging/${names[$i]}" "${targets[$i]}")" "${names[$i]}"
+        done
+        if [[ "$use_pkg" == 1 ]]; then
+            _vm_cv_stage_package_json || return 1
+            printf '[dry-run] %s: %s\n' "$(_vm_cv_action "$staging/package.json" "${targets[4]}")" package.json
+        elif [[ -f package.json ]]; then
+            printf '[dry-run] skip: package.json (jq not available; engines not updated)\n'
+        fi
+        log_info "Dry-run complete — zero writes in $project_dir and HOME"
+        return 0
+    fi
+
+    transaction_start create_version_files || return 1
+    active=1
+    for ((i = 0; i < ${#names[@]}; i++)); do
+        transaction_add_file "${links[$i]}" || return 1
+        if [[ "${targets[$i]}" != "${links[$i]}" ]]; then
+            transaction_add_file "${targets[$i]}" || return 1
+        fi
+    done
+
+    for ((i = 0; i < 4; i++)); do
+        _vm_cv_publish "$staging/${names[$i]}" "${targets[$i]}" || return 1
+    done
+    if [[ "$use_pkg" == 1 ]]; then
+        _vm_cv_stage_package_json || return 1
+        _vm_cv_publish "$staging/package.json" "${targets[4]}" || return 1
+    fi
+
+    transaction_commit || return 1
+    active=0
+
+    log_success "Created .nvmrc with Node.js $node_version"
+    log_success "Created .python-version with Python $python_version"
+    log_success "Created .ruby-version with Ruby $ruby_version"
+    log_success "Created .tool-versions for asdf compatibility"
+    if [[ "$use_pkg" == 1 ]]; then
+        log_success "Updated package.json engines"
+    fi
+    return 0
+)
 
 # ============================================================================
 # Health Check Functions
@@ -1501,7 +1724,12 @@ ${BOLD}Commands:${RESET}
 
   ${GREEN}configure${RESET} <manager>       Configure existing manager rc block (no installation)
                               nvm|fnm|pyenv|rbenv|phpenv|lazy-load; accepts --dry-run
-  ${GREEN}create-versions${RESET}          Create version files for current project
+  ${GREEN}create-versions${RESET} [node] [python] [ruby] [--dry-run]
+                              Create .nvmrc/.python-version/.ruby-version/.tool-versions
+                              (+ package.json engines when jq is available) in the
+                              current project; defaults: active nvm/pyenv/rbenv version,
+                              else 20.0.0/3.12.0/3.0.0. Atomic, rolled back on failure;
+                              --dry-run prints the plan and writes nothing
   ${GREEN}status${RESET}                   Show expected-vs-active runtime versions (read-only)
   ${GREEN}status-json${RESET}              Same status as one JSON object (read-only, machine)
   ${GREEN}auto-switch${RESET}              Install unified auto-activation hook
@@ -1527,6 +1755,9 @@ ${BOLD}Examples:${RESET}
 
   # Create version files for project
   $SCRIPT_NAME create-versions
+
+  # Preview pinning explicit versions (zero writes)
+  $SCRIPT_NAME create-versions 20.11.1 3.12.0 3.3.0 --dry-run
 
   # Show project runtime status (human / JSON, read-only)
   $SCRIPT_NAME status
@@ -1624,6 +1855,31 @@ main() {
             ;;
     esac
 
+    # create-versions (AX-6b, P3-1): --dry-run may appear anywhere after the
+    # command and is stripped BEFORE positional handling; the remaining words
+    # are the optional [node] [python] [ruby] versions. A preview (--dry-run,
+    # or TRANSACTION_DRY_RUN=1 from the environment) is zero-write in the
+    # project dir and HOME: it returns here, before init_directories (XDG
+    # directory creation) and acquire_lock (lock-root mkdir); file logging is
+    # disabled inside create_version_files.
+    local -a create_args=()
+    if [[ "$command" == create-versions ]]; then
+        local TRANSACTION_DRY_RUN="${TRANSACTION_DRY_RUN:-0}"
+        local create_arg
+        for create_arg in "${args[@]:1}"; do
+            case "$create_arg" in
+                --dry-run) TRANSACTION_DRY_RUN=1 ;;
+                -*) printf 'Unsupported create-versions option: %s\n' "$create_arg" >&2; return 2 ;;
+                *) create_args+=("$create_arg") ;;
+            esac
+        done
+        export TRANSACTION_DRY_RUN
+        if [[ "$TRANSACTION_DRY_RUN" == 1 ]]; then
+            create_version_files "${create_args[0]:-}" "${create_args[1]:-}" "${create_args[2]:-}"
+            return $?
+        fi
+    fi
+
     # Initialize
     init_directories
 
@@ -1644,7 +1900,7 @@ main() {
             install_phpenv
             ;;
         install-nvm)
-            install_nvm "${args[1]}"
+            install_nvm "${args[1]:-}"
             ;;
         install-fnm)
             install_fnm
@@ -1659,19 +1915,19 @@ main() {
             install_phpenv
             ;;
         install-node)
-            install_node_version "${args[1]}"
+            install_node_version "${args[1]:-}"
             ;;
         install-python)
-            install_python_version "${args[1]}"
+            install_python_version "${args[1]:-}"
             ;;
         install-ruby)
-            install_ruby_version "${args[1]}"
+            install_ruby_version "${args[1]:-}"
             ;;
         install-php)
-            install_php_version "${args[1]}"
+            install_php_version "${args[1]:-}"
             ;;
         create-versions)
-            create_version_files "${args[1]}" "${args[2]}" "${args[3]}"
+            create_version_files "${create_args[0]:-}" "${create_args[1]:-}" "${create_args[2]:-}"
             ;;
         auto-switch)
             configure_auto_switch
