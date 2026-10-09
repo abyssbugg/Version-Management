@@ -22,10 +22,10 @@ track_result() {
     local result="$1"
     case "$result" in
         "error")
-            ((VALIDATION_ERRORS++))
+            VALIDATION_ERRORS=$((VALIDATION_ERRORS + 1))
             ;;
         "warning")
-            ((VALIDATION_WARNINGS++))
+            VALIDATION_WARNINGS=$((VALIDATION_WARNINGS + 1))
             ;;
     esac
 }
@@ -354,13 +354,15 @@ main() {
     log_info "=========================================="
     echo
 
-    # Run all validations
-    validate_powerlevel10k
-    validate_nerd_font
-    validate_zsh_config
-    validate_nvm
-    validate_pyenv
-    validate_theme_display
+    # Run all validations. Each one records its own result (track_result);
+    # a validation that returns early on a fatal finding must not abort the
+    # rest under `set -e` (AX-14) — the summary below is the verdict.
+    validate_powerlevel10k || true
+    validate_nerd_font || true
+    validate_zsh_config || true
+    validate_nvm || true
+    validate_pyenv || true
+    validate_theme_display || true
 
     # Show summary
     show_validation_summary

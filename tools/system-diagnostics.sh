@@ -51,12 +51,12 @@ show_usage() {
 check_command() {
     local cmd="$1"
     local name="${2:-$cmd}"
-    ((TOTAL_CHECKS++))
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     if command -v "$cmd" >/dev/null 2>&1; then
         local version
         version=$("$cmd" --version 2>/dev/null | head -n1 || echo "installed")
-        ((PASSED_CHECKS++))
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"pass\",\"value\":\"$version\"},"
@@ -65,7 +65,7 @@ check_command() {
         fi
         return 0
     else
-        ((ERRORS++))
+        ERRORS=$((ERRORS + 1))
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"fail\",\"value\":\"not found\"},"
         else
@@ -79,12 +79,12 @@ check_command() {
 check_optional() {
     local cmd="$1"
     local name="${2:-$cmd}"
-    ((TOTAL_CHECKS++))
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     if command -v "$cmd" >/dev/null 2>&1; then
         local version
         version=$("$cmd" --version 2>/dev/null | head -n1 || echo "installed")
-        ((PASSED_CHECKS++))
+        PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"pass\",\"value\":\"$version\"},"
@@ -93,7 +93,7 @@ check_optional() {
         fi
         return 0
     else
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS + 1))
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
             JSON_RESULTS+="{\"check\":\"$name\",\"status\":\"warn\",\"value\":\"not installed\"},"
         else
@@ -110,12 +110,12 @@ record_check() {
     local value="${3:-}"
     local suggestion="${4:-}"
 
-    ((TOTAL_CHECKS++))
+    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     case "$status" in
-        pass) ((PASSED_CHECKS++)) ;;
-        warn) ((WARNINGS++)) ;;
-        fail) ((ERRORS++)) ;;
+        pass) PASSED_CHECKS=$((PASSED_CHECKS + 1)) ;;
+        warn) WARNINGS=$((WARNINGS + 1)) ;;
+        fail) ERRORS=$((ERRORS + 1)) ;;
     esac
 
     if [[ "$OUTPUT_FORMAT" == "json" ]]; then
@@ -417,24 +417,24 @@ health_dashboard() {
     OUTPUT_FORMAT="silent"
 
     # Shell environment
-    [[ -n "${SHELL:-}" ]] && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
-    [[ -f "$HOME/.zshrc" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    [[ -f "$HOME/.p10k.zsh" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
+    if [[ -n "${SHELL:-}" ]]; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else ERRORS=$((ERRORS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if [[ -f "$HOME/.zshrc" ]]; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if [[ -f "$HOME/.p10k.zsh" ]]; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     # Core tools
-    command -v git >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
-    command -v curl >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((ERRORS++)); ((TOTAL_CHECKS++))
+    if command -v git >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else ERRORS=$((ERRORS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v curl >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else ERRORS=$((ERRORS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     # Version managers
-    [[ -d "${NVM_DIR:-$HOME/.nvm}" ]] && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    command -v pyenv >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    command -v node >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    command -v python3 >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
+    if [[ -d "${NVM_DIR:-$HOME/.nvm}" ]]; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v pyenv >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v node >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v python3 >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     # Optional tools
-    command -v go >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    command -v rustc >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
-    command -v java >/dev/null 2>&1 && ((PASSED_CHECKS++)) || ((WARNINGS++)); ((TOTAL_CHECKS++))
+    if command -v go >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v rustc >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    if command -v java >/dev/null 2>&1; then PASSED_CHECKS=$((PASSED_CHECKS + 1)); else WARNINGS=$((WARNINGS + 1)); fi; TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
 
     OUTPUT_FORMAT="$old_format"
 

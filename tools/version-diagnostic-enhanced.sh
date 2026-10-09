@@ -86,13 +86,13 @@ track_result() {
     local result="$1"
     case "$result" in
         "error")
-            ((DIAGNOSTIC_ERRORS++))
+            DIAGNOSTIC_ERRORS=$((DIAGNOSTIC_ERRORS + 1))
             ;;
         "warning")
-            ((DIAGNOSTIC_WARNINGS++))
+            DIAGNOSTIC_WARNINGS=$((DIAGNOSTIC_WARNINGS + 1))
             ;;
         "success")
-            ((DIAGNOSTIC_SUCCESS++))
+            DIAGNOSTIC_SUCCESS=$((DIAGNOSTIC_SUCCESS + 1))
             ;;
     esac
 }
@@ -691,15 +691,9 @@ fix_clear_cache() {
 # Time shell startup
 time_shell_startup() {
     local shell=$(detect_shell)
-    local temp_script="/tmp/shell_startup_test.sh"
-
-    # Create a temporary script that exits immediately
-    cat > "$temp_script" << 'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-
-    chmod +x "$temp_script"
+    # (AX-14) No helper script: the old fixed /tmp/shell_startup_test.sh was
+    # never executed by the timing below, and writing a predictable /tmp path
+    # follows a planted symlink.
 
     # Use time command to measure startup
     local time_output
@@ -715,9 +709,6 @@ EOF
             ;;
     esac
 
-    # Cleanup
-    rm -f "$temp_script"
-
     # Convert to milliseconds (simple approximation)
     if [[ -n "$time_output" ]]; then
         echo "${time_output//[^0-9.]/}"
@@ -731,8 +722,16 @@ generate_report() {
     log_info "📑 Generating Diagnostic Report"
     log_info "==============================="
 
-    # Create report file
-    local temp_report="/tmp/version-diagnostic-report.tmp"
+    # Create report file. (AX-14) A private mktemp file next to REPORT_PATH,
+    # not the old predictable /tmp/version-diagnostic-report.tmp (shared
+    # between users/runs and symlink-followable); same directory keeps the
+    # final mv an atomic rename.
+    local temp_report report_dir
+    report_dir=$(dirname -- "$REPORT_PATH")
+    if ! temp_report=$(mktemp "$report_dir/.version-diagnostic-report.XXXXXX"); then
+        log_error "Cannot create a temporary report file in $report_dir"
+        return 1
+    fi
 
     # Write report header
     cat > "$temp_report" << EOF
@@ -773,7 +772,11 @@ EOF
     } >> "$temp_report"
 
     # Move report to specified location
-    mv "$temp_report" "$REPORT_PATH"
+    if ! mv -- "$temp_report" "$REPORT_PATH"; then
+        rm -f -- "$temp_report"
+        log_error "Cannot write the diagnostic report to $REPORT_PATH"
+        return 1
+    fi
 
     log_success " Diagnostic report generated: $REPORT_PATH"
     log_info " Review the report for detailed diagnostics information"

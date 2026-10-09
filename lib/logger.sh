@@ -45,13 +45,19 @@ _LOGGER_SH_LOADED=1
 # shell options; callers own their strict-mode posture. Argument validation
 # and error propagation are explicit inside library functions.
 
-# Color codes for terminal output (only declare if not already set)
-if [[ -z "${BLUE:-}" ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly BLUE='\033[0;34m'
-    readonly NC='\033[0m' # No Color
+# Color codes for terminal output. Only defined when the caller has not
+# defined them: `${BLUE+x}` distinguishes UNSET from deliberately EMPTY (a
+# caller that disabled colors with BLUE='' keeps them disabled). Plain
+# assignments, not readonly (AX-12): a sourced library must not freeze the
+# caller's globals — scripts that define their own palette after sourcing
+# (setup-wizard, system-diagnostics, analytics-report) died at startup with
+# "GREEN: readonly variable".
+if [[ -z "${BLUE+x}" ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
 fi
 
 # Check if terminal supports colors
@@ -105,17 +111,17 @@ _log() {
 # Public logging functions
 log_info() {
     local message="$1"
-    _log "INFO" "$GREEN" "$message"
+    _log "INFO" "${GREEN:-}" "$message"
 }
 
 log_warn() {
     local message="$1"
-    _log "WARN" "$YELLOW" "$message"
+    _log "WARN" "${YELLOW:-}" "$message"
 }
 
 log_error() {
     local message="$1"
-    _log "ERROR" "$RED" "$message"
+    _log "ERROR" "${RED:-}" "$message"
 }
 
 # Log a success message (green). This helper mirrors log_info but labels the
@@ -124,7 +130,7 @@ log_error() {
 # log_success, so defining it here prevents "command not found" errors.
 log_success() {
     local message="$1"
-    _log "SUCCESS" "$GREEN" "$message"
+    _log "SUCCESS" "${GREEN:-}" "$message"
 }
 
 log_debug() {
@@ -132,7 +138,7 @@ log_debug() {
 
     # Only output debug messages when DEBUG is set to true
     if [[ "${DEBUG:-false}" == "true" ]]; then
-        _log "DEBUG" "$BLUE" "$message"
+        _log "DEBUG" "${BLUE:-}" "$message"
     fi
 }
 
@@ -232,5 +238,8 @@ init_logger() {
     return 0
 }
 
-# Export functions for use in other scripts
+# Export functions for use in other scripts. The private helpers are exported
+# too (AX-13): an inherited log_* in a child bash otherwise fails with
+# "_log: command not found". None of them contains a here-document (AX-7).
 export -f log_info log_warn log_error log_success log_debug validate_logger init_logger
+export -f _log _write_to_file _get_timestamp _supports_color _logger_prune_old_logs
