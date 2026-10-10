@@ -33,14 +33,17 @@ expect() {  # <expected rc> <label> <line...>
     fi
 }
 
-# Rejected: literal secrets.
-expect 1 "lowercase password literal"        'password="hunter2"'
-expect 1 "uppercase prefixed API key"        'API_KEY="sk-live-0123456789abcdef"'
-expect 1 "exported GitHub token"             "export GITHUB_TOKEN='ghp_0123456789abcdefghij'"
-expect 1 "yaml-style colon assignment"       'db_password: "s3cr3t-value-123"'
-expect 1 "mixed-case client secret"          'ClientSecret = "abcdefgh12345678"'
-expect 1 "aws access key"                    'AWS_ACCESS_KEY_ID="AKIAABCDEFGHIJKLMNOP"'
-expect 1 "private key variable"              'PRIVATE_KEY="0123456789abcdef0123"'
+# Rejected: literal secrets. Each fixture value is assembled from fragments
+# at run time, so this file never contains a secret-shaped line itself: the
+# hook (pre-commit --all-files) and gitleaks (CI, full history) scan it too.
+frag() { local IFS=; printf '%s' "$*"; }
+expect 1 "lowercase password literal"        "password=\"$(frag hun ter2)\""
+expect 1 "uppercase prefixed API key"        "API_KEY=\"$(frag sk-live- 0123456789abcdef)\""
+expect 1 "exported GitHub token"             "export GITHUB_TOKEN='$(frag ghp_ 0123456789abcdefghij)'"
+expect 1 "yaml-style colon assignment"       "db_password: \"$(frag s3cr3t -value-123)\""
+expect 1 "mixed-case client secret"          "ClientSecret = \"$(frag abcdefgh 12345678)\""
+expect 1 "aws access key"                    "AWS_ACCESS_KEY_ID=\"$(frag AKIA ABCDEFGHIJKLMNOP)\""
+expect 1 "private key variable"              "PRIVATE_KEY=\"$(frag 0123456789 abcdef0123)\""
 
 # Accepted: no literal value.
 expect 0 "expansion of another variable"     'API_KEY="$OTHER_KEY"'

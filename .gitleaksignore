@@ -13,3 +13,16 @@ e27ea1182c2d57d1bdbc3cd73536943c70895072:FontPatcher/font-patcher:generic-api-ke
 #    tripped the same rule. Reworded to describe rather than quote it.
 #    Verified in Buildkite build #2 (2026-10-02).
 b9c0c35be4a4eea9e706a7cc1e09bb7d1b76b924:.gitleaksignore:generic-api-key:4
+#
+# 3) 28cedee…:tests/unit/test_secret_hook.sh lines 38, 39, 41, 42, 43 — the
+#    first version of the P1-5 hook test held its rejection fixtures as
+#    literal lines: fabricated values (an all-hex string, the AKIA + A..P
+#    placeholder shape, a ghp_ + 0-9a-j placeholder). None is or was a
+#    credential. The fixtures are now assembled from fragments at run time,
+#    so the current tree carries no such line; these entries cover that one
+#    historical commit. Verified with gitleaks 8.30.1 detect (2026-10-10).
+28cedeee3395a7a0c07e9daee8b7f4aa3b83acb5:tests/unit/test_secret_hook.sh:generic-api-key:38
+28cedeee3395a7a0c07e9daee8b7f4aa3b83acb5:tests/unit/test_secret_hook.sh:generic-api-key:39
+28cedeee3395a7a0c07e9daee8b7f4aa3b83acb5:tests/unit/test_secret_hook.sh:generic-api-key:41
+28cedeee3395a7a0c07e9daee8b7f4aa3b83acb5:tests/unit/test_secret_hook.sh:aws-access-token:42
+28cedeee3395a7a0c07e9daee8b7f4aa3b83acb5:tests/unit/test_secret_hook.sh:generic-api-key:43
