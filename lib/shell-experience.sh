@@ -394,7 +394,7 @@ _shellxp_apply_clone() {
     if [[ -e "$target" ]]; then
         if [[ -f "$target/$marker" && -d "$target/.git" ]]; then
             log_info "shellxp: clone already present, fail-open (no action): $target"
-            _txn_journal "shellxp_clone_skip" "tool=$tool target=$target"
+            _txn_journal "shellxp_clone_skip" "tool=$tool target=$target result=skipped_present exit_code=0"
             return 0
         fi
         log_error "shellxp: refusing to clobber a non-managed directory: $target"
@@ -456,12 +456,12 @@ _shellxp_apply_clone() {
             # The file-level primitive cannot rm -rf directories; complete the
             # compensation explicitly and journal it (pre-state: target absent).
             rm -rf "$target"
-            _txn_journal "shellxp_clone_compensate" "dir=$target"
+            _txn_journal "shellxp_clone_compensate" "target=$target backup=none result=compensated exit_code=1"
         fi
         return 1
     fi
 
-    _txn_journal "shellxp_clone" "tool=$tool url=$url target=$target head=${staged_head:0:12}"
+    _txn_journal "shellxp_clone" "tool=$tool url=$url target=$target head=${staged_head:0:12} result=cloned exit_code=0"
     log_info "shellxp: cloned $tool -> $target (head ${staged_head:0:12}); NOT added to plugins=() — run shellxp_plugins_add $tool to activate"
     return 0
 }
@@ -755,7 +755,7 @@ _shellxp_write_zshrc() {
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
         rm -f "$new_file"
         log_info "[dry-run] shellxp: would update the plugins array in: $file"
-        _txn_journal "shellxp_plugins" "mode=dry_run file=$file"
+        _txn_journal "shellxp_plugins" "mode=dry_run target=$file result=planned exit_code=0"
         return 0
     fi
 
@@ -783,7 +783,7 @@ _shellxp_write_zshrc() {
         return 1
     fi
 
-    _txn_journal "shellxp_plugins" "file=$file"
+    _txn_journal "shellxp_plugins" "target=$file result=written exit_code=0"
     log_info "shellxp: plugins array updated: $file"
     return 0
 }

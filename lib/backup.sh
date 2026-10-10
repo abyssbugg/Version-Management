@@ -540,15 +540,29 @@ _txn_sha256() {
     fi
 }
 
-# Audit journal (P3-2 seed; M2: metadata recorded per operation). Best-effort:
+# Audit journal (P3-2; M2: metadata recorded per operation). Best-effort:
 # a journal failure is surfaced but never blocks rollback safety.
+#
+# Record (one line, 5 tab-separated columns):
+#   <ts> TAB <event> TAB <transaction> TAB <transaction-dir = backup id> TAB <detail>
+# detail is space-separated key=value. This function always adds
+#   script=<entry point basename> pid=<pid> mode=apply (unless mode= given)
+# and every call site states result=<outcome> exit_code=<n> plus target=<path>
+# (per-file events) or files=<n> (transaction-level events); operations
+# outside a transaction state their backup as backup=<path|none>. Pinned by
+# tests/unit/test_audit_journal_schema.sh. Values are not escaped; tabs and
+# newlines are flattened to spaces so a record can never span columns/lines.
 _txn_journal() {
     # Preview events are console-only: creating an audit directory or appending
     # even one record would violate the transaction's zero-write contract.
     [[ "${_TRANSACTION_ACTIVE:-}" == "dryrun" || "${TRANSACTION_DRY_RUN:-0}" == 1 ]] && return 0
     local event="$1" detail="$2"
     local journal="${TXN_AUDIT_LOG:-$HOME/.config/version-manager/audit.log}"
-    local dir
+    local dir script="${0##*/}"
+    script="${script//[[:space:]]/_}"
+    [[ " $detail " == *" mode="* ]] || detail="mode=apply $detail"
+    detail="script=${script:-unknown} pid=$$ $detail"
+    detail="${detail//[$'\t\n']/ }"
     dir=$(dirname "$journal")
     if ! mkdir -p "$dir" 2>/dev/null; then
         log_warn "audit journal unavailable: $journal"
@@ -580,7 +594,7 @@ transaction_start() {
         _TRANSACTION_DIR=""
         _TRANSACTION_FILES=()
         LOG_FILE='' log_info "Transaction (dry-run, zero writes): $name"
-        _txn_journal "start" "mode=dry_run"
+        _txn_journal "start" "mode=dry_run files=0 result=planned exit_code=0"
         return 0
     fi
 
@@ -618,7 +632,7 @@ transaction_start() {
 }
 EOF
 
-    _txn_journal "start" "mode=apply dir=$_TRANSACTION_DIR"
+    _txn_journal "start" "mode=apply files=0 result=started exit_code=0"
     log_info "Transaction started: $name"
     log_debug "Transaction directory: $_TRANSACTION_DIR"
     return 0
@@ -671,6 +685,7 @@ transaction_add_file() {
             return 1
         fi
         _TRANSACTION_FILES+=("NEW:$file")
+        _txn_journal "register" "target=$file kind=new result=tracked_new exit_code=0"
         return 0
     fi
 
@@ -711,6 +726,7 @@ transaction_add_file() {
         return 1
     fi
     _TRANSACTION_FILES+=("$file")
+    _txn_journal "register" "target=$file kind=$kind idx=$idx sha=${sha:0:12} result=backed_up exit_code=0"
     log_debug "Added to transaction [$idx kind=$kind sha=${sha:0:12}]: $file"
     return 0
 }
@@ -741,10 +757,10 @@ transaction_commit() {
         if ! printf '%s' "$_txn_meta" > "$_TRANSACTION_DIR/metadata.json"; then
             log_warn "Transaction commit metadata not written (informational): $_TRANSACTION_NAME"
         fi
-        _txn_journal "commit" "files=${#_TRANSACTION_FILES[@]}"
+        _txn_journal "commit" "files=${#_TRANSACTION_FILES[@]} result=committed exit_code=0"
         log_success "Transaction committed: $_TRANSACTION_NAME (${#_TRANSACTION_FILES[@]} files)"
     else
-        _txn_journal "commit" "mode=dry_run"
+        _txn_journal "commit" "mode=dry_run files=0 result=planned exit_code=0"
         LOG_FILE='' log_info "Dry-run transaction committed (zero writes): $_TRANSACTION_NAME"
     fi
 
@@ -764,7 +780,7 @@ transaction_rollback() {
     fi
 
     if [[ "$_TRANSACTION_ACTIVE" == "dryrun" ]]; then
-        _txn_journal "rollback" "mode=dry_run"
+        _txn_journal "rollback" "mode=dry_run files=0 result=planned exit_code=0"
         LOG_FILE='' log_info "Dry-run rollback (zero writes): $_TRANSACTION_NAME"
         _TRANSACTION_ACTIVE=""
         _TRANSACTION_NAME=""
@@ -851,9 +867,12 @@ transaction_rollback() {
     "errors": $rollback_errors
 }
 EOF
-        _txn_journal "rollback" "status=with_errors errors=$rollback_errors"
-        log_error "Rollback FAILED for $rollback_errors entr(y/ies) — success not claimed"
+        # The return status is the error count, clamped to 1..255: a raw
+        # `return 256` would wrap to 0 and claim a clean rollback.
         local ret=$rollback_errors
+        (( ret > 255 )) && ret=255
+        _txn_journal "rollback" "files=${#_TRANSACTION_FILES[@]} status=with_errors errors=$rollback_errors result=rolled_back_with_errors exit_code=$ret"
+        log_error "Rollback FAILED for $rollback_errors entr(y/ies) — success not claimed"
         _TRANSACTION_ACTIVE=""
         _TRANSACTION_NAME=""
         _TRANSACTION_DIR=""
@@ -870,7 +889,7 @@ EOF
     "errors": 0
 }
 EOF
-    _txn_journal "rollback" "status=ok hash_verified"
+    _txn_journal "rollback" "files=${#_TRANSACTION_FILES[@]} status=ok hash_verified result=rolled_back exit_code=0"
     log_info "Rollback completed successfully (hash-verified)"
 
     _TRANSACTION_ACTIVE=""
@@ -1411,7 +1430,7 @@ install_dir_stage() {
         log_error "install_dir_stage: failed to move $target aside to $staged — install aborted"
         return 1
     fi
-    _install_dir_journal "install_dir_stage" "target=$target staged=$staged"
+    _install_dir_journal "install_dir_stage" "target=$target backup=$staged result=staged exit_code=0"
     log_info "Existing install moved aside: $target -> $staged"
     return 0
 }
@@ -1465,7 +1484,7 @@ install_dir_restore() {
             fi
             return 1
         fi
-        _install_dir_journal "install_dir_remove_partial" "target=$target"
+        _install_dir_journal "install_dir_remove_partial" "target=$target backup=none result=removed_partial exit_code=0"
     fi
 
     if [[ "$have_staged" == 1 ]]; then
@@ -1473,7 +1492,7 @@ install_dir_restore() {
             log_error "install_dir_restore: FAILED to move $staged back to $target — your previous install is preserved at $staged; move it back manually"
             return 1
         fi
-        _install_dir_journal "install_dir_restore" "target=$target staged=$staged"
+        _install_dir_journal "install_dir_restore" "target=$target backup=$staged result=restored exit_code=0"
         log_warn "Install failed — previous install restored: $target"
     fi
     return 0

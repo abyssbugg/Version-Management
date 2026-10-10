@@ -271,7 +271,7 @@ mutation_block_write() {
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
         rm -f "$tmp"
         log_info "[dry-run] mutation_block_write would update: $file ($name)"
-        _txn_journal "mutation_write" "mode=dry_run file=$file block=$name"
+        _txn_journal "mutation_write" "mode=dry_run target=$file block=$name result=planned exit_code=0"
         return 0
     fi
 
@@ -304,9 +304,9 @@ mutation_block_write() {
     fi
 
     if [[ "$write_target" != "$file" ]]; then
-        _txn_journal "mutation_write" "file=$file block=$name via=$write_target"
+        _txn_journal "mutation_write" "target=$file block=$name via=$write_target result=written exit_code=0"
     else
-        _txn_journal "mutation_write" "file=$file block=$name"
+        _txn_journal "mutation_write" "target=$file block=$name result=written exit_code=0"
     fi
     log_info "Managed block written: $file ($name)"
     return 0
@@ -400,9 +400,9 @@ mutation_block_remove() {
     mutation_block_has "$file" "$name" && { log_error "remove verification failed"; return 1; }
 
     if [[ "$write_target" != "$file" ]]; then
-        _txn_journal "mutation_remove" "file=$file block=$name via=$write_target"
+        _txn_journal "mutation_remove" "target=$file block=$name via=$write_target result=removed exit_code=0"
     else
-        _txn_journal "mutation_remove" "file=$file block=$name"
+        _txn_journal "mutation_remove" "target=$file block=$name result=removed exit_code=0"
     fi
     log_info "Managed block removed: $file ($name)"
     return 0
@@ -461,7 +461,7 @@ mutation_file_publish() {
         else
             LOG_FILE='' log_info "[dry-run] would create: $file"
         fi
-        _txn_journal "mutation_publish" "mode=dry_run file=$file"
+        _txn_journal "mutation_publish" "mode=dry_run target=$file result=planned exit_code=0"
         return 0
     fi
 
@@ -495,9 +495,9 @@ mutation_file_publish() {
     fi
 
     if [[ "$write_target" != "$file" ]]; then
-        _txn_journal "mutation_publish" "file=$file via=$write_target"
+        _txn_journal "mutation_publish" "target=$file via=$write_target result=published exit_code=0"
     else
-        _txn_journal "mutation_publish" "file=$file"
+        _txn_journal "mutation_publish" "target=$file result=published exit_code=0"
     fi
     log_info "Published: $file"
     return 0

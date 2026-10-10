@@ -180,7 +180,7 @@ main() (
         trap - EXIT HUP INT TERM
         for item in "${candidates[@]}"; do [[ -z "$item" ]] || rm -f -- "$item" || rc=1; done
         if [[ -n "${_TRANSACTION_ACTIVE:-}" ]]; then
-            _txn_journal mutation_write "mode=apply result=failed exit_code=$rc"
+            _txn_journal mutation_write "files=${#candidates[@]} mode=apply result=failed exit_code=$rc"
             transaction_rollback || rc=1
             if [[ "$cache_attempted" == 1 ]]; then
                 fc-cache -f "$font_dir" >/dev/null 2>&1 || {
