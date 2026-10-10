@@ -121,7 +121,7 @@ ones in `ubuntu:22.04`, and fixed with regressions.
 Closes the items left open on 2026-10-09, each with a RED→GREEN regression:
 P3-2 per-operation audit metadata (`e9c9730`); P3-4 API conventions and the
 `test_api_conformance.sh` gate (`491898d`); P1-5 broadened local secret hook
-(`28cedee`) and SHA-256-verified gitleaks install (`7799fe3`); the 3.4
+(`28cedee`, `f96b6ac`) and SHA-256-verified gitleaks install (`7799fe3`); the 3.4
 `install-* --dry-run` boundary (`8b57f56`); AX-23 content-hash checks that
 fell open without `shasum` (`eb18556`). P2-10 is resolved by correcting the
 platform claims (`9cc1f67`), not by adding a Windows runner. The expected
