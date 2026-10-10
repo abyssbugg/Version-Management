@@ -180,7 +180,7 @@ jobs:
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Release version: $VERSION"
 
       - name: Validate version format
@@ -625,7 +625,7 @@ jobs:
 
           # Generate changelog
           if [ -n "$PREV_TAG" ]; then
-            CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+            CHANGES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
           else
             CHANGES=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
           fi
@@ -690,15 +690,17 @@ jobs:
 
       - name: Release summary
         run: |
-          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** v${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Attested SHA:** ${{ needs.attest-guard.outputs.attested_sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          ls -la dist/ >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Release Summary"
+            echo ""
+            echo "**Version:** v${{ needs.validate.outputs.version }}"
+            echo ""
+            echo "**Attested SHA:** ${{ needs.attest-guard.outputs.attested_sha }}"
+            echo ""
+            echo "### Artifacts"
+            echo ""
+            ls -la dist/
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ========================================
   # Post-Release Notifications

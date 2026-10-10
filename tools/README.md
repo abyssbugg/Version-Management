@@ -125,7 +125,17 @@ Updates all version managers and their packages.
 ./tools/update-dependencies.sh --rustup
 ./tools/update-dependencies.sh --jenv
 ./tools/update-dependencies.sh --npm
+
+# Preview: print every planned mutating command (git pull, nvm install,
+# rustup update, npm update) without running any of them
+./tools/update-dependencies.sh --dry-run
+./tools/update-dependencies.sh --dry-run --pyenv
 ```
+
+At most one target may be given. Under `--dry-run`, read-only version
+queries still run and `npm audit` is skipped (it uploads the dependency
+tree). Version-manager git checkouts are updated with `git pull --ff-only`:
+a diverged checkout is skipped with a warning, never merged into.
 
 **Supported Managers:**
 
