@@ -87,3 +87,7 @@ test_restore.txt
 
 # Buildkite CLI local config
 .bk.yaml
+
+# Agent scratch files at the repo root (a redacted personal shell config was
+# once committed this way; never track them)
+/tmp_rovodev_*
