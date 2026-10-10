@@ -15,6 +15,12 @@ source "${_VMS_PYVM_DIR}/logger.sh"
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
 source "${_VMS_PYVM_DIR}/backup.sh"
+# Legacy rc-block removal publishes through the mutation editor and takes
+# the shared rc lock (AX-20).
+# shellcheck source=lib/mutation.sh
+source "${_VMS_PYVM_DIR}/mutation.sh"
+# shellcheck source=lib/lock.sh
+source "${_VMS_PYVM_DIR}/lock.sh"
 
 # Python version management configuration
 PYVM_CACHE_PREFIX="pyvm"
@@ -460,95 +466,81 @@ pyvm_setup_auto_activate() {
     return $?
 }
 
-# --- legacy body kept below for reference only; unreachable ---
-_pyvm_setup_auto_activate_legacy() {
-    local hook_marker="# >>> pyvm auto-activate hook <<<"
-    local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
+# Remove the auto-activate hook (AX-20). pyvm_setup_auto_activate installs
+# the UNIFIED hook (lib/auto-activate.sh), so removal delegates to
+# auto_activate_remove. A LEGACY "# >>> pyvm auto-activate hook <<<" block
+# written by older releases is removed first. The old remover rewrote
+# ~/.zshrc through a /tmp file and mv (no backup, mode reset to 0600, a
+# symlinked rc replaced by a plain file) and an unterminated block made its
+# awk range delete every line to the end of the file. Returns 0 on success,
+# 1 on failure.
+pyvm_remove_auto_activate() {
+    local rc=0
+    _pyvm_remove_legacy_hook || rc=1
+    # shellcheck source=lib/auto-activate.sh
+    source "${_VMS_PYVM_DIR}/auto-activate.sh" || return 1
+    auto_activate_remove || rc=1
+    return "$rc"
+}
 
-    if [[ "${SHELL##*/}" != "zsh" ]]; then
-        log_error "pyvm_setup_auto_activate requires zsh (current shell: ${SHELL##*/})"
+# Legacy block removal: locked (workstation-config, like every rc writer),
+# transactional (backup, atomic rename onto the resolved file, mode and
+# symlink kept, rollback on any failure), refused unchanged when the markers
+# are unterminated or duplicated, previewed under TRANSACTION_DRY_RUN=1.
+_pyvm_remove_legacy_hook() (
+    local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
+    local start_marker="# >>> pyvm auto-activate hook <<<" end_marker="# <<< pyvm auto-activate hook <<<"
+    local state staged="" active=0 locked=0 rc=0
+    [[ -f "$shell_rc" ]] || return 0
+    if ! declare -F mutation_file_publish >/dev/null 2>&1; then
+        log_error "lib/mutation.sh is not loaded in this shell — source lib/pyvm.sh here"
         return 1
     fi
-
-    if grep -q "$hook_marker" "$shell_rc" 2>/dev/null; then
-        log_info "pyvm auto-activate hook already installed in $shell_rc"
+    state=$(awk -v b="$start_marker" -v e="$end_marker" '
+        $0 == b { if (inside || n) bad = 1; inside = 1; n++; next }
+        $0 == e { if (!inside) bad = 1; inside = 0; next }
+        END { if (bad || inside) print "malformed"; else print (n ? "present" : "absent") }' "$shell_rc") || return 1
+    case "$state" in
+        absent)
+            log_info "No legacy pyvm auto-activate block in $shell_rc"
+            return 0
+            ;;
+        malformed)
+            log_error "Legacy pyvm auto-activate markers in $shell_rc are unterminated or duplicated — refusing; file left unchanged. Remove the block by hand."
+            return 1
+            ;;
+    esac
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        printf '[dry-run] would remove the legacy pyvm auto-activate block from %s\n' "$shell_rc" >&2
         return 0
     fi
-
-    # Write the self-contained zsh hook block.
-    # Uses add-zsh-hook (zsh-native) so it plays well with oh-my-zsh / p10k.
-    cat >> "$shell_rc" <<'ZSHOOK'
-
-# >>> pyvm auto-activate hook <<<
-# Auto-activates / deactivates Python virtualenvs on every directory change.
-# Searches for .venv/, venv/, .virtualenv/ up to 3 parent directories.
-_pyvm_chpwd_hook() {
-    local dir="$PWD"
-    local max_depth=3
-    local depth=0
-    local venv_dirs=(.venv venv .virtualenv)
-    local activate_script=""
-
-    while [[ "$dir" != "/" && $depth -lt $max_depth ]]; do
-        local vname
-        for vname in "${venv_dirs[@]}"; do
-            if [[ -f "$dir/$vname/bin/activate" ]]; then
-                activate_script="$dir/$vname/bin/activate"
-                break 2
-            fi
-        done
-        dir="${dir:h}"
-        depth=$(( depth + 1 ))
-    done
-
-    if [[ -n "$activate_script" ]]; then
-        local venv_dir="${activate_script:h:h}"
-        # Already in this venv — skip re-activation
-        [[ "${VIRTUAL_ENV:-}" == "$venv_dir" ]] && return 0
-        # Deactivate any previous venv before activating the new one
-        [[ -n "${VIRTUAL_ENV:-}" ]] && typeset -f deactivate >/dev/null 2>&1 && deactivate
-        # activate
-        source "$activate_script"
-    elif [[ -n "${VIRTUAL_ENV:-}" ]]; then
-        # Left all project directories — deactivate
-        typeset -f deactivate >/dev/null 2>&1 && deactivate
+    [[ -z "${_TRANSACTION_ACTIVE:-}" ]] || { log_error "Nested rc mutation refused"; return 1; }
+    validate_safe_path "$shell_rc" || return 1
+    trap 'rc=$?; trap - EXIT; if [[ "$active" == 1 ]]; then transaction_rollback || rc=1; fi; [[ -z "$staged" ]] || rm -f -- "$staged"; if [[ "$locked" == 1 ]]; then lock_release workstation-config || rc=1; fi; exit "$rc"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    lock_acquire workstation-config 30 || return 1
+    locked=1
+    staged=$(mktemp "${TMPDIR:-/tmp}/vms-pyvm-rc.XXXXXX") || return 1
+    awk -v b="$start_marker" -v e="$end_marker" '
+        $0 == b { skip = 1; next }
+        skip && $0 == e { skip = 0; next }
+        !skip { print }' "$shell_rc" > "$staged" || return 1
+    if command -v zsh >/dev/null 2>&1 && ! zsh -n "$staged" 2>/dev/null; then
+        log_error "Rewritten $shell_rc would not parse — refusing; file left unchanged"
+        return 1
     fi
-}
-
-autoload -Uz add-zsh-hook 2>/dev/null
-add-zsh-hook chpwd _pyvm_chpwd_hook
-_pyvm_chpwd_hook  # run immediately for the current directory on shell start-up
-# <<< pyvm auto-activate hook <<<
-ZSHOOK
-
-    log_success "pyvm auto-activate hook installed in $shell_rc"
-    log_info "Restart your terminal or run: source $shell_rc"
+    transaction_start pyvm_remove_legacy_hook || return 1
+    active=1
+    mutation_file_publish "$shell_rc" "$staged" || return 1
+    transaction_commit >/dev/null || return 1
+    active=0
+    log_success "Legacy pyvm auto-activate block removed from $shell_rc"
     return 0
-}
-
-# Remove the auto-activate hook block from ~/.zshrc.
-# Returns: 0 on success, 1 on failure
-pyvm_remove_auto_activate() {
-    local shell_rc="${ZDOTDIR:-$HOME}/.zshrc"
-    local start_marker="# >>> pyvm auto-activate hook <<<"
-    local end_marker="# <<< pyvm auto-activate hook <<<"
-
-    if ! grep -q "$start_marker" "$shell_rc" 2>/dev/null; then
-        log_info "pyvm auto-activate hook not found in $shell_rc"
-        return 0
-    fi
-
-    local tmp
-    tmp="$(mktemp)"
-    # Remove blank line before block + the entire marker-delimited block
-    awk "/^${start_marker//\//\\/}\$/,/^${end_marker//\//\\/}\$/{next} 1" \
-        "$shell_rc" > "$tmp" && mv "$tmp" "$shell_rc"
-    log_success "pyvm auto-activate hook removed from $shell_rc"
-    return 0
-}
+)
 
 # Export functions for external use
 export -f pyvm_detect pyvm_install pyvm_list_versions pyvm_install_version
 export -f pyvm_set_global pyvm_set_local pyvm_get_current pyvm_validate_version
 export -f pyvm_get_prompt_version pyvm_is_python_project
-export -f _pyvm_find_venv pyvm_auto_activate pyvm_setup_auto_activate pyvm_remove_auto_activate
+export -f _pyvm_find_venv pyvm_auto_activate pyvm_setup_auto_activate pyvm_remove_auto_activate _pyvm_remove_legacy_hook
