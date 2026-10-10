@@ -93,12 +93,15 @@ directive "Mutation invariant"): every workstation mutation is
 ## Audit journal and logs
 
 - **Audit journal:** `~/.config/version-manager/audit.log`
-  (override: `TXN_AUDIT_LOG`). Tab-delimited records:
-  ISO-8601 timestamp, event (`start`, `commit`, `rollback`,
-  `mutation_write`, `mutation_remove`), transaction name, transaction
-  directory, detail (mode, file, block, file counts, rollback status and
-  error count). Journaling is best-effort: a journal failure is surfaced
-  as a warning but never blocks rollback safety.
+  (override: `TXN_AUDIT_LOG`). One line per event, five tab-separated
+  columns: ISO-8601 timestamp, event (`start`, `register`, `commit`,
+  `rollback`, `mutation_write`/`_remove`/`_publish`, `install_dir_*`,
+  `shellxp_*`), transaction name, transaction directory (the backup ID),
+  detail. The detail always carries `script=`, `pid=`, `mode=`,
+  `result=`, `exit_code=` and `target=` or `files=` (P3-2; full format in
+  [API.md](API.md#audit-journal-record-p3-2)). Dry-run previews write
+  nothing. Journaling is best-effort: a journal failure is surfaced as a
+  warning but never blocks rollback safety.
 - **Application logs:** `~/.local/share/version-manager/logs/`
   (`version-manager-<date>.log`; override `LOG_FILE`). All human-facing
   log output goes to stderr so value-returning functions keep clean
@@ -118,15 +121,28 @@ sandboxed `$HOME`.
 
 ## Known gaps (honest state)
 
-- Transaction adoption covers the six directive-named mutators
-  (fix-nvm-issues, setup-versions, fix-terminal-issues,
-  update-global-node-symlinks, setup-fonts-enhanced, emergency-recovery)
-  plus the theme path; the broader cache/state-writer class is scheduled
-  for continued adoption (see MUTATION_REGISTRY.md).
-- `tools/system-diagnostics.sh` still prints historical pipe-to-shell
-  snippets as advisory *text* in its output; it executes nothing, but the
-  snippets are scheduled for replacement (remediation directive §B, item
-  8).
-- `make clean` cleanup scope (B2.2) and the SCRIPT_DIR-hygiene pass
-  (A5-new) are open M5 items; see
-  [ROADMAP.md](governance/ROADMAP.md) for current status.
+Reviewed 2026-10-10 against `main`. Each gap is deliberate or awaits an
+owner action; none is an unfixed defect.
+
+- **Release signing is not yet proven live.** Keyless cosign signing,
+  SBOMs and checksums are implemented in `release.yml` (P1-6), but OIDC
+  issuance, the Rekor entry and the certificate identity are first
+  exercised by the first tagged release
+  ([RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), ROADMAP 5.1).
+- **WSL2 has no live CI runner.** It runs through the Linux code paths and
+  its detection is pinned through a test seam; native Windows is not
+  supported ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).
+- **Mutation coverage is a static survey.** Every user-file writer found by
+  a sweep of the shipped code goes through the transaction framework
+  ([MUTATION_REGISTRY.md](governance/MUTATION_REGISTRY.md)); nothing stops
+  a future writer from bypassing it, so review must check new writers.
+- **Runtime installs are previewed, not rolled back.** `nvm install`,
+  `pyenv install`, Homebrew and similar steps print a plan under
+  `--dry-run`; installing software is not a file transaction. Installer
+  directories use the reversible `install_dir_stage`/`install_dir_restore`.
+- **Generated Dockerfiles are template-tested only.** CI asserts their
+  content (multi-stage, non-root, HEALTHCHECK) but does not run
+  `docker build` (P2-7).
+- **Backup validation needs a SHA-256 tool.** With neither `sha256sum` nor
+  `shasum` on the host, `validate_backup` compares sizes only and logs a
+  warning (AX-23).
