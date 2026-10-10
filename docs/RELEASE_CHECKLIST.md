@@ -155,6 +155,15 @@ The step then (a) records the attested SHA as a build artifact,
 (c) asserts the release tag's commit on origin equals the attested SHA.
 Artifacts land under `release-attestation/` on the build page.
 
+**`broken` on ordinary builds is expected.** On every build without
+`RELEASE_ATTEST_SHA`, the step's `if:` is false and Buildkite reports the
+job state as `broken` ("a conditional returned false" —
+[Buildkite job states](https://buildkite.com/docs/pipelines/configure/defining-steps#job-states)).
+The build still passes; nothing was attested. Only a `passed` state on a
+build created with `RELEASE_ATTEST_SHA` set counts as attestation
+evidence. The step is deliberately not made always-run: a green no-op run
+could be mistaken for an attestation.
+
 Manual equivalent of (c):
 
 ```sh
