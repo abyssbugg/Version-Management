@@ -119,6 +119,15 @@ test_system_diagnostics_modes() {
     chk_contains "Quick check completed" "$OUT" "system-diagnostics --quick reaches the end"
     _tool sysdiag -- "$ROOT_DIR/tools/system-diagnostics.sh" --dashboard
     chk_contains "%" "$OUT" "system-diagnostics --dashboard prints a score"
+    # macOS ships /usr/bin/java as a stub that exits 1 when no JDK is
+    # installed; --versions must report it instead of aborting (pipefail).
+    local stubs="$_SBX/stub-bin"
+    mkdir -p "$stubs"
+    printf '#!/bin/sh\necho "Unable to locate a Java Runtime." >&2\nexit 1\n' >"$stubs/java"
+    chmod +x "$stubs/java"
+    _tool sysdiag-nojdk PATH="$stubs:/usr/bin:/bin" -- "$ROOT_DIR/tools/system-diagnostics.sh" --versions
+    chk 0 "$RC" "system-diagnostics --versions exits 0 when the java stub has no runtime"
+    chk_contains "Version check completed" "$OUT" "system-diagnostics --versions completes past a failing java"
     _tool sysdiag -- "$ROOT_DIR/tools/system-diagnostics.sh" --json
     chk 0 "$RC" "system-diagnostics --json exits 0"
     if command -v python3 >/dev/null 2>&1; then
@@ -142,7 +151,10 @@ test_setup_wizard_starts() {
     # Interactive: with stdin at EOF it must reach the first prompt, then stop.
     _tool wizard TERM=xterm -- "$ROOT_DIR/scripts/setup-wizard.sh"
     chk_absent "readonly variable" "$OUT" "setup-wizard: no readonly crash at startup"
-    chk_contains " - Choose individual components" "$OUT" "setup-wizard reaches profile selection"
+    # Step 1 runs on every platform. Where it finds issues (Linux CI: zsh is
+    # not the login shell) the wizard asks "Continue anyway?", reads EOF and
+    # stops before the profile menu, so assert on the step-1 banner.
+    chk_contains "System Requirements Check" "$OUT" "setup-wizard reaches its first step"
 }
 
 test_validate_setup_summarizes() {
@@ -167,6 +179,18 @@ test_version_diagnostic_completes() {
     fixed=$(grep -cE '"/tmp/(shell_startup_test\.sh|version-diagnostic-report\.tmp)"' \
         "$ROOT_DIR/tools/version-diagnostic-enhanced.sh" || true)
     chk 0 "$fixed" "no predictable /tmp temp paths remain in the version diagnostic tool"
+
+    # --full used to abort on `ZSH_VERSION: unbound variable` (bash never
+    # sets it) and reported seconds labelled "ms".
+    _tool vdiag-full SHELL=/bin/zsh REPORT_PATH="$report_dir/full.txt" -- "$ROOT_DIR/tools/version-diagnostic-enhanced.sh" --full
+    chk_contains "Diagnostic Summary" "$OUT" "version-diagnostic --full reaches the summary"
+    chk_absent "unbound variable" "$OUT" "version-diagnostic --full: no unbound variable"
+    chk_absent "syntax error" "$OUT" "version-diagnostic --full: startup time is an integer"
+    if grep -qE 'Shell startup time: [0-9]+ms' <<<"$OUT"; then
+        chk ok ok "version-diagnostic --full reports whole milliseconds"
+    else
+        chk "Shell startup time: <int>ms" "$(grep -o 'Shell startup time: [^ ]*' <<<"$OUT")" "version-diagnostic --full reports whole milliseconds"
+    fi
 }
 
 test_no_errexit_unsafe_increments() {

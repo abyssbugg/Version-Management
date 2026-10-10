@@ -184,6 +184,36 @@ check "exit 0 (got $ST)" test "$ST" -eq 0
 check "HOME tree byte-identical" same "$SANDBOX/cases/e2/before" "$SANDBOX/cases/e2/after"
 check "plan printed" has '[dry-run] Would write managed block nvm'
 
+# (e3) Dry-run never starts an interactive shell. The startup-time probe
+# (`zsh -i -c exit`) executes the system and user rc files, which may write
+# to HOME: Ubuntu's global /etc/zsh/zshrc runs compinit (-> ~/.zcompdump),
+# which is what broke (e) on Linux CI. PROBEBIN's zsh plays that rc.
+CASE=e3-dry-run-no-interactive-shell
+PROBEBIN="$SANDBOX/probebin"
+mkdir -p "$PROBEBIN"
+REAL_ZSH=$(command -v zsh || true)
+PROBE_EXEC='exit 0'
+[[ -n "$REAL_ZSH" ]] && PROBE_EXEC="exec '$REAL_ZSH' \"\$@\""
+printf '%s\n' '#!/bin/sh' 'for a in "$@"; do [ "$a" = -i ] && : > "$HOME/.zcompdump"; done' \
+    "$PROBE_EXEC" > "$PROBEBIN/zsh"
+chmod +x "$PROBEBIN/zsh"
+H=$(new_home e3); RC="$H/.zshrc"
+printf '# user canary\n' > "$RC"
+manifest "$H" > "$SANDBOX/cases/e3/before"
+run_tool "$H" /bin/zsh "$PROBEBIN:" --fix --dry-run
+manifest "$H" > "$SANDBOX/cases/e3/after"
+check "exit 0 (got $ST)" test "$ST" -eq 0
+check "no interactive shell started (no ~/.zcompdump)" test ! -e "$H/.zcompdump"
+check "HOME tree byte-identical" same "$SANDBOX/cases/e3/before" "$SANDBOX/cases/e3/after"
+check "startup timing reported as skipped" has 'Shell startup timing skipped in dry-run'
+# Without --dry-run the probe still runs (diagnostic behavior preserved).
+CASE=e3-probe-runs-without-dry-run
+H=$(new_home e3b)
+printf '# user canary\n' > "$H/.zshrc"
+run_tool "$H" /bin/zsh "$PROBEBIN:" --quick
+check "exit 0 (got $ST)" test "$ST" -eq 0
+check "startup probe ran" test -e "$H/.zcompdump"
+
 # (f1) Verification fails after the write (PATH seam): rollback, non-zero.
 CASE=f1-verify-fails
 H=$(new_home f1); RC="$H/.zshrc"

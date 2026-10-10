@@ -163,8 +163,10 @@ quick_check() {
         track_result "warning"
     fi
 
-    # Performance Metrics
-    if command -v time >/dev/null 2>&1; then
+    # Performance Metrics (never in dry-run: see diagnose_performance)
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        log_info " Shell startup timing skipped in dry-run (it would run your shell rc files)"
+    elif command -v time >/dev/null 2>&1; then
         local shell_startup
         shell_startup=$(time_shell_startup)
         log_success " Shell Startup Time: ${shell_startup}ms"
@@ -240,7 +242,9 @@ diagnose_system_info() {
 
     case "$shell_type" in
         zsh)
-            shell_version="$ZSH_VERSION"
+            # This tool runs under bash: ZSH_VERSION is never set here (and
+            # aborted --full under set -u), so ask the detected shell.
+            shell_version=$(zsh --version 2>/dev/null | head -1 || true)
             ;;
         bash)
             shell_version="$BASH_VERSION"
@@ -423,15 +427,22 @@ diagnose_performance() {
     log_info " Performance Diagnostics"
     log_info "--------------------------"
 
-    # Shell startup time
-    local startup_time=$(time_shell_startup)
-    log_info "   Shell startup time: ${startup_time}ms"
-
-    if [[ $startup_time -gt 500 ]]; then
-        log_warn "  Slow shell startup (>500ms)"
-        track_result "warning"
+    # Shell startup time. The probe starts an interactive shell, which runs
+    # the system and user rc files and may write to HOME (compinit dumps,
+    # history, plugin caches), so it never runs in dry-run.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        log_info "   Shell startup timing skipped in dry-run (it would run your shell rc files)"
     else
-        log_success " Fast shell startup"
+        local startup_time
+        startup_time=$(time_shell_startup)
+        log_info "   Shell startup time: ${startup_time}ms"
+
+        if [[ $startup_time -gt 500 ]]; then
+            log_warn "  Slow shell startup (>500ms)"
+            track_result "warning"
+        else
+            log_success " Fast shell startup"
+        fi
     fi
 
     # Check for lazy loading
@@ -694,9 +705,12 @@ time_shell_startup() {
             ;;
     esac
 
-    # Convert to milliseconds (simple approximation)
-    if [[ -n "$time_output" ]]; then
-        echo "${time_output//[^0-9.]/}"
+    # bash's `time` prints "real<TAB>XmY.YYYs": report whole milliseconds.
+    # (The old digit-strip turned "0m0.123s" into "00.123" — seconds
+    # labelled ms — which also broke diagnose_performance's -gt 500 test.)
+    if [[ "$time_output" =~ ^([0-9]+)m([0-9]+)[.,]?([0-9]*)s$ ]]; then
+        local frac="${BASH_REMATCH[3]}000"
+        echo $(( 10#${BASH_REMATCH[1]} * 60000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${frac:0:3} ))
     else
         echo "0"
     fi

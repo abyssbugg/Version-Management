@@ -310,7 +310,8 @@ check_versions() {
         echo "  Current Java: $(jenv version 2>/dev/null | cut -d' ' -f1 || echo 'none')"
     elif command -v java >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC} Java installed (system)"
-        java -version 2>&1 | head -1
+        # macOS /usr/bin/java is a stub that exits 1 without a JDK (pipefail).
+        java -version 2>&1 | head -1 || echo "  (no Java runtime available)"
     else
         echo -e "${YELLOW}!${NC} Java/jenv not installed"
     fi
