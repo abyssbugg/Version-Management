@@ -528,6 +528,12 @@ generate_docker_compose() {
     local rust_version="${4:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
     local java_version="${5:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
 
+    # Each service runs the image its hardened Dockerfile builds. No `.:/app`
+    # bind mount (finding AX-16): every template's runtime stage puts its
+    # artifact in /app (dist/, server, app.jar), so mounting the source tree
+    # there hid it and the container could not start. Host ports are unique —
+    # python/rust both listen on 8000 and go/java on 8080 inside the
+    # container, and duplicate host ports made `docker compose up` fail.
     cat > "$compose_file" << EOF
 version: '3.8'
 
@@ -538,9 +544,6 @@ services:
       dockerfile: Dockerfile.node
     ports:
       - "3000:3000"
-    volumes:
-      - .:/app
-      - /app/node_modules
     environment:
       - NODE_ENV=development
 
@@ -550,8 +553,6 @@ services:
       dockerfile: Dockerfile.python
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     environment:
       - PYTHONPATH=/app
 
@@ -561,8 +562,6 @@ services:
       dockerfile: Dockerfile.go
     ports:
       - "8080:8080"
-    volumes:
-      - .:/app
     environment:
       - GIN_MODE=release
 
@@ -571,18 +570,14 @@ services:
       context: .
       dockerfile: Dockerfile.rust
     ports:
-      - "8000:8000"
-    volumes:
-      - .:/app
+      - "8001:8000"
 
   java-app:
     build:
       context: .
       dockerfile: Dockerfile.java
     ports:
-      - "8080:8080"
-    volumes:
-      - .:/app
+      - "8081:8080"
 EOF
 
     log_success "docker-compose.yml generated at $compose_file"

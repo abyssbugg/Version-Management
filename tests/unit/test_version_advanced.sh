@@ -705,6 +705,15 @@ test_p27_compose_matches_templates() {
         _p27_expect "compose service building $file maps container port $port" \
             _p27_compose_maps "$compose" "$file" "$port"
     done
+    # AX-16: a `.:/app` bind mount hid each runtime stage's /app artifact
+    # (dist/, server, app.jar); duplicate host ports made `up` fail.
+    _p27_reject "compose bind-mounts no source tree over the image WORKDIR" \
+        grep -qE '^[[:space:]]+- "?\.?\.?/?[^:"]*:/app"?[[:space:]]*$' "$compose"
+    local host_ports dup_ports
+    host_ports=$(awk '/^[ \t]+- "?[0-9]+:[0-9]+"?[ \t]*$/ { m = $2; gsub(/"/, "", m); sub(/:.*/, "", m); print m }' "$compose" 2>/dev/null)
+    dup_ports=$(printf '%s\n' "$host_ports" | sort | uniq -d | tr '\n' ' ')
+    _p27_expect_eq "compose host ports are unique" "" "$dup_ports"
+    _p27_expect_eq "compose publishes one host port per service" "5" "$(printf '%s\n' "$host_ports" | grep -c .)"
     _p27_case_end
 }
 
