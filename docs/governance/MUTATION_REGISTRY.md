@@ -114,3 +114,13 @@ writer cannot bypass the framework.
 Every adoption must record: target, mode (dry-run/apply), backup ID, result,
 exit code — into the audit journal (`~/.config/version-manager/audit.log`,
 finding P3-2) via the hardened transaction primitive (A3).
+
+**Met (`e9c9730`).** Each record is five tab-separated columns: timestamp,
+event, transaction, transaction directory (the backup ID), detail. The detail
+always carries `script=`, `pid=` and `mode=`, and every call site adds
+`result=`, `exit_code=` and `target=` (per file) or `files=` (per
+transaction); operations outside a transaction state `backup=<path|none>`.
+Preview (dry-run) events are console-only: the journal suppresses them to
+keep the zero-write contract.
+Format: `docs/API.md` "Audit journal record"; pinned by
+`tests/unit/test_audit_journal_schema.sh`.

@@ -50,10 +50,10 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 
 *The strategic centerpiece. `setup-theme.sh:182-191` is the reference implementation pattern. M0–M3 milestones completed; M4 completed directive-named adopter set.*
 
-- [x] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)* — **DONE for the primitives (2026-10-09):** transactions + `_txn_journal` (`fcbc584`, `05ff686`, `dd312b6`); managed blocks (`58b967d`, in-place replace + malformed-marker refusal `11b8d01`); whole-file publication `mutation_file_publish` (`286f7f9`: pre-state registered, atomic, symlink/mode kept, verified, dry-run plans only); reversible installer trees `install_dir_stage`/`install_dir_restore` (`ae8aa48`, `a87b156`). Every adopter below uses them. P3-2's complete per-operation metadata for every mutator stays PARTIAL in MASTER_AUDIT.
+- [x] **3.1** Formalize the mutation lifecycle in `lib/backup.sh` (or new `lib/mutation.sh`): plan → show → backup transaction → apply → verify → commit/rollback, plus audit-journal entry (`~/.config/version-manager/audit.log`). *(P3-2)* — **DONE for the primitives (2026-10-09):** transactions + `_txn_journal` (`fcbc584`, `05ff686`, `dd312b6`); managed blocks (`58b967d`, in-place replace + malformed-marker refusal `11b8d01`); whole-file publication `mutation_file_publish` (`286f7f9`: pre-state registered, atomic, symlink/mode kept, verified, dry-run plans only); reversible installer trees `install_dir_stage`/`install_dir_restore` (`ae8aa48`, `a87b156`). Every adopter below uses them. Per-operation metadata (P3-2) completed in `e9c9730`: every journal record carries script/pid/mode, result, exit code and target or file count (`test_audit_journal_schema.sh`).
 - [x] **3.2** Managed-block editing for shell rc files: `# BEGIN version-management-setup:<name>` … `# END`, replaced atomically. Fix the `NVM_SILENT=1` vs `=true` idempotency drift in `scripts/fix-nvm-issues.sh`. *(P1-3)* — `58b967d` editor, `3af0549` fix-nvm-issues, `a3b9038` setup-versions; per-adopter tests pin the canonical block and rerun behavior.
 - [x] **3.3** Migrate the five named scripts onto the framework: `scripts/fix-nvm-issues.sh` (`3af0549`), `setup-versions.sh` (`a3b9038`), `scripts/emergency-recovery.sh` (`08c3446`), `setup-fonts-enhanced.sh` (`96c482b`), `tools/update-global-node-symlinks.sh` (`50163f2`). The directive also added `scripts/fix-terminal-issues.sh` (`7def705`). This closes the named list, not the broader registry.
-- [x] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test. — **DONE for every user-file writer found (2026-10-09, `fix/managed-manager-config`):** terminal adopters (`96da206`, `a94b72d`, `4eb2c20`), manager rc writers, auto-activation (`ae1fd83`), then the 2026-10-09 sweep — diagnostic `--fix` (`4cdd637`), `create-versions` (`6a24164`), patch-font (`5676b6f`), installers (`ae8aa48`, `a87b156`, `b914e0a`, `7507014`), update-dependencies (`1544ff6`), rustup (`f23f217`), version-advanced generators (`286f7f9`), font writers (`62ad115`), pyvm hook removal (`4f80105`), plugins (`6c5bb21`). Each has a sandboxed RED→GREEN regression; the transactional ones (diagnostic `--fix`, `create-versions`, patch-font, version-advanced, font writers) also exercise rollback on an injected failure, and update-dependencies/runtime installers/plugins are dry-run-only. Boundaries: runtime installs (`nvm install`, `pyenv install`, …) are previewed, not rolled back (installing software is not a file transaction); `version-manager.sh install-* --dry-run` may initialize its own cache/XDG/lock directories (`n/a` state); the evidence is a static writer survey, not a proof against future bypasses.
+- [x] **3.4** Every mutating script supports `--dry-run` and records a backup ID. Acceptance: failed verify triggers rollback in a sandboxed test. — **DONE for every user-file writer found (2026-10-09, `fix/managed-manager-config`):** terminal adopters (`96da206`, `a94b72d`, `4eb2c20`), manager rc writers, auto-activation (`ae1fd83`), then the 2026-10-09 sweep — diagnostic `--fix` (`4cdd637`), `create-versions` (`6a24164`), patch-font (`5676b6f`), installers (`ae8aa48`, `a87b156`, `b914e0a`, `7507014`), update-dependencies (`1544ff6`), rustup (`f23f217`), version-advanced generators (`286f7f9`), font writers (`62ad115`), pyvm hook removal (`4f80105`), plugins (`6c5bb21`). Each has a sandboxed RED→GREEN regression; the transactional ones (diagnostic `--fix`, `create-versions`, patch-font, version-advanced, font writers) also exercise rollback on an injected failure, and update-dependencies/runtime installers/plugins are dry-run-only. Boundaries: runtime installs (`nvm install`, `pyenv install`, …) are previewed, not rolled back (installing software is not a file transaction); the evidence is a static writer survey, not a proof against future bypasses. (The former `install-* --dry-run` cache/XDG/lock boundary is removed in `8b57f56`: the preview is zero-write for the whole HOME tree.)
 
 ## Phase 4 — Consolidation & Test Maturity (P1-9, P1-11, P2-*)
 
@@ -76,7 +76,7 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 ## Deferred / Watch List
 
 - **Option C hybrid** (compiled helper for planning/locking/downloads) — revisit after Phase 3 ships. *(P3-5)*
-- **Windows/Git-Bash CI runner** — add when Windows support claims become load-bearing. *(P2-10 partial)*
+- **Windows/Git-Bash CI runner** — only if native Windows support is ever implemented; today native Windows is documented as unsupported (`9cc1f67`). *(P2-10 resolved)*
 - **Module decomposition of `lib/cache.sh` / `version-manager.sh`** — refactor around stable interfaces only after Phase 4 contracts exist; file size alone is not a trigger.
 
 ---
@@ -115,3 +115,17 @@ The first hosted run of the sweep (Buildkite #59) failed on Linux, macOS and
 kcov; the causes (AX-22: dry-run shell-startup probe, `--full` abort, macOS
 java stub, a Linux-unreachable wizard assertion) were reproduced, the Linux
 ones in `ubuntu:22.04`, and fixed with regressions.
+
+## Reconciliation Note (2026-10-10)
+
+Closes the items left open on 2026-10-09, each with a RED→GREEN regression:
+P3-2 per-operation audit metadata (`e9c9730`); P3-4 API conventions and the
+`test_api_conformance.sh` gate (`491898d`); P1-5 broadened local secret hook
+(`28cedee`) and SHA-256-verified gitleaks install (`7799fe3`); the 3.4
+`install-* --dry-run` boundary (`8b57f56`); AX-23 content-hash checks that
+fell open without `shasum` (`eb18556`). P2-10 is resolved by correcting the
+platform claims (`9cc1f67`), not by adding a Windows runner. The expected
+`broken` state of the dormant `release-attest` step is documented in
+`docs/RELEASE_CHECKLIST.md` (`5a0167d`). Still open: 5.1 live signing proof
+(needs the first tagged release, an owner action) and P3-5 (deferred by
+decision).

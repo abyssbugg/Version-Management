@@ -110,8 +110,14 @@ A transaction directory contains:
 - `files.tsv` maps each entry index to the original path and its SHA-256;
   `files/<index>/data` holds the pre-transaction bytes (for `symlink`
   kind, the link target).
-- The audit journal records the same lifecycle
-  (`start` / `commit` / `rollback` with mode, files, and error counts):
+- The audit journal records the same lifecycle (`start` / `register` /
+  `commit` / `rollback`, plus `mutation_*`, `install_dir_*` and `shellxp_*`
+  events).
+  Each line is five tab-separated columns — timestamp, event, transaction,
+  transaction directory (backup ID), detail — and the detail carries
+  `script=`, `pid=`, `mode=`, `result=`, `exit_code=` and `target=` or
+  `files=` (full format: [API.md](API.md#audit-journal-record-p3-2)). Dry-run
+  previews write nothing:
 
 ```bash
 tail -n 20 ~/.config/version-manager/audit.log
