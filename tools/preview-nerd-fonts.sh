@@ -263,51 +263,31 @@ offer_auto_fix() {
     fi
 }
 
-install_fonts_auto() {
+# Install the bundled MesloLGS NF files from the project (AX-19): delegates
+# to the canonical transactional installer in lib/fonts.sh (existing fonts
+# backed up before replacement, identical files untouched, atomic writes,
+# rollback on failure, --dry-run plans only) under the shared
+# workstation-mutation lock. The old inline cp overwrote fonts in place with
+# no backup and no lock.
+install_fonts_auto() (
     echo
     echo "Installing fonts..."
-
-    local os
-    os=$(uname -s)
-    local target_dir
-
-    case "$os" in
-        Darwin)
-            target_dir="$HOME/Library/Fonts"
-            ;;
-        Linux)
-            target_dir="$HOME/.local/share/fonts"
-            mkdir -p "$target_dir"
-            ;;
-        *)
-            echo -e "${RED}✗${NC} Unsupported OS: $os"
-            return 1
-            ;;
-    esac
-
-    local installed=0
-    for font in "$SCRIPT_DIR"/MesloLGS*.ttf; do
-        if [[ -f "$font" ]]; then
-            cp "$font" "$target_dir/"
-            echo -e "${GREEN}${NC} Installed: $(basename "$font")"
-            installed=$(( installed + 1 ))
-        fi
-    done
-
-    if [[ $installed -gt 0 ]]; then
-        # Refresh font cache on Linux
-        if [[ "$os" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
-            fc-cache -f "$target_dir"
-        fi
-
-        echo
-        echo -e "${GREEN}${NC} Installed $installed fonts to $target_dir"
+    # shellcheck source=lib/fonts.sh
+    source "$SCRIPT_DIR/lib/fonts.sh" || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" != "1" ]]; then
+        # shellcheck source=lib/lock.sh
+        source "$SCRIPT_DIR/lib/lock.sh" || return 1
+        lock_with_trap workstation-mutation 30 || return 1
+    fi
+    if ! font_install_bundled; then
+        echo -e "${YELLOW}⚠${NC} No fonts installed (see the messages above)"
+        return 1
+    fi
+    if [[ "${TRANSACTION_DRY_RUN:-0}" != "1" ]]; then
         echo
         echo "  Important: Restart your terminal and set font to 'MesloLGS Nerd Font'"
-    else
-        echo -e "${YELLOW}⚠${NC} No font files found in project directory"
     fi
-}
+)
 
 # ============================================================================
 # Usage
@@ -322,7 +302,7 @@ Preview Nerd Font icons and detect/fix rendering issues.
 Options:
     --preview       Show icon preview only (default)
     --check         Check installed fonts
-    --install       Install fonts from project
+    --install       Install fonts from project (add --dry-run to preview)
     --terminal      Show terminal configuration info
     --all           Show all information
     -h, --help      Show this help
@@ -342,6 +322,9 @@ EOF
 
 main() {
     local mode="${1:---all}"
+    if [[ "${2:-}" == "--dry-run" ]]; then
+        export TRANSACTION_DRY_RUN=1
+    fi
 
     case "$mode" in
         --preview)

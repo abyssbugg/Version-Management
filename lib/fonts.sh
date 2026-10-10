@@ -19,6 +19,10 @@ source "$_VMS_FONTS_DIR/lib/logger.sh" 2>/dev/null || {
     log_warn() { echo "[WARN] $*"; }
     log_error() { echo "[ERROR] $*" >&2; }
 }
+# Font writers publish through the transaction framework (AX-19); sourced
+# unconditionally (B1.13-new: inherited function copies lack state globals).
+# shellcheck source=lib/mutation.sh
+source "$_VMS_FONTS_DIR/lib/mutation.sh"
 
 # ============================================================================
 # Configuration
@@ -168,133 +172,215 @@ font_bundled_exist() {
 # Font Installation
 # ============================================================================
 
-# Install local MesloLGS fonts when present at repository root
-font_install_bundled() {
-    local target_dir
-    target_dir=$(font_get_target_directory)
+# Font file mutations (AX-19). The three writers below used to cp/mv/rm in
+# the user's font directory with no backup, no preview and (for URL installs)
+# no integrity check. They now run inside a transaction — the caller's, or
+# their own (commit on success, rollback on failure) — and publish through
+# mutation_file_publish: an existing font is backed up before it is replaced,
+# identical files are left untouched, every write is atomic, and
+# TRANSACTION_DRY_RUN=1 plans without writing. Callers that run concurrently
+# with other workstation mutators take the workstation-mutation lock
+# themselves (setup-fonts-enhanced.sh, tools/preview-nerd-fonts.sh): a
+# library-level lock would deadlock a caller that already holds it.
 
-    if [[ -z "$target_dir" ]]; then
-        log_error "Unsupported operating system for font installation"
+_font_require_mutation() {
+    if ! declare -F mutation_file_publish >/dev/null 2>&1 || ! declare -F transaction_start >/dev/null 2>&1; then
+        log_error "lib/mutation.sh is not loaded in this shell — source lib/fonts.sh here (an inherited function cannot run its transaction)"
         return 1
     fi
+}
 
-    # Create target directory if needed
-    mkdir -p "$target_dir"
-
-    local installed=0
-    local failed=0
-
-    for font in "${BUNDLED_FONTS[@]}"; do
-        local src="$_VMS_FONTS_DIR/$font"
-
-        if [[ -f "$src" ]]; then
-            if cp "$src" "$target_dir/"; then
-                log_success "Installed: $font"
-                installed=$(( installed + 1 ))
-            else
-                log_error "Failed to install: $font"
-                failed=$(( failed + 1 ))
-            fi
+# _font_in_txn <transaction-name> <fn> [args...]
+_font_in_txn() {
+    local name="$1" rc=0 own=0
+    shift
+    _font_require_mutation || return 1
+    if ! transaction_is_active; then
+        transaction_start "$name" || return 1
+        own=1
+    fi
+    "$@" || rc=1
+    if [[ "$own" == 1 ]]; then
+        if [[ "$rc" == 0 ]]; then
+            transaction_commit >/dev/null || rc=1
         else
-            log_warn "Missing local font file: $font"
-            failed=$(( failed + 1 ))
+            transaction_rollback >/dev/null 2>&1 || log_error "Font rollback failed — see the audit journal"
+            log_error "Font change rolled back"
         fi
-    done
+    fi
+    return "$rc"
+}
 
-    # Refresh font cache on Linux
+# Create the per-user font directory (planned only under dry-run).
+_font_ensure_target_dir() {
+    local target_dir="$1"
+    [[ -d "$target_dir" ]] && return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] would create font directory: $target_dir"
+        return 0
+    fi
+    mkdir -p -- "$target_dir" || { log_error "Cannot create font directory: $target_dir"; return 1; }
+}
+
+# Refresh fontconfig after a real change (Linux only; derived state).
+_font_refresh_cache() {
+    local target_dir="$1"
+    [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]] && return 0
     if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
         log_info "Refreshing font cache..."
         fc-cache -f "$target_dir" 2>/dev/null || true
     fi
+}
 
-    if [[ $installed -gt 0 ]]; then
-        log_success "Installed $installed font(s) to $target_dir"
-        return 0
-    else
+# Install local MesloLGS fonts when present at repository root.
+# Missing local files are skipped with a warning (they are optional); a
+# failed publish rolls back every font this call installed or replaced.
+font_install_bundled() {
+    _font_in_txn font_install_bundled _font_install_bundled_txn
+}
+
+_font_install_bundled_txn() {
+    local target_dir font src installed=0 missing=0
+    target_dir=$(font_get_target_directory)
+    if [[ -z "$target_dir" ]]; then
+        log_error "Unsupported operating system for font installation"
+        return 1
+    fi
+    _font_ensure_target_dir "$target_dir" || return 1
+
+    for font in "${BUNDLED_FONTS[@]}"; do
+        src="$_VMS_FONTS_DIR/$font"
+        if [[ ! -f "$src" ]]; then
+            log_warn "Missing local font file: $font"
+            missing=$((missing + 1))
+            continue
+        fi
+        if ! mutation_file_publish "$target_dir/$font" "$src"; then
+            log_error "Failed to install: $font"
+            return 1
+        fi
+        installed=$((installed + 1))
+    done
+
+    if [[ $installed -eq 0 ]]; then
         log_error "No fonts were installed"
         return 1
     fi
+    _font_refresh_cache "$target_dir"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] $installed font(s) planned for $target_dir; nothing written"
+    else
+        log_success "Installed $installed font(s) to $target_dir"
+    fi
+    return 0
 }
 
-# Install fonts from URL
+# Install one font from a URL, verified against its expected SHA-256.
+# Usage: font_install_from_url <https-url> <font-file-name> <sha256>
+# Fails closed on a missing/malformed checksum, a non-https URL, a file name
+# that is not a plain *.ttf/*.otf name, a failed download or a mismatch.
 font_install_from_url() {
-    local url="$1"
-    local font_name="$2"
-    local target_dir
-    target_dir=$(font_get_target_directory)
+    local url="${1:-}" font_name="${2:-}" expected="${3:-}"
+    if [[ "$url" != https://* || "$url" == *$'\n'* ]]; then
+        log_error "font_install_from_url: an https:// URL is required"
+        return 1
+    fi
+    if [[ -z "$font_name" || "$font_name" == */* || "$font_name" == .* || "$font_name" == *$'\n'* \
+        || ! "$font_name" =~ \.(ttf|otf|TTF|OTF)$ ]]; then
+        log_error "font_install_from_url: font name must be a plain .ttf/.otf file name: $font_name"
+        return 1
+    fi
+    if [[ ! "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        log_error "font_install_from_url: a 64-hex SHA-256 checksum is required (fail closed)"
+        return 1
+    fi
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] would download $url, verify SHA-256 $expected, and install $font_name"
+        return 0
+    fi
+    _font_in_txn font_install_from_url _font_install_from_url_txn "$url" "$font_name" "$expected"
+}
 
+_font_install_from_url_txn() {
+    local url="$1" font_name="$2" expected="$3" target_dir temp_file actual=""
+    target_dir=$(font_get_target_directory)
     if [[ -z "$target_dir" ]]; then
         log_error "Unsupported operating system"
         return 1
     fi
-
-    mkdir -p "$target_dir"
-
-    local temp_file
-    temp_file=$(mktemp)
+    _font_ensure_target_dir "$target_dir" || return 1
+    temp_file=$(mktemp "${TMPDIR:-/tmp}/vms-font.XXXXXX") || { log_error "Cannot create a temporary file"; return 1; }
 
     log_info "Downloading $font_name..."
-
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$temp_file"
+        curl -fsSL --proto '=https' "$url" -o "$temp_file" || { rm -f -- "$temp_file"; log_error "Download failed"; return 1; }
     elif command -v wget >/dev/null 2>&1; then
-        wget -q "$url" -O "$temp_file"
+        wget -q --https-only "$url" -O "$temp_file" || { rm -f -- "$temp_file"; log_error "Download failed"; return 1; }
     else
+        rm -f -- "$temp_file"
         log_error "Neither curl nor wget available"
-        rm -f "$temp_file"
         return 1
     fi
-
-    if [[ -f "$temp_file" && -s "$temp_file" ]]; then
-        mv "$temp_file" "$target_dir/$font_name"
-        log_success "Installed: $font_name"
-
-        # Refresh cache on Linux
-        if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
-            fc-cache -f "$target_dir" 2>/dev/null || true
-        fi
-
-        return 0
-    else
-        log_error "Download failed"
-        rm -f "$temp_file"
+    if command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "$temp_file" | cut -d' ' -f1)
+    elif command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$temp_file" | cut -d' ' -f1)
+    fi
+    if [[ -z "$actual" || "$(printf '%s' "$actual" | tr 'A-F' 'a-f')" != "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ]]; then
+        rm -f -- "$temp_file"
+        log_error "Checksum mismatch for $font_name (or no sha256 tool) — not installed"
         return 1
     fi
+    if ! mutation_file_publish "$target_dir/$font_name" "$temp_file"; then
+        rm -f -- "$temp_file"
+        return 1
+    fi
+    rm -f -- "$temp_file"
+    _font_refresh_cache "$target_dir"
+    log_success "Installed: $font_name"
+    return 0
 }
 
-# Uninstall MesloLGS fonts
+# Uninstall MesloLGS fonts. Every removed file is registered with the
+# transaction first, so a failure part-way restores the ones already removed.
 font_uninstall() {
-    local target_dir
-    target_dir=$(font_get_target_directory)
+    _font_in_txn font_uninstall _font_uninstall_txn
+}
 
+_font_uninstall_txn() {
+    local target_dir font font_path removed=0
+    target_dir=$(font_get_target_directory)
     if [[ -z "$target_dir" ]]; then
         log_error "Unsupported operating system"
         return 1
     fi
-
-    local removed=0
-
     for font in "${BUNDLED_FONTS[@]}"; do
-        local font_path="$target_dir/$font"
-        if [[ -f "$font_path" ]]; then
-            rm -f "$font_path"
-            log_info "Removed: $font"
-            removed=$(( removed + 1 ))
+        font_path="$target_dir/$font"
+        [[ -f "$font_path" ]] || continue
+        if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+            LOG_FILE='' log_info "[dry-run] would remove: $font_path"
+            removed=$((removed + 1))
+            continue
         fi
+        transaction_add_file "$font_path" || return 1
+        if ! rm -f -- "$font_path"; then
+            log_error "Failed to remove: $font_path"
+            return 1
+        fi
+        log_info "Removed: $font"
+        removed=$((removed + 1))
     done
-
-    if [[ $removed -gt 0 ]]; then
-        # Refresh cache on Linux
-        if [[ "$(uname -s)" == "Linux" ]] && command -v fc-cache >/dev/null 2>&1; then
-            fc-cache -f "$target_dir" 2>/dev/null || true
-        fi
-
-        log_success "Removed $removed font(s)"
-        return 0
-    else
+    if [[ $removed -eq 0 ]]; then
         log_info "No MesloLGS fonts found to remove"
         return 0
     fi
+    _font_refresh_cache "$target_dir"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        LOG_FILE='' log_info "[dry-run] $removed font(s) would be removed; nothing written"
+    else
+        log_success "Removed $removed font(s)"
+    fi
+    return 0
 }
 
 # ============================================================================
@@ -404,6 +490,8 @@ export -f font_bundled_exist
 export -f font_install_bundled
 export -f font_install_from_url
 export -f font_uninstall
+export -f _font_require_mutation _font_in_txn _font_ensure_target_dir _font_refresh_cache
+export -f _font_install_bundled_txn _font_install_from_url_txn _font_uninstall_txn
 export -f font_test_rendering
 export -f font_check_terminal
 export -f font_status
