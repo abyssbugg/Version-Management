@@ -373,6 +373,15 @@ if [[ -n "$BIN_REALJQ" ]]; then
     run_cli "$HOME" "$TMPDIR" "$BIN_REALJQ" create-versions 20.1.0 3.12.1 3.3.1
     check test "$RC" -eq 0
     check test "$(mtime_of package.json)" = "$pkg_mtime"
+    # A "v"-prefixed version (the form `nvm version default` prints) yields
+    # engines.node ">=20", not ">=v20".
+    PV=$(new_project proj-jv)
+    cd "$PV"
+    printf '{"name":"demo-jv"}\n' > package.json
+    run_cli "$HOME" "$TMPDIR" "$BIN_REALJQ" create-versions v20.1.0 3.12.1 3.3.1
+    check test "$RC" -eq 0
+    check test "$("$REAL_JQ" -r '.engines.node' package.json)" = '>=20'
+    check expect_file .nvmrc '20.1.0\n'
 else
     echo "SKIP: real jq not installed — package.json happy path not exercised"
 fi

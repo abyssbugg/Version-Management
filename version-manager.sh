@@ -1241,7 +1241,11 @@ create_version_files() (
     # jq into the staging dir; publishable only if jq exited 0, the output
     # is non-empty, parses as JSON and carries the requested engines value.
     _vm_cv_stage_package_json() {
-        local expected=">=${node_version%%.*}" staged="$staging/package.json" readback=''
+        # Major only, without nvm's "v" prefix (`nvm version default` prints
+        # v20.1.0; ">=v20" is not a valid semver range for engines.node).
+        local node_major="${node_version#v}"
+        node_major="${node_major%%.*}"
+        local expected=">=${node_major}" staged="$staging/package.json" readback=''
         if ! jq --arg engines "$expected" '.engines.node = $engines' "$project_dir/package.json" > "$staged"; then
             log_error "create_version_files: jq failed to update package.json engines"
             return 1
