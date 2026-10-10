@@ -86,6 +86,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     unset _vms_flag _vms_leading
 fi
 
+# Dry-run is zero-write (ROADMAP 3.4): a preview — `--dry-run` anywhere, or
+# TRANSACTION_DRY_RUN=1 from the environment — keeps no file log and no
+# cache (lib/cache.sh creates its directories at source time), and the
+# install-* previews skip init_directories and the mutation lock (main).
+if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+    ENABLE_LOGGING=false
+    export CACHE_ENABLED=0
+fi
+
 # ============================================================================
 # Color Definitions
 # ============================================================================
@@ -2013,15 +2022,22 @@ main() {
         fi
     fi
 
-    # Initialize
-    init_directories
+    # Initialize. An install-* preview is zero-write: every installer prints
+    # its plan under TRANSACTION_DRY_RUN=1 (AX-15), so it needs neither the
+    # XDG directories nor the mutation lock (lock-root mkdir). Every other
+    # command keeps both, whatever its dry-run support.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 && "$command" == install-* ]]; then
+        log_debug "install preview: no directories created, no lock taken"
+    else
+        init_directories
 
-    # Acquire lock for write operations
-    case "$command" in
-        install-*|create-*|update-*|clean-*|auto-switch|lazy-load)
-            acquire_lock || exit 1
-            ;;
-    esac
+        # Acquire lock for write operations
+        case "$command" in
+            install-*|create-*|update-*|clean-*|auto-switch|lazy-load)
+                acquire_lock || exit 1
+                ;;
+        esac
+    fi
 
     # Execute command
     case "$command" in

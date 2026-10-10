@@ -651,6 +651,47 @@ test_runtime_installers_dry_run() {
     return "$_T_CASE_FAILS"
 }
 
+# ROADMAP 3.4 boundary: `version-manager.sh install-* --dry-run` executed as
+# a CLI is zero-write for the WHOLE HOME tree — no XDG/cache/log/state/lock
+# directory, no file log, no cache metadata — not only for the manager
+# directories. (It used to run init_directories, take the mutation lock and
+# initialize the cache before any installer saw TRANSACTION_DRY_RUN.)
+_home_manifest() {
+    (cd "$HOME" && find . -print | LC_ALL=C sort | while IFS= read -r p; do
+        if [[ -f "$p" && ! -L "$p" ]]; then printf 'F %s %s\n' "$p" "$(cksum < "$p")"
+        else printf 'P %s\n' "$p"; fi
+    done)
+}
+test_vm_cli_install_dry_run_zero_write() {
+    local -a cmds=(
+        "install-nvm" "install-fnm" "install-pyenv" "install-rbenv" "install-phpenv"
+        "install-node 20.19.2" "install-python 3.12.1" "install-ruby 3.3.1"
+        "install-php 8.3.0" "install-all"
+    )
+    local spec before after out rc
+    for spec in "${cmds[@]}"; do
+        _clean_home; _reset_logs
+        before=$(_home_manifest)
+        # shellcheck disable=SC2086 # spec is "<command> [version]", split on purpose
+        out=$(_child RT_SHIM_LOG="$LOGS/rt" PATH="$RTBIN:$BASE_PATH" -- \
+            'root="$1"; shift; exec "$BASH" "$root/version-manager.sh" "$@" --dry-run' \
+            _ "$ROOT_DIR" $spec 2>&1)
+        rc=$?
+        after=$(_home_manifest)
+        chk 0 "$rc" "version-manager $spec --dry-run exits 0"
+        chk_contains "[dry-run]" "$out" "version-manager $spec --dry-run prints a plan"
+        if [[ "$before" == "$after" ]]; then
+            chk same same "version-manager $spec --dry-run: HOME tree unchanged"
+        else
+            chk "HOME unchanged" "$(diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep '^[<>]' | head -5 | tr '\n' ' ')" \
+                "version-manager $spec --dry-run: HOME tree unchanged"
+        fi
+        chk "" "$(_logs git)" "version-manager $spec --dry-run: no git command"
+        chk "" "$(grep -E ' (install|global) ' "$LOGS/rt" 2>/dev/null)" "version-manager $spec --dry-run: no runtime install"
+    done
+    return "$_T_CASE_FAILS"
+}
+
 # Plugin installers (plugins/asdf.sh, plugins/rbenv.sh): dry-run plans only,
 # and a failed brew/clone is reported as a failure (the old bodies printed
 # "installed successfully" regardless).
@@ -975,6 +1016,7 @@ run_tcase test_failed_clone_restores_version_manager
 run_tcase test_brew_path_never_displaces
 run_tcase test_brew_path_dry_run
 run_tcase test_runtime_installers_dry_run
+run_tcase test_vm_cli_install_dry_run_zero_write
 run_tcase test_plugin_installers
 run_tcase test_privileged_installs_need_consent
 run_tcase test_confirm_gate_contract
