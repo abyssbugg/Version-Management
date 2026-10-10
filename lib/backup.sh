@@ -487,16 +487,17 @@ validate_backup() {
         return 1
     fi
 
-    # Compare checksums if available
-    if command -v shasum >/dev/null 2>&1; then
-        local original_hash backup_hash
-        original_hash=$(shasum -a 256 "$original_file" 2>/dev/null | cut -d' ' -f1)
-        backup_hash=$(shasum -a 256 "$backup_file" 2>/dev/null | cut -d' ' -f1)
-
-        if [[ "$original_hash" != "$backup_hash" ]]; then
-            log_error "Backup validation failed: checksums differ"
-            return 1
-        fi
+    # Compare SHA-256 content hashes with whichever tool the host provides
+    # (_txn_sha256: sha256sum, else shasum). Hashing only via `shasum` made
+    # hosts that ship only sha256sum fall back to size-only silently.
+    local original_hash backup_hash
+    original_hash=$(_txn_sha256 "$original_file")
+    backup_hash=$(_txn_sha256 "$backup_file")
+    if [[ -z "$original_hash" && -z "$backup_hash" ]]; then
+        log_warn "Backup validated by size only: no SHA-256 tool (sha256sum or shasum) found"
+    elif [[ "$original_hash" != "$backup_hash" ]]; then
+        log_error "Backup validation failed: checksums differ"
+        return 1
     fi
 
     log_debug "Backup validation successful"
@@ -1501,7 +1502,7 @@ install_dir_restore() {
 # Export functions for use in other scripts
 export -f _backup_default_dir
 export -f create_backup create_zshrc_backup create_p10k_backup create_vscode_backup
-export -f restore_backup list_backups cleanup_old_backups validate_backup
+export -f restore_backup list_backups cleanup_old_backups validate_backup _txn_sha256
 export -f transaction_start transaction_add_file transaction_commit transaction_rollback
 export -f transaction_is_active transaction_get_name
 export -f create_restore_point restore_from_point list_restore_points delete_restore_point

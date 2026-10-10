@@ -75,6 +75,37 @@ test_font_validate_file() {
     end_test
 }
 
+# Regression: a checksum validator must fail CLOSED when it cannot verify.
+# font_validate_checksum used to "assume valid" (return 0) when neither
+# shasum nor sha256sum was on PATH, unlike the download path which already
+# refuses to install an unverified font.
+test_font_validate_checksum_fails_closed() {
+    start_test "font_validate_checksum fails closed without a sha256 tool"
+
+    local sb rc_ok rc_bad rc_notool good
+    sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-fvc.XXXXXX")
+    mkdir -p "$sb/nohash"
+    ln -s "$(command -v cut)" "$sb/nohash/cut"
+    printf 'font-bytes\n' > "$sb/f.ttf"
+    if command -v sha256sum >/dev/null 2>&1; then
+        good=$(sha256sum "$sb/f.ttf" | cut -d' ' -f1)
+    else
+        good=$(shasum -a 256 "$sb/f.ttf" | cut -d' ' -f1)
+    fi
+
+    font_validate_checksum "$sb/f.ttf" "$good" && rc_ok=0 || rc_ok=$?
+    font_validate_checksum "$sb/f.ttf" "0000" && rc_bad=0 || rc_bad=$?
+    # shellcheck disable=SC2123 # deliberate: restricted PATH probe in a subshell
+    ( PATH="$sb/nohash"; font_validate_checksum "$sb/f.ttf" "$good" ) >/dev/null 2>&1 && rc_notool=0 || rc_notool=$?
+    rm -rf "$sb"
+
+    assert_equals "0" "$rc_ok" "Matching checksum validates"
+    assert_equals "1" "$rc_bad" "Mismatched checksum is rejected"
+    assert_equals "1" "$rc_notool" "No sha256 tool is rejected, not assumed valid"
+
+    end_test
+}
+
 test_bundled_fonts_array() {
     start_test "BUNDLED_FONTS array is defined"
 
@@ -204,6 +235,7 @@ run_tests() {
     test_font_get_directories
     test_font_get_target_directory
     test_font_validate_file
+    test_font_validate_checksum_fails_closed
     test_bundled_fonts_array
     test_font_constants
     test_font_detect_installed

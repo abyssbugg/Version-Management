@@ -157,7 +157,7 @@ default storage path is required.
 | `create_backup` | Create timestamped backup | `create_backup "/path/to/file"` |
 | `restore_backup` | Restore from backup | `restore_backup "/path/to/backup"` |
 | `list_backups` | List available backups | `list_backups` |
-| `validate_backup` | Check a backup against its original: same size and same SHA-256 | `validate_backup "$orig" "$backup"` |
+| `validate_backup` | Check a backup against its original: same size and same SHA-256 (`sha256sum` or `shasum`; size only, with a warning, when the host has neither) | `validate_backup "$orig" "$backup"` |
 | `transaction_start` | Start a backup transaction (name: `[A-Za-z0-9][A-Za-z0-9_-]{0,62}`; `TRANSACTION_DRY_RUN=1` = zero-write preview) | `transaction_start "theme_install"` |
 | `transaction_add_file` | Register a file's pre-state (backup, or "did not exist") before changing it | `transaction_add_file "$HOME/.zshrc"` |
 | `transaction_commit` | Finish the transaction; backups are kept | `transaction_commit` |

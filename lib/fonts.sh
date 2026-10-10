@@ -141,8 +141,8 @@ font_validate_checksum() {
     elif command -v sha256sum >/dev/null 2>&1; then
         actual_checksum=$(sha256sum "$font_file" | cut -d' ' -f1)
     else
-        # Can't verify, assume valid
-        return 0
+        # Cannot verify: fail closed (same contract as the download path).
+        return 1
     fi
 
     [[ "$actual_checksum" == "$expected_checksum" ]]
