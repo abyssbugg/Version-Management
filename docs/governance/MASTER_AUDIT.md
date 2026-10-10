@@ -45,7 +45,7 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 | P1-3 | `fix-nvm-issues.sh` raw appends, NVM_SILENT drift and missing transactions | **FIXED** (`58b967d`, `3af0549`) | `lib/mutation.sh:mutation_nvm_block`, `scripts/fix-nvm-issues.sh`; `tests/integration/test_fix_nvm_managed.sh` | Canonical managed block and transaction-backed replacement landed in M4 |
 | P1-4 | `validate_safe_path` warned on `..` and returned success | **FIXED** (`c158de3`) | `lib/validation.sh:validate_safe_path`; `tests/unit/test_path_validation.sh` | Fail-closed lexical validation and canonical containment, tracked also as A4/B1.3 |
 | P1-5 | Secret scanning is one narrow regex (quoted lowercase assignments only); no secret-scan job in CI | **PARTIALLY FIXED** (`8f6d269`, 2026-07-04) | gitleaks job added to `test.yml`; local hook regex unchanged | CI now scans with gitleaks; upgrading the local hook regex remains optional |
-| P1-6 | Release artifacts checksummed but not signed; no SBOM; no provenance/attestation | **PARTIALLY FIXED** (`31a23aa`, `d25c637`, 2026-10-04) | SBOM generation + attestation marker workflow live; `d25c637` keyless cosign skeleton disabled (owner decision); runtime signing not deployed | SBOM + attestation framework in place; keyless signing skeleton documented, execution deferred |
+| P1-6 | Release artifacts checksummed but not signed; no SBOM; no provenance/attestation | **FIXED in workflow; live proof pending** (`31a23aa`, `d25c637`, `cd726ec`, 2026-10-09) | `cd726ec` enables keyless cosign (GitHub OIDC; `sigstore/cosign-installer` SHA-pinned v3.10.1, cosign v2.6.1) in a dedicated `sign` job, publishes `dist/*.bundle`, and binds every release job to the attested commit (REL-PROV). The repository is public, so the Rekor identity reveals nothing new | Proven only by the first tagged release: no tag was created by this remediation |
 | P1-7 | `validate-quality.sh` returns 0 even when degraded | **FIXED** (`78369bf`, 2026-07-04) | was: `tools/validate-quality.sh:53-64` | Gating by default; `--advisory` flag for report-only |
 | P1-8 | `cache_stats` defined **twice** in the same file (flat + namespaced API layers); later definition silently wins | **FIXED** (`50216cf`, 2026-07-04) | single definition remains; test asserts `grep -c '^cache_stats()' lib/cache.sh` == 1 | No other duplicate functions found in the file |
 | P1-9 | Platform detection duplicated with behavioral drift: `lib/utils.sh` `get_os` returns `wsl`; `version-manager.sh`, `version-advanced.sh`, `lib/env.sh` (`detect_os`) return `linux` for WSL. `get_shell` also duplicated | **FIXED** (`668f7a1` canonical API + `b7d1007` root-script wrappers, 2026-10-04) | canonical platform API in `lib/env.sh` (`get_os` = alias of `detect_os`; WSL reports `wsl` from BOTH, pinned by `tests/unit/test_platform_contract.sh`, `VMS_PROC_VERSION` seam); 13 libs' `SCRIPT_DIR` renamed `_VMS_<LIB>_DIR`; `version-manager.sh`/`version-advanced.sh` now source `lib/env.sh` and delegate — wrapper-parity cases RED at base (4 drift assertions) → GREEN 47/47; WSL-coupled consumers keyed `linux|wsl` preserving exact pre-fix behavior. Live-WSL execution unverified (no WSL host); proven by seam construction |
@@ -62,7 +62,7 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 | P2-4 | Validators unused at public installer entry points | **FIXED** (`0648f2d` Node; 2026-10-08 Python/Ruby/PHP) | `version-manager.sh:install_node_version` (Node), `install_python_version`/`install_ruby_version`/`install_php_version` now each validate `$1` BEFORE any side effect; `lib/validation.sh` adds `validate_ruby_version`/`validate_php_version` (conservative injection grammar: start alnum, then `[A-Za-z0-9._+-]`); `tests/unit/test_validation.sh` pins accept-legit + reject-injection; `tests/integration/test_version_manager.sh` pins the Node rejection path | Public-entrypoint sweep for the four language installers complete; guards fire before network/installer/bootstrap |
 | P2-5 | No log rotation/cleanup for `LOG_FILE` | **FIXED** (`7df7744`, 2026-10-04) | rotation/cleanup in `lib/logger.sh` |
 | P2-6 | NVM pin `v0.39.7` (positional override exists, no env/config knob); pins duplicated in `lib/nvm.sh:89`, `setup-versions.sh:104` | **FIXED** (`7df7744` + `b7d1007` + `05ff686`, 2026-10-04) | single source of truth `lib/nvm.sh:24` (`NVM_VERSION` env-overridable); `setup-versions.sh` consumes `${NVM_VERSION}` (literal count 0); `version-manager.sh` sources `lib/nvm.sh` and consumes it as the `install_nvm` positional default (literal count 0); remaining repo-wide literals are test fixtures only |
-| P2-7 | Generated Dockerfiles: single-stage, no `USER`, no `HEALTHCHECK` | **FIXED in templates** (`0648f2d`, merged `343afa7`) | `version-advanced.sh` Docker generators; `tests/unit/test_docker_templates.sh` | Template contracts added; this records source/template tests, not fresh container runtime verification |
+| P2-7 | Generated Dockerfiles: single-stage, no `USER`, no `HEALTHCHECK` | **FIXED in templates** (`0648f2d`, merged `343afa7`; behavioral checks `e52ad44`; compose `1dabc18`) | `version-advanced.sh` Docker generators; `tests/unit/test_docker_templates.sh`, `tests/unit/test_version_advanced.sh` (171 P2-7 assertions with negative/near-miss controls; compose builds every template, maps each EXPOSEd port, no source bind mount over `/app`, unique host ports — AX-16) | Source/template tests, not fresh container runtime verification (no `docker build`/`compose up` in CI) |
 | P2-8 | Missing docs: `docs/OPERATIONS.md`, `docs/SECURITY.md`, `docs/MAINTENANCE.md`, `config/README.md`, `FontPatcher/ATTRIBUTION.md`, no ADR directory | **FIXED** (`ccc9147` + `31a23aa`, 2026-10-04) | OPERATIONS/SECURITY/config README/ATTRIBUTION + ADRs 001–005 (codify §5.1–5.5); `docs/MAINTENANCE.md` runbook (pin table + verification recipe, release flow, known-gaps pointer) |
 | P2-9 | `.shellcheckrc` globally disables SC2155, SC1091, SC2015, SC2181 **plus** SC2034 (duplicated at lines 14 & 41), SC2329, SC2016, SC2059, SC2012, SC2129 | **FIXED** (2026-10-08) | `.shellcheckrc`: duplicate SC2034 removed (single declaration); SC2181 removed from global and moved to 7 inline `# shellcheck disable=SC2181` suppressions with reasons (`lib/backup.sh:307`, `lib/cache.sh` ×4, `version-manager.sh` ×2); SC2015 re-justified in place (120 guard-with-fallback sites — kept global by deliberate decision, not silence); every remaining global disable carries a justification comment | High-risk SC2181 moved inline per §5; SC2015 re-justified; lint stays 0 across 115 scripts |
 | P2-10 | CI gaps: no pre-commit job, no Windows/Git-Bash runner despite documented WSL/Windows support, no coverage gate | CONFIRMED | `.github/workflows/test.yml:9-40` | Add pre-commit job now; Windows runner when platform claims are load-bearing |
@@ -74,7 +74,7 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 
 | ID | Item | Rationale |
 |----|------|-----------|
-| P3-1 | **PARTIAL:** hardened `lib/backup.sh` + `lib/mutation.sh`; all six M4 named adopters landed (`3af0549`, `a3b9038`, `7def705`, `50163f2`, `96c482b`, `08c3446`). Broader registry adoption, including theme-icon and slick-terminal user-file writes, remains open | The project **is** configuration management; named-set completion does not establish the all-mutator invariant |
+| P3-1 | **FIXED for every user-file writer found (2026-10-09, `fix/managed-manager-config`):** M4 named set (`3af0549`, `a3b9038`, `7def705`, `50163f2`, `96c482b`, `08c3446`), terminal adopters (`96da206`, `a94b72d`, `4eb2c20`), manager rc writers and auto-activation, then AX-6a..g, AX-8, AX-18 (version-advanced generators via the new `mutation_file_publish`), AX-19 (font writers), AX-20 (pyvm legacy hook). Installer trees use the reversible `install_dir_stage`/`install_dir_restore` (journaled; directories are not transaction-registrable). Cache/metrics/log/lock/own-config writers stay `n/a` per the registry key | Static survey (`git ls-files` sweep of redirections, cp/mv/rm, sed -i, rc appends) is the evidence, not a proof that no future writer bypasses the framework |
 | P3-2 | **PARTIAL:** `_txn_journal` in `lib/backup.sh` records transaction events (`fcbc584`); adopters add operation detail. Complete script/target/mode/backup/result/exit-code coverage across every mutator remains open | Required for traceability; dry-run must remain console-only to satisfy zero writes |
 | P3-3 | **Real test maturity**: Bats (or equivalent), kcov coverage, hermetic zsh-session tests for lazy-loading, plugin contract tests | **FIXED-equivalent (M5 lanes C1/R1)** (`546f063`→`06f0a62`; `40de815`→`86ddde9`, 2026-10-06): kcov line coverage adopted (fail-closed); plugin contract conformance suite (`test_plugin_conformance.sh`: sourcing, `$-`/shell-option purity, bash -n, required interface + dispatch delegates, namespacing, fail-closed when no plugins); hermetic execution = per-file sandboxed HOME in `test_runner.sh` + zsh-session context-prompt integration tests; Bats deliberately not adopted — native `test_runner`/`emit-manifest` retained as the equivalent harness |
 | P3-4 | **Module API contracts**: public/private function conventions, `docs/API.md` conformance tests, plugin load validation (path containment, required functions, namespacing) | **PARTIAL (M5)**: plugin load validation landed — path containment/sibling-proof + identifier grammar (`c158de3`, B1.1) and required-interface/dispatch-delegate/namespacing contracts asserted by `test_plugin_conformance.sh`; API.md kept in sync (`d7490e3`) but its automated conformance test and formal public/private conventions remain open | Global-namespace shell at 74 files needs boundaries to keep scaling |
@@ -277,10 +277,17 @@ read-only, then fixed on `fix/managed-manager-config` with the full gate green
   `workstation-config` — no mutual exclusion between concurrent rc writers.
   Fixed: `configure-nvm` now uses `workstation-config`; `install-*` keeps
   `workstation-mutation` (different targets). All three `.zshrc` writers share one lock.
-- **AX-6 mutation adoption breadth (OPEN — tracked as P3-1/P3-2).** `version-manager.sh`
-  project-version writes, `scripts/patch-font.sh`, `lib/pyvm.sh` move/privilege paths
-  are not yet transaction-routed. This is the ongoing registry adoption program, not
-  a regression; see ROADMAP 3.1/3.4 and the adoption lanes.
+- **AX-6 mutation adoption breadth (FIXED 2026-10-09 — seven lanes on
+  `fix/managed-manager-config`, each RED on the old sources, then GREEN).**
+  AX-6a `4cdd637` diagnostic `--fix` rc edits → managed blocks + transaction
+  (`test_version_diagnostic_managed.sh` 84/0); AX-6b `6a24164` + `737e393`
+  transactional `create-versions` with zero-write preview and guarded dispatch
+  args (`test_create_versions_managed.sh` 134/0); AX-6c `5676b6f` patch-font
+  `--install` transaction + `--dry-run` (88/0); AX-6d/e/f `ae8aa48` + `a87b156`
+  reversible installer move-aside (custom roots outside `$HOME` supported,
+  system roots refused, no `rm -rf` outside `$HOME`/`$TMPDIR`), consented sudo
+  (`--confirm`/`VMS_CONFIRM=1`), fail-closed Composer; AX-6g `1544ff6`
+  update-dependencies `--dry-run`, `--ff-only` pulls, EOF-safe prompt.
 - **AX-7 export -f here-doc poisoned child bash (CONFIRMED, FIXED — `ef75bda`).**
   Regression introduced by the AX-3 hardening: `transaction_commit`'s metadata
   write was wrapped in an `if ! cat > file <<EOF ... EOF; then` compound. The
@@ -300,6 +307,87 @@ read-only, then fixed on `fix/managed-manager-config` with the full gate green
   Lesson: an `export -f`'d function body must stay serialization-safe — no
   here-doc inside a compound command. main CI green at `ef75bda` (build #58:
   Tests Linux + macOS + Coverage all passed).
+
+### Remediation sweep findings (2026-10-09, `fix/managed-manager-config`)
+
+Each item was reproduced (or proven by a RED test) before the fix; every fix
+carries a regression test. Full local gate after the sweep is recorded in the
+branch handoff; hosted CI is the next proof.
+
+- **AX-8 managed-block marker integrity (FIXED `11b8d01`).** An unterminated,
+  stray or duplicate BEGIN/END marker made the strip pass delete every user
+  line after the stray BEGIN and return 0 (reproduced: `export KEEP_ME=1`
+  lost). Malformed markers are refused unchanged by write and remove; an
+  existing block is replaced in place (moving it to EOF reordered dependent
+  lines such as `nvm use 18`). `test_mutation_editor.sh` RED 15 → 0.
+- **AX-9 rustup-init (FIXED `f23f217`).** Pinned rustup-init 1.29.1 with a
+  SHA-256 per target triple; download → verify → execute.
+- **AX-10 subshell lock trap (FIXED `8aa6c76`).** Inside a subshell bash ≥ 4
+  still *displays* the parent's EXIT trap, so `lock_with_trap` chained it and
+  the parent's cleanup ran when the subshell exited. An unused signal is reset
+  first to discard the stale display. `test_lock.sh` RED on bash 5.3.
+- **AX-11 dead global flags (FIXED `a87b156`, `286f7f9`).** `parse_args` runs in
+  a process substitution, so `--silent/--debug/--no-color` never applied, and
+  the consent warning named a `--confirm` flag that did not exist. Flags are
+  applied before colors/logging; `--confirm` and `--dry-run` work anywhere;
+  help colors are real ESC bytes (a literal `\033` was printed);
+  `--auto-install` is documented as reserved (no consumer exists).
+  `version-advanced.sh` had the same defects plus the AX-1 space-joining bug
+  (`register <path>` was an unknown command).
+- **AX-12 logger froze caller globals (FIXED `af3a928`, `fceffae`).**
+  `readonly RED/GREEN/...` in `lib/logger.sh` killed `setup-wizard.sh`,
+  `tools/system-diagnostics.sh` and `tools/analytics-report.sh` at startup
+  ("GREEN: readonly variable") and overwrote a caller's disabled palette;
+  sourcing it after a readonly partial palette (preview-nerd-fonts) died the
+  same way. Per-variable `${VAR=default}`, never readonly.
+- **AX-13 inherited `log_*` (FIXED `af3a928`).** `_log` and helpers are now
+  exported; a child bash no longer prints `_log: command not found`.
+- **AX-14 diagnostics under `set -e` (FIXED `af3a928`).** `((x++))` on a zero
+  counter aborted system-diagnostics (22 sites), the version diagnostic tool
+  and validate-setup; validate-setup stopped before its summary; fixed `/tmp`
+  temp paths (one never used) replaced by mktemp. `test_tool_entrypoints.sh`
+  RED 31 → 0 and a repo-wide `((var++))` guard.
+- **AX-15 dry-run not honored by installers (FIXED `b914e0a`, `7507014`,
+  `6c5bb21`).** Homebrew branches, runtime installs (nvm/pyenv/goenv/rbenv/
+  phpenv/rustup versions and their npm/pip/gem/composer steps), fnm and the
+  asdf/rbenv plugins acted for real under `TRANSACTION_DRY_RUN=1`; plugins also
+  claimed success after a failed brew/clone. All print a `[dry-run]` plan;
+  `version-manager.sh`/`setup-versions.sh` accept `--dry-run`. Limitation:
+  `version-manager.sh install-* --dry-run` may still initialize its own
+  cache/XDG/lock directories (`n/a` state); nothing is installed and no user
+  file changes.
+- **AX-16 generated compose (FIXED `1dabc18`).** `.:/app` hid each hardened
+  image's `/app` artifact and two host-port pairs collided.
+- **AX-17 duplicate `get_shell_config` (FIXED `11b73ed`).** One canonical copy
+  in `lib/env.sh`, pinned by the platform contract test.
+- **AX-18 version-advanced generators (FIXED `286f7f9`).** Dockerfiles,
+  compose and CI configs were `cat >`-ed over existing project files; a
+  multi-file command left a half-written set on failure; `auto-switch`/
+  `lazy-load` executed `./version-manager.sh` from the *caller's* directory
+  (RED: an impostor script in the project was executed). New
+  `mutation_file_publish`; one transaction per command; `--dry-run`.
+  `test_version_advanced_managed.sh` RED 20 → 49/0.
+- **AX-19 font writers (FIXED `62ad115`).** `font_install_bundled`,
+  `font_uninstall` and preview-nerd-fonts `--install` wrote fonts with no
+  backup; `font_install_from_url` installed unverified bytes under a
+  caller-chosen name (`../` traversal). Transactional, checksum-required.
+  `test_font_writers.sh` RED 19 → 0.
+- **AX-20 pyvm hook removal (FIXED `4f80105`).** `pyvm_remove_auto_activate`
+  rewrote `~/.zshrc` via `/tmp` + `mv` (no backup, mode 0600, symlink lost) and
+  an unterminated legacy block deleted every following line (reproduced). Now
+  locked + transactional, malformed markers refused; the unreachable bare
+  `cat >>` writer is deleted.
+- **AX-21 BSD-first stat probes / bare cmp (FIXED `5e61277`).** On Linux
+  `stat -f '%Lp' f` prints file-system data, so five rc/theme rewriters lost
+  the file's mode (or aborted); two compared with a bare `cmp`, absent on the
+  hosted Linux image. Repo-wide guard in `test_hygiene_smalls.sh`.
+- **REL-PROV (FIXED in workflow `cd726ec`, `88d92e4`).** Release jobs check out
+  the attested SHA and assert a clean tree; actionlint 1.7.9 reports 0
+  findings for both workflows. Live proof needs the first tagged release.
+- **Repository hygiene (`35dbbe8`).** A redacted personal shell config was
+  tracked at the root of the public repository; untracked at the tip (history
+  not rewritten; a local copy is archived outside the repository) and
+  `/tmp_rovodev_*` is ignored.
 
 ### Terminal safety fixes (2026-10-06, locally integrated)
 
