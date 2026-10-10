@@ -69,6 +69,10 @@ PY_REAL="$(command -v python3 2>/dev/null || true)"
 HAVE_PY=0
 if [[ -n "$PY_REAL" ]] && "$PY_REAL" -c 'import json' >/dev/null 2>&1; then
     HAVE_PY=1
+    # Resolve the interpreter itself: a version-manager shim (pyenv's
+    # ~/.pyenv/shims/python3) re-enters its manager, which under the
+    # sandbox's `env -i HOME=...` hung the direct run of this file.
+    PY_REAL="$("$PY_REAL" -c 'import sys; print(sys.executable)')"
 fi
 
 # Strict bin dir: only the coreutils the script (and lib sourcing) needs —
