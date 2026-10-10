@@ -77,6 +77,9 @@ docs/archive/
 
 # Test artifacts
 .coverage
+# kcov line-coverage output of `make coverage-kcov` (CI uploads it as a
+# build artifact; it is regenerated on every run and never committed)
+/coverage/
 /tmp/test_*
 test-results/
 # P2-12: 0-byte byproduct written by tests/unit/test_backup.sh
