@@ -651,6 +651,37 @@ test_runtime_installers_dry_run() {
     return "$_T_CASE_FAILS"
 }
 
+# Plugin installers (plugins/asdf.sh, plugins/rbenv.sh): dry-run plans only,
+# and a failed brew/clone is reported as a failure (the old bodies printed
+# "installed successfully" regardless).
+test_plugin_installers() {
+    local out rc
+    local run='source "$1/plugins/$2.sh"; "$2_init"; "$2_install"'
+    _clean_home; _reset_logs
+    out=$(_child VMS_TEST_UNAME=Darwin TRANSACTION_DRY_RUN=1 PATH="$BREWBIN:$BASE_PATH" -- "$run" _ "$ROOT_DIR" asdf 2>&1)
+    rc=$?
+    chk 0 "$rc" "asdf plugin dry-run returns 0"
+    chk_contains "[dry-run] would run: brew install asdf" "$out" "asdf plugin dry-run prints the plan"
+    chk "" "$(_logs brew)" "asdf plugin dry-run runs no brew"
+    _clean_home; _reset_logs
+    out=$(_child VMS_TEST_UNAME=Darwin BREW_SHIM_RC=1 PATH="$BREWBIN:$BASE_PATH" -- "$run" _ "$ROOT_DIR" asdf 2>&1)
+    rc=$?
+    chk 1 "$rc" "asdf plugin: failed brew install returns 1"
+    chk_not_contains "installed successfully" "$out" "asdf plugin: no false success claim"
+    _clean_home; _reset_logs
+    out=$(_child VMS_TEST_UNAME=Linux TRANSACTION_DRY_RUN=1 GIT_SHIM_MODE=ok -- "$run" _ "$ROOT_DIR" rbenv 2>&1)
+    rc=$?
+    chk 0 "$rc" "rbenv plugin dry-run returns 0"
+    chk "" "$(_logs git)" "rbenv plugin dry-run clones nothing"
+    chk 0 "$(_count "$HOME/.rbenv")" "rbenv plugin dry-run creates nothing"
+    _clean_home; _reset_logs
+    out=$(_child VMS_TEST_UNAME=Linux GIT_SHIM_MODE=fail-second -- "$run" _ "$ROOT_DIR" rbenv 2>&1)
+    rc=$?
+    chk 1 "$rc" "rbenv plugin: failed ruby-build clone returns 1"
+    chk_not_contains "installed successfully" "$out" "rbenv plugin: no false success claim"
+    return "$_T_CASE_FAILS"
+}
+
 # =============================================================================
 # (d) privileged build-dependency installs need explicit consent
 # =============================================================================
@@ -944,6 +975,7 @@ run_tcase test_failed_clone_restores_version_manager
 run_tcase test_brew_path_never_displaces
 run_tcase test_brew_path_dry_run
 run_tcase test_runtime_installers_dry_run
+run_tcase test_plugin_installers
 run_tcase test_privileged_installs_need_consent
 run_tcase test_confirm_gate_contract
 run_tcase test_cli_confirm_and_global_flags

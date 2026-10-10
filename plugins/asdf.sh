@@ -32,25 +32,36 @@ asdf_install() {
         return 0
     fi
 
-    local os_type
+    local os_type method=git
     os_type=$(uname -s)
-
     case "$os_type" in
-        Darwin)
-            if command -v brew >/dev/null 2>&1; then
-                brew install asdf
-            else
-                git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.13.1
-            fi
-            ;;
-        Linux)
-            git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.13.1
-            ;;
+        Darwin) command -v brew >/dev/null 2>&1 && method=brew ;;
+        Linux) ;;
         *)
             echo "Unsupported OS: $os_type"
             return 1
             ;;
     esac
+
+    # Dry-run (ROADMAP 3.4) and fail-loud steps: the old body reported
+    # success even when brew/git failed.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if [[ "$method" == brew ]]; then
+            echo "[dry-run] would run: brew install asdf; nothing installed"
+        else
+            echo "[dry-run] would run: git clone https://github.com/asdf-vm/asdf.git $ASDF_DIR --branch v0.13.1; nothing installed"
+        fi
+        return 0
+    fi
+    if [[ "$method" == brew ]]; then
+        if ! brew install asdf; then
+            echo "Failed to install asdf via Homebrew" >&2
+            return 1
+        fi
+    elif ! git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch v0.13.1; then
+        echo "Failed to clone asdf into $ASDF_DIR" >&2
+        return 1
+    fi
 
     echo "asdf installed successfully"
     echo "Add to your shell: source \$HOME/.asdf/asdf.sh"
