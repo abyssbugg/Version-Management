@@ -97,25 +97,10 @@ track_result() {
     esac
 }
 
-# Shell config file every diagnose_*/fix_* path inspects. It was called here
-# but never defined (it lives in version-manager.sh, which this tool does not
-# source — docs/analysis SYN-008), so --fix died on an empty path. Same
-# selection as version-manager.sh:get_shell_config, built on the canonical
-# lib/env.sh get_shell (login shell); fish and others fall through to
-# ~/.profile because the managed blocks are POSIX/bash-flavored.
-get_shell_config() {
-    case "$(get_shell)" in
-        zsh)  echo "$HOME/.zshrc" ;;
-        bash)
-            if [[ -f "$HOME/.bashrc" ]]; then
-                echo "$HOME/.bashrc"
-            else
-                echo "$HOME/.bash_profile"
-            fi
-            ;;
-        *)    echo "$HOME/.profile" ;;
-    esac
-}
+# Shell config file every diagnose_*/fix_* path inspects: the canonical
+# lib/env.sh get_shell_config (sourced above; AX-17 — this tool used to carry
+# a private copy, and before that called it without any definition, so --fix
+# died on an empty path, docs/analysis SYN-008).
 
 # Show usage information
 show_usage() {

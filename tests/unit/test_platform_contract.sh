@@ -307,6 +307,23 @@ test_root_scripts_host_get_os_parity() {
 # Run
 # =============================================================================
 
+# AX-17: get_shell_config (the rc file the managed blocks target) has ONE
+# definition — lib/env.sh — and selects zsh/bash/POSIX-fallback files.
+test_get_shell_config_canonical() {
+    local defs
+    defs=$(cd "$ROOT_DIR" && git grep -lE '^[[:space:]]*get_shell_config\(\)' -- '*.sh' ':!tests' 2>/dev/null | tr '\n' ' ')
+    assert "lib/env.sh " "$defs" "get_shell_config defined only in lib/env.sh"
+    local h
+    h=$(mktemp -d "${TMPDIR:-/tmp}/vms-shellcfg.XXXXXX")
+    _cfg() { HOME="$h" SHELL="$1" bash -c 'source "$1/logger.sh" >/dev/null 2>&1; source "$1/env.sh" >/dev/null 2>&1; get_shell_config' _ "$LIB_DIR"; }
+    assert "$h/.zshrc" "$(_cfg /bin/zsh)" "zsh login shell -> ~/.zshrc"
+    assert "$h/.bash_profile" "$(_cfg /bin/bash)" "bash without ~/.bashrc -> ~/.bash_profile"
+    : > "$h/.bashrc"
+    assert "$h/.bashrc" "$(_cfg /bin/bash)" "bash with ~/.bashrc -> ~/.bashrc"
+    assert "$h/.profile" "$(_cfg /usr/local/bin/fish)" "fish falls back to ~/.profile (never a fish config)"
+    rm -rf -- "$h"
+}
+
 test_host_detect_os_matches_platform
 test_host_get_os_detect_os_agree
 test_utils_get_os_matches_env_canonical
@@ -320,7 +337,7 @@ test_root_scripts_get_os_wsl_seam
 test_root_scripts_get_os_linux_seam
 test_root_scripts_get_shell_login_shell_parity
 test_root_scripts_host_get_os_parity
-
+test_get_shell_config_canonical
 rm -rf "$_ROOT_SANDBOX_HOME"
 
 if [[ "$failures" -gt 0 ]]; then

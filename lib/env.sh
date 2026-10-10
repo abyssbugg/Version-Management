@@ -535,9 +535,31 @@ if ! declare -f log >/dev/null 2>&1; then
     }
 fi
 
+# Canonical rc-file selection for the managed blocks (AX-17): previously
+# defined identically in version-manager.sh and
+# tools/version-diagnostic-enhanced.sh. Built on the canonical get_shell.
+# fish intentionally falls through to the generic POSIX fallback: the managed
+# blocks are bash/zsh-flavored and must never be written to a fish config.
+# Guarded like the shims above so a caller's (or a test's) override wins.
+if ! declare -f get_shell_config >/dev/null 2>&1; then
+    get_shell_config() {
+        case "$(get_shell)" in
+            zsh) echo "$HOME/.zshrc" ;;
+            bash)
+                if [[ -f "$HOME/.bashrc" ]]; then
+                    echo "$HOME/.bashrc"
+                else
+                    echo "$HOME/.bash_profile"
+                fi
+                ;;
+            *) echo "$HOME/.profile" ;;
+        esac
+    }
+fi
+
 # Export functions for use in other scripts
 export -f detect_shell detect_os get_os get_shell validate_env_var detect_nvm detect_pyenv
 export -f setup_path_mod setup_nvm_silent show_env_summary
 export -f check_nvm_installed check_pyenv_installed check_nvm_silent_configured
 export -f vms_confirm_privileged _vms_privileged_steps
-export -f command_exists log
+export -f command_exists log get_shell_config

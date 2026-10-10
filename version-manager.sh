@@ -243,27 +243,8 @@ get_arch() {
 
 # get_shell: canonical implementation lives in lib/env.sh (sourced above,
 # P1-9) — the login-shell name, basename of $SHELL with a /bin/bash default.
-
-# Get shell config file
-get_shell_config() {
-    local shell_type="$(get_shell)"
-    # fish intentionally falls through to the generic POSIX fallback: the
-    # blocks this script appends are bash/zsh-flavored and must never be
-    # appended to a fish config. (The pre-P1-9 fish branch was unreachable —
-    # a bash executable always sees BASH_VERSION — but becomes reachable
-    # under the canonical login-shell get_shell.)
-    case "$shell_type" in
-        zsh)  echo "$HOME/.zshrc" ;;
-        bash)
-            if [[ -f "$HOME/.bashrc" ]]; then
-                echo "$HOME/.bashrc"
-            else
-                echo "$HOME/.bash_profile"
-            fi
-            ;;
-        *)    echo "$HOME/.profile" ;;
-    esac
-}
+# get_shell_config (rc file for the managed blocks) is canonical in
+# lib/env.sh as well (AX-17).
 
 # P3-1/P3-2: stdin is trusted generated configuration, never user shell code.
 # Subshell scope keeps transaction state and cleanup traps out of the caller.
