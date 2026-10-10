@@ -2,6 +2,18 @@
 
 This document outlines platform support for the Professional Development Terminal Setup.
 
+## Support status
+
+| Platform | Status | Evidence |
+|----------|--------|----------|
+| macOS | Supported | Full unit + integration suite in CI (Buildkite `macos-medium`, GitHub `macos-latest`) |
+| Linux | Supported | Full unit + integration suite in CI (Buildkite `linux-small`, GitHub `ubuntu-latest`); kcov coverage on Linux |
+| WSL2 | Supported through the Linux code paths | `get_os` reports `wsl` (pinned by `tests/unit/test_platform_contract.sh` through a detection seam); there is no WSL CI runner, so live WSL behavior is unverified |
+| Native Windows (PowerShell, cmd, Git-Bash/MSYS, Cygwin) | Not supported | `get_os` reports `windows` for diagnostics only; no code path implements it and CI has no Windows runner. Use WSL2 instead |
+
+The per-distribution rows below describe expected behavior. Only the CI
+platforms above are tested on every change.
+
 ## Supported Platforms
 
 ### Operating Systems

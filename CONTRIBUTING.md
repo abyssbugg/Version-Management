@@ -17,7 +17,7 @@ Thank you for your interest in contributing to the Professional Development Envi
 
 ### Prerequisites
 
-- macOS, Linux, or Windows (WSL)
+- macOS, Linux, or WSL2 (native Windows is not supported; see [support status](docs/PLATFORM_COMPATIBILITY.md#support-status))
 - Zsh shell
 - Git
 - ShellCheck (for linting)

@@ -95,7 +95,7 @@ The automation suite includes a powerful template system for generating personal
 
 ### Template Features
 
-- **Cross-platform compatibility**: Automatically detects macOS, Linux, and Windows
+- **Cross-platform settings**: Includes VS Code terminal profiles for macOS, Linux and Windows hosts; VS Code applies the one for the host it runs on
 - **Dynamic path resolution**: Generates correct paths for your system
 - **Font integration**: Configures MesloLGS Nerd Font automatically
 - **Terminal optimization**: Sets up integrated terminal with proper shell configuration
@@ -208,7 +208,7 @@ This theme features:
 
 - **Modular**: Each library handles one concern
 - **Defensive**: `set -euo pipefail` in all scripts
-- **Cross-platform**: macOS, Linux, WSL support
+- **Cross-platform**: macOS and Linux; WSL2 through the Linux code paths ([support status](docs/PLATFORM_COMPATIBILITY.md#support-status))
 - **Cacheable**: TTL-based caching for performance
 
 ## 🔧 Library Utilities
@@ -223,7 +223,7 @@ The automation suite is built on a foundation of reusable library utilities:
 
 ### `lib/env.sh` - Environment Detection
 
-- Cross-platform OS detection (macOS, Linux, Windows/WSL)
+- OS detection: `macos`, `linux`, `wsl` (Cygwin/MSYS/Git-Bash report `windows`, which is not a supported platform)
 - Shell detection and configuration
 - Path resolution utilities
 - System capability checks
@@ -255,7 +255,7 @@ The automation suite is built on a foundation of reusable library utilities:
 - **Nerd Font**: MesloLGS/compatible Nerd Fonts detected and auto-configured
 - **zsh**: Required shell (installation guided if needed)
 - **Git, Node.js, Python**: Managed through version managers
-- **Cross-platform support**: macOS, Linux, Windows (WSL)
+- **Platforms**: macOS, Linux, and WSL2; native Windows is not supported ([support status](docs/PLATFORM_COMPATIBILITY.md#support-status))
 
 ## 🎯 What This Automation Suite Does
 
@@ -315,11 +315,11 @@ The automation suite provides full cross-platform support:
 - Package manager detection (apt, yum, pacman)
 - WSL compatibility for Windows users
 
-### Windows (WSL)
+### Windows (WSL2 only)
 
-- Windows Subsystem for Linux support
-- Path translation for Windows/Linux interoperability
-- PowerShell integration where applicable
+- Runs inside a WSL2 Linux distribution through the Linux code paths (`get_os` reports `wsl`)
+- Fonts are installed on the Windows side; see [WSL2 limitations](docs/PLATFORM_COMPATIBILITY.md#wsl2-windows-subsystem-for-linux)
+- Native Windows shells (PowerShell, cmd, Git-Bash/MSYS, Cygwin) are not supported
 
 ## 🔧 Troubleshooting
 
