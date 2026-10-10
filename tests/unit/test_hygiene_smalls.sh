@@ -12,6 +12,7 @@
 #   7. B1.8  no floating @vN tags in version-advanced.sh generated workflows
 #   8. P2-11 no shellcheck devDependency in package.json (CI installs via apt)
 #   9. P2-12 tests/unit/test_restore.txt removed and gitignored
+#  10. AX-21 GNU-first stat mode probes; every cmp -s guarded
 #
 # Environment notes:
 #   - Every sourcing subprocess gets a sandboxed HOME (AGENTS.md: never touch
@@ -258,6 +259,22 @@ test_restore_byproduct_gone() {
         ".gitignore names the test_restore.txt pattern explicitly (P2-12)"
 }
 
+# ── 10. AX-21: portable mode probes and comparisons ─────────────────────────
+# On Linux a BSD-first `stat -f '%Lp' f || stat -c '%a' f` prints file-system
+# data first (GNU -f is --file-system), so the probed mode is garbage; and
+# the hosted Linux CI image has no `cmp`. Every mode probe must try GNU
+# `stat -c` first, and every `cmp -s` must sit behind `command -v cmp`.
+test_portable_probes() {
+    local bsd_first unguarded
+    bsd_first=$(cd "$ROOT_DIR" && git ls-files '*.sh' | grep -vE '^(tests|FontPatcher)/' |
+        xargs grep -nE "stat -f '%Lp'[^|]*\|\| *stat -c" 2>/dev/null || true)
+    record assert_equals "" "$bsd_first" "no BSD-first stat mode probe in shipped code (AX-21)"
+    unguarded=$(cd "$ROOT_DIR" && git ls-files '*.sh' | grep -vE '^(tests|FontPatcher)/' | while read -r f; do
+        awk -v f="$f" '/command -v cmp/ { guard = NR } /(^|[^a-z_])cmp -s/ && !/command -v cmp/ { if (!guard || NR - guard > 3) print f ":" NR }' "$f"
+    done)
+    record assert_equals "" "$unguarded" "every cmp -s is guarded by command -v cmp (AX-21)"
+}
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 test_make_clean_scoped
 test_sync_stub_removed
@@ -268,6 +285,7 @@ test_diagnostics_no_pipe_to_shell
 test_generated_workflows_sha_pinned
 test_package_json_no_shellcheck
 test_restore_byproduct_gone
+test_portable_probes
 
 rm -rf "$HOME_SANDBOX"
 

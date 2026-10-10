@@ -759,10 +759,14 @@ _shellxp_write_zshrc() {
         return 0
     fi
 
-    local mode
-    mode=$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null || echo 644)
+    # AX-21: canonical GNU-first mode probe (on Linux a BSD-first
+    # `stat -f '%Lp'` prints file-system data: GNU -f means --file-system).
     if [[ -f "$file" ]]; then
-        chmod "$mode" "$new_file"
+        if ! _mutation_preserve_mode "$file" "$new_file"; then
+            rm -f "$new_file"
+            log_error "shellxp: cannot preserve the mode of $file — unchanged"
+            return 1
+        fi
     else
         chmod 644 "$new_file"
     fi

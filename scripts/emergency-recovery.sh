@@ -80,6 +80,24 @@ _er_files_identical() {
     [[ -n "$ha" && "$ha" == "$hb" ]]
 }
 
+# Copy <reference>'s permission bits onto <file>; a missing reference means
+# a new file (0644). GNU stat is probed first: on Linux a BSD-first
+# `stat -f '%Lp'` prints file-system data (GNU -f means --file-system), the
+# probed mode was garbage and the restored file kept mktemp's 0600 (AX-21).
+# Fails closed on an unreadable mode.
+_er_copy_mode() {
+    local ref="$1" file="$2" mode
+    if [[ ! -e "$ref" ]]; then
+        chmod 644 "$file"
+        return
+    fi
+    if ! mode=$(stat -c '%a' "$ref" 2>/dev/null); then
+        mode=$(stat -f '%Lp' "$ref" 2>/dev/null) || return 1
+    fi
+    [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+    chmod "$mode" "$file"
+}
+
 # Shared failure path: roll the active transaction back (hash-verified,
 # byte-identical) and surface rollback errors loudly.
 _er_rollback() {
@@ -260,10 +278,14 @@ restore_file() {
         _er_rollback
         return 1
     fi
-    # Preserve the target's existing mode (mktemp creates 0600).
-    local mode
-    mode=$(stat -f '%Lp' "$target_path" 2>/dev/null || stat -c '%a' "$target_path" 2>/dev/null || echo 644)
-    chmod "$mode" "$tmp" 2>/dev/null || true
+    # Preserve the target's existing mode (mktemp creates 0600); a new
+    # target gets 0644. AX-21: GNU-first probe, fail closed.
+    if ! _er_copy_mode "$target_path" "$tmp"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Cannot preserve the mode of $target_path"
+        _er_rollback
+        return 1
+    fi
     if ! mv "$tmp" "$target_path"; then
         rm -f "$tmp" 2>/dev/null || true
         log_error "Restore FAILED for: $target_path"
@@ -506,7 +528,7 @@ reset_to_defaults() {
     log_info "Emergency backups saved to $BACKUP_DIR/emergency/"
 
     # Reset p10k to default (atomic replace of the registered target).
-    local tmp mode
+    local tmp
     tmp=$(mktemp "$(dirname "$HOME/.p10k.zsh")/.vms-reset.XXXXXX") || {
         log_error "Cannot stage reset in $HOME"
         _er_rollback
@@ -518,8 +540,12 @@ reset_to_defaults() {
         _er_rollback
         return 1
     fi
-    mode=$(stat -f '%Lp' "$HOME/.p10k.zsh" 2>/dev/null || stat -c '%a' "$HOME/.p10k.zsh" 2>/dev/null || echo 644)
-    chmod "$mode" "$tmp" 2>/dev/null || true
+    if ! _er_copy_mode "$HOME/.p10k.zsh" "$tmp"; then
+        rm -f "$tmp" 2>/dev/null || true
+        log_error "Cannot preserve the mode of $HOME/.p10k.zsh"
+        _er_rollback
+        return 1
+    fi
     if ! mv "$tmp" "$HOME/.p10k.zsh"; then
         rm -f "$tmp" 2>/dev/null || true
         log_error "Reset FAILED for: $HOME/.p10k.zsh"

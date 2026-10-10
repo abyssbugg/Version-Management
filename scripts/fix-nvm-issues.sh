@@ -76,11 +76,21 @@ _fix_nvm_strip_legacy() {
               -e '# Silence NVM verbose messages' \
               -e '# NVM Permanent Silence Configuration' \
         "$resolved" > "$tmp" || true
-    if ! cmp -s "$tmp" "$resolved"; then
-        local mode
-        mode=$(stat -f '%Lp' "$resolved" 2>/dev/null || stat -c '%a' "$resolved" 2>/dev/null || echo 644)
-        chmod "$mode" "$tmp"
-        mv "$tmp" "$resolved"
+    # AX-21: portable compare (the hosted Linux image has no cmp) and the
+    # canonical GNU-first mode probe (on Linux a BSD-first `stat -f '%Lp'`
+    # prints file-system data — GNU -f means --file-system — so the probed
+    # mode was garbage, chmod failed and the rc kept mktemp's 0600).
+    if ! mutation_files_identical "$tmp" "$resolved"; then
+        if ! _mutation_preserve_mode "$resolved" "$tmp"; then
+            rm -f "$tmp"
+            log_error "Cannot preserve the mode of $resolved — legacy drift lines left in place"
+            return 1
+        fi
+        if ! mv "$tmp" "$resolved"; then
+            rm -f "$tmp"
+            log_error "Cannot replace $resolved — legacy drift lines left in place"
+            return 1
+        fi
         log_info "Legacy drift lines removed"
     else
         rm -f "$tmp"

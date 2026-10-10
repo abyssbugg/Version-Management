@@ -134,9 +134,14 @@ test_legacy_drift_converges() {
     printf 'export NVM_SILENT=true\n' >> "$SBX/.zshrc"
     printf '# Silence NVM verbose messages\n' >> "$SBX/.zshrc"
     printf '# NVM Permanent Silence Configuration\n' >> "$SBX/.zshrc"
+    chmod 640 "$SBX/.zshrc"
     _run >/dev/null 2>&1
     local rc=$?
     chk assert_equals "0" "$rc" "convergence run exits zero"
+    # AX-21: the drift strip used a BSD-first stat probe — on Linux the rc
+    # ended at mktemp's 0600 (or the strip aborted on a failed chmod).
+    chk assert_equals "640" "$(stat -c '%a' "$SBX/.zshrc" 2>/dev/null || stat -f '%Lp' "$SBX/.zshrc")" \
+        "rc keeps its mode through the drift strip"
     ! grep -q 'NVM_SILENT=1' "$SBX/.zshrc" \
         && chk assert_equals "converged" "converged" "legacy NVM_SILENT=1 drift removed" \
         || chk assert_equals "converged" "still-present" "legacy NVM_SILENT=1 drift must be removed"
