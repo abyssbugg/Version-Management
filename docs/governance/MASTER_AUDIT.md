@@ -381,6 +381,22 @@ branch handoff; hosted CI is the next proof.
   `stat -f '%Lp' f` prints file-system data, so five rc/theme rewriters lost
   the file's mode (or aborted); two compared with a bare `cmp`, absent on the
   hosted Linux image. Repo-wide guard in `test_hygiene_smalls.sh`.
+- **AX-22 found by the first hosted run of the sweep (Buildkite #59; FIXED
+  `f5df759`).** (1) The version diagnostic's `--dry-run`
+  timed shell startup with `zsh -i -c exit`, which runs the system and user
+  rc files: on Ubuntu the global `/etc/zsh/zshrc` runs compinit, so the
+  "zero-write" preview created `~/.zcompdump` (reproduced in `ubuntu:22.04`
+  with the old tool). The probe is skipped in dry-run and still runs
+  otherwise; case (e3) pins both. (2) `--full` aborted on `ZSH_VERSION:
+  unbound variable` (the tool runs under bash) and reported the startup time
+  as seconds labelled ms (`00.123`), breaking its `-gt 500` test; it now asks
+  `zsh --version` and reports whole milliseconds. (3) system-diagnostics
+  `--versions` exited 1 on a Mac without a JDK: `/usr/bin/java` is a stub that
+  exits 1 and `java -version | head` ran under pipefail. (4) The setup-wizard
+  test asserted the profile menu, which a Linux runner never reaches (zsh is
+  not the login shell, so the step-1 prompt reads EOF and stops); it asserts
+  step 1 instead. RED for each in `test_tool_entrypoints.sh` /
+  `test_version_diagnostic_managed.sh`.
 - **REL-PROV (FIXED in workflow `cd726ec`, `88d92e4`).** Release jobs check out
   the attested SHA and assert a clean tree; actionlint 1.7.9 reports 0
   findings for both workflows. Live proof needs the first tagged release.

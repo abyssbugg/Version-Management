@@ -111,3 +111,7 @@ stated above; 5.1 stays in progress until a tagged release proves signing.
 Still open by design: P3-2 complete per-operation metadata, P3-4 API
 conformance tests, the deferred watch list (P2-10 Windows runner, P3-5).
 Linux-only behaviour (AX-21 stat/cmp, AX-7 class) is proven only by hosted CI.
+The first hosted run of the sweep (Buildkite #59) failed on Linux, macOS and
+kcov; the causes (AX-22: dry-run shell-startup probe, `--full` abort, macOS
+java stub, a Linux-unreachable wizard assertion) were reproduced, the Linux
+ones in `ubuntu:22.04`, and fixed with regressions.
