@@ -204,6 +204,50 @@ check grep -qx '# END version-management-setup:order' "$file"
 transaction_start mut_test
 transaction_rollback
 
+# AX-18: whole-file publication (version-advanced generators).
+env_dry_publish() { TRANSACTION_DRY_RUN=1 mutation_file_publish "$@"; }
+start_case publish
+gen="$HOME/gen.txt"
+printf 'A\n' >"$content"
+check mutation_file_publish "$gen" "$content"
+check test "$(cat "$gen")" = A
+transaction_rollback
+check test ! -e "$gen"
+start_case publish_replace
+printf 'orig\n' >"$gen"
+chmod 600 "$gen"
+printf 'new\n' >"$content"
+check mutation_file_publish "$gen" "$content"
+check test "$(cat "$gen")" = new
+check test "$(stat -c '%a' "$gen" 2>/dev/null || stat -f '%Lp' "$gen")" = 600
+transaction_rollback
+check test "$(cat "$gen")" = orig
+start_case publish_identical
+printf 'same\n' >"$gen"
+printf 'same\n' >"$content"
+touch -t 202001010000 "$gen"
+before=$(_txn_sha256 "$gen")
+m_before=$(stat -c '%Y' "$gen" 2>/dev/null || stat -f '%m' "$gen")
+check mutation_file_publish "$gen" "$content"
+check test "$m_before" = "$(stat -c '%Y' "$gen" 2>/dev/null || stat -f '%m' "$gen")"
+check test "$before" = "$(_txn_sha256 "$gen")"
+transaction_rollback
+start_case publish_refuse
+printf 'x\n' >"$content"
+mkdir -p "$HOME/adir"
+if mutation_file_publish "$HOME/adir" "$content"; then check false; fi
+check test -d "$HOME/adir"
+transaction_rollback
+if mutation_file_publish "$HOME/outside-txn" "$content"; then check false; fi
+check test ! -e "$HOME/outside-txn"
+start_case publish_dry
+printf 'x\n' >"$content"
+transaction_rollback
+TRANSACTION_DRY_RUN=1 transaction_start mut_dry
+check env_dry_publish "$HOME/new-dir/gen.txt" "$content"
+check test ! -e "$HOME/new-dir"
+TRANSACTION_DRY_RUN=1 transaction_rollback
+
 check test ! -d "$SB/source-home/.config-backups"
 printf 'Mutation editor: %s failure(s)\n' "$failures"
 [[ "$failures" == 0 ]]

@@ -408,6 +408,101 @@ mutation_block_remove() {
     return 0
 }
 
+# Publish a WHOLE generated file atomically and idempotently (AX-18): the
+# version-advanced.sh generators (Dockerfiles, docker-compose.yml, CI configs)
+# used to `cat >` straight over a user's existing — possibly hand-edited —
+# file with no backup, no preview and no atomicity.
+# Usage: mutation_file_publish <file> <content-file>
+# Same contract as mutation_block_write:
+#   - an active transaction is required; the pre-state (including "did not
+#     exist") is registered BEFORE the write, so rollback restores or removes
+#     the file byte-identically;
+#   - a symlink target stays a link — the rename lands on the resolved file
+#     (both registered); a target that is not a regular file is refused;
+#   - the existing file's mode is kept (a new file gets 0644);
+#   - identical content is a no-op (nothing registered, no mtime churn);
+#   - TRANSACTION_DRY_RUN=1 plans only — nothing is created, not even the
+#     parent directory;
+#   - the published bytes are verified against the content file.
+mutation_file_publish() {
+    local file="$1" content_file="$2"
+
+    [[ -n "$file" && -n "$content_file" ]] || { log_error "mutation_file_publish: empty argument"; return 1; }
+    [[ -f "$content_file" ]] || { log_error "mutation content file missing: $content_file"; return 1; }
+    [[ -n "$_TRANSACTION_ACTIVE" ]] || {
+        log_error "mutation_file_publish requires an active transaction (call transaction_start first)"
+        return 1
+    }
+    validate_safe_path "$file" >/dev/null 2>&1 || {
+        log_error "mutation_file_publish: target failed lexical validation: $file"
+        return 1
+    }
+
+    local dir write_target="$file"
+    dir=$(dirname "$file")
+    if [[ -L "$file" ]]; then
+        mutation_resolve_content_target "$file" || return 1
+        write_target="$_MUTATION_RESOLVED_TARGET"
+        dir=$(dirname "$write_target")
+    fi
+    if [[ -e "$write_target" && ! -f "$write_target" ]]; then
+        log_error "mutation_file_publish: target exists and is not a regular file — refusing: $file"
+        return 1
+    fi
+
+    if [[ -f "$write_target" ]] && mutation_files_identical "$content_file" "$write_target"; then
+        LOG_FILE='' log_info "Unchanged (already up to date): $file"
+        return 0
+    fi
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if [[ -e "$file" || -L "$file" ]]; then
+            LOG_FILE='' log_info "[dry-run] would replace: $file (the current file would be backed up first)"
+        else
+            LOG_FILE='' log_info "[dry-run] would create: $file"
+        fi
+        _txn_journal "mutation_publish" "mode=dry_run file=$file"
+        return 0
+    fi
+
+    [[ -d "$dir" ]] || { log_error "mutation target directory missing: $dir"; return 1; }
+
+    transaction_add_file "$file" || return 1
+    if [[ "$write_target" != "$file" ]]; then
+        transaction_add_file "$write_target" || return 1
+    fi
+
+    local tmp
+    tmp=$(mktemp "$dir/.vms-mutation.XXXXXX") || { log_error "mutation: cannot create temp file in $dir"; return 1; }
+    if ! cat -- "$content_file" > "$tmp"; then
+        rm -f -- "$tmp"
+        log_error "mutation_file_publish: cannot stage content for $file"
+        return 1
+    fi
+    if ! _mutation_preserve_mode "$write_target" "$tmp"; then
+        rm -f -- "$tmp"
+        log_error "mutation_file_publish: cannot preserve mode: $write_target"
+        return 1
+    fi
+    if ! mv -- "$tmp" "$write_target"; then
+        rm -f -- "$tmp"
+        log_error "mutation_file_publish: atomic rename failed: $write_target"
+        return 1
+    fi
+    if ! mutation_files_identical "$content_file" "$write_target"; then
+        log_error "mutation_file_publish: post-write verification FAILED: $file"
+        return 1
+    fi
+
+    if [[ "$write_target" != "$file" ]]; then
+        _txn_journal "mutation_publish" "file=$file via=$write_target"
+    else
+        _txn_journal "mutation_publish" "file=$file"
+    fi
+    log_info "Published: $file"
+    return 0
+}
+
 # Canonical NVM block (B2.1): ONE canonical block, ONE idempotency posture
 # (NVM_SILENT=true — the '1' vs 'true' drift is the P1-3 finding).
 mutation_nvm_block() {

@@ -60,6 +60,7 @@ Detects OS, shell, and environment characteristics.
 | `is_macos` | Check if running on macOS | 0 (true) or 1 (false) |
 | `is_linux` | Check if running on Linux | 0 (true) or 1 (false) |
 | `validate_env_var` | Validate environment variable exists | 0 or 1 |
+| `get_shell_config` | rc file the managed blocks target (canonical, AX-17) | `~/.zshrc`; bash: `~/.bashrc` if present else `~/.bash_profile`; others (incl. fish): `~/.profile` |
 | `vms_confirm_privileged` | Canonical consent gate for privileged (sudo) operations | 0 (confirmed) or 1 (declined) |
 
 ### `vms_confirm_privileged <subject> [<tag>]`
@@ -142,12 +143,20 @@ copy is kept as the backup.
 
 Validation (both functions, before any `rm`/`mv`; ENGINEERING_RULES 1.5):
 `target_dir` must be non-empty, absolute, free of newline/tab and of `.`/`..`
-components, not `/`, not `$HOME` or `$TMPDIR` themselves (trailing slashes
-normalized), and strictly under `$HOME` or `$TMPDIR` — installers therefore
-refuse a custom root such as `PYENV_ROOT=/opt/pyenv`. `staged_path` must be
-non-empty, absolute, free of newline/tab and `.`/`..` components, not `/`,
-not `$HOME`/`$TMPDIR`, and must not equal, contain, or lie inside
-`target_dir`.
+components, not `/`, and not `$HOME` or `$TMPDIR` themselves (trailing
+slashes normalized). `staged_path` must be non-empty, absolute, free of
+newline/tab and `.`/`..` components, not `/`, not `$HOME`/`$TMPDIR`, and must
+not equal, contain, or lie inside `target_dir`.
+
+A custom root outside `$HOME`/`$TMPDIR` (`PYENV_ROOT=/opt/pyenv`,
+`NVM_DIR=/usr/local/nvm`) is supported conservatively: an absent target needs
+no staging (a fresh install proceeds); a present one is moved aside unless it
+is a system root (a top-level directory, a second-level directory under an
+OS-owned root such as `/usr/local`, a package-manager prefix such as
+`/opt/homebrew`, or an ancestor of `$HOME`/`$TMPDIR`), which is refused; and
+`install_dir_restore` never `rm -rf`s outside `$HOME`/`$TMPDIR` — a partial
+install there is left in place with the staged copy, the manual steps are
+logged, and it returns 1.
 
 Under `TRANSACTION_DRY_RUN=1` both print their plan and touch nothing. Every
 real move/removal is appended to the audit journal (`TXN_AUDIT_LOG`, default
@@ -157,6 +166,19 @@ or without an active transaction and never blocks the operation.
 
 `lib/backup.sh` is re-source-safe: sourcing it again (the installer libraries
 source it unconditionally) preserves an active transaction's state.
+
+### `mutation_file_publish <file> <content-file>` (`lib/mutation.sh`)
+
+Publishes a whole generated file (AX-18; used by the `version-advanced.sh`
+Dockerfile, docker-compose and CI generators). Requires an active
+transaction. The pre-state — including "did not exist" — is registered
+before the write, so `transaction_rollback` restores or removes the file
+byte-identically. A symlinked target stays a link (the atomic rename lands
+on the resolved file); a target that exists but is not a regular file is
+refused; the existing mode is kept (new files get 0644); identical content
+is a no-op (nothing registered, mtime unchanged); the published bytes are
+verified. Under `TRANSACTION_DRY_RUN=1` it prints `[dry-run] would
+create|replace: <file>` and writes nothing, not even the parent directory.
 
 ---
 

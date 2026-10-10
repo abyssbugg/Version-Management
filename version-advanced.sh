@@ -36,20 +36,53 @@ ENABLE_LOGGING="${ENABLE_LOGGING:-true}"
 DEBUG_MODE="${DEBUG_MODE:-false}"
 SILENT_MODE="${SILENT_MODE:-false}"
 
+# Global flags and --dry-run (AX-1/AX-11 parity with version-manager.sh,
+# AX-18). parse_args runs inside a process substitution, so its assignments
+# never reached this shell and the documented global flags were no-ops.
+# Leading flags are applied here, before colors and logging are configured,
+# when the script is executed (a sourcing script's argv is ignored).
+# --dry-run may appear anywhere: every generator then prints its plan and
+# writes nothing (project files, HOME, logs).
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    _va_leading=1
+    for _va_flag in "$@"; do
+        if [[ "$_va_flag" == --dry-run ]]; then
+            export TRANSACTION_DRY_RUN=1
+            continue
+        fi
+        [[ "$_va_leading" == 1 ]] || continue
+        case "$_va_flag" in
+            --silent) SILENT_MODE=true ;;
+            --debug) DEBUG_MODE=true ;;
+            --no-color)
+                ENABLE_COLORS=false
+                export NO_COLOR=1
+                ;;
+            *) _va_leading=0 ;;
+        esac
+    done
+    unset _va_flag _va_leading
+fi
+if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+    ENABLE_LOGGING=false
+fi
+
 # ============================================================================
 # Color Definitions
 # ============================================================================
 
 if [[ "$ENABLE_COLORS" == "true" ]] && [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'
-    MAGENTA='\033[0;35m'
-    CYAN='\033[0;36m'
-    WHITE='\033[0;37m'
-    BOLD='\033[1m'
-    RESET='\033[0m'
+    # Real ESC bytes: show_usage prints these through a plain here-document,
+    # where a '\033' literal is shown verbatim (AX-11 parity).
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    BLUE=$'\033[0;34m'
+    MAGENTA=$'\033[0;35m'
+    CYAN=$'\033[0;36m'
+    WHITE=$'\033[0;37m'
+    BOLD=$'\033[1m'
+    RESET=$'\033[0m'
 else
     RED=''
     GREEN=''
@@ -81,6 +114,11 @@ source "$SCRIPT_DIR/lib/env.sh"
 # log() and command_exists() are provided by lib/env.sh (ROADMAP 4.2 dedup);
 # both are sourced above and guarded there so a caller override still wins.
 
+# Generated project files are published through the transaction framework
+# (AX-18): lib/mutation.sh brings lib/backup.sh and lib/validation.sh.
+# shellcheck source=lib/mutation.sh
+source "$SCRIPT_DIR/lib/mutation.sh"
+
 # ============================================================================
 # Utility Functions
 # ============================================================================
@@ -97,6 +135,108 @@ init_directories() {
 }
 
 # command_exists() is provided by lib/env.sh (ROADMAP 4.2 dedup).
+
+# ----------------------------------------------------------------------------
+# Generated-file publication (AX-18, P3-1)
+# ----------------------------------------------------------------------------
+# Every generator renders into a private staging file and publishes it with
+# mutation_file_publish: an existing (possibly hand-edited) file is backed up
+# by the transaction before it is replaced, unchanged content is a no-op, the
+# write is atomic, symlinks and modes are kept, and TRANSACTION_DRY_RUN=1
+# plans without writing. A command that generates several files (docker,
+# ci-all) runs as ONE transaction via _va_generate: any failure restores every
+# file the run had already written. A generator called on its own (sourced
+# use) opens a single-file transaction itself.
+
+_VA_CREATED_DIRS=()
+
+_va_stage() {
+    mktemp "${TMPDIR:-/tmp}/vms-va-stage.XXXXXX"
+}
+
+# _va_report <what> [<file>]: success line, worded as a plan under dry-run.
+_va_report() {
+    local what="$1" file="${2:-}"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] $what planned${file:+ for $file}; nothing written"
+    else
+        log_success "$what generated${file:+ at $file}"
+    fi
+}
+
+# Create a generator's output directory; planned only under dry-run. Every
+# directory this creates (including missing parents, outermost first) is
+# recorded so a failed run can remove them again.
+_va_ensure_dir() {
+    local dir="$1" probe
+    local -a va_new_dirs=()
+    [[ -d "$dir" ]] && return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would create directory: $dir"
+        return 0
+    fi
+    probe="$dir"
+    while [[ -n "$probe" && "$probe" != "." && "$probe" != "/" && ! -d "$probe" ]]; do
+        va_new_dirs=("$probe" ${va_new_dirs[@]+"${va_new_dirs[@]}"})
+        probe=$(dirname -- "$probe")
+    done
+    mkdir -p -- "$dir" || { log_error "Cannot create directory: $dir"; return 1; }
+    _VA_CREATED_DIRS+=(${va_new_dirs[@]+"${va_new_dirs[@]}"})
+    log_info "Created directory: $dir"
+}
+
+# _va_publish <target> <staged>: publish, always remove the staged file.
+_va_publish() {
+    local target="$1" staged="$2" rc=0 own=0
+    [[ "$target" == /* ]] || target="$PWD/$target"
+    if ! transaction_is_active; then
+        if ! transaction_start "version_advanced"; then
+            rm -f -- "$staged"
+            return 1
+        fi
+        own=1
+    fi
+    mutation_file_publish "$target" "$staged" || rc=1
+    rm -f -- "$staged"
+    if [[ "$own" == 1 ]]; then
+        if [[ "$rc" == 0 ]]; then
+            transaction_commit >/dev/null || rc=1
+        else
+            transaction_rollback >/dev/null 2>&1 || log_error "Rollback failed for $target — see the audit journal"
+        fi
+    fi
+    return "$rc"
+}
+
+# _va_generate <transaction-name> <generator-fn>...: run the generators as one
+# transaction; on any failure roll every written file back and remove the
+# directories this run created (only if they are empty again).
+_va_generate() {
+    local name="$1" fn rc=0 i
+    shift
+    _VA_CREATED_DIRS=()
+    transaction_start "$name" || return 1
+    for fn in "$@"; do
+        if ! "$fn"; then
+            rc=1
+            break
+        fi
+    done
+    if [[ "$rc" == 0 ]]; then
+        transaction_commit >/dev/null || rc=1
+    fi
+    if [[ "$rc" != 0 ]]; then
+        if transaction_is_active; then
+            transaction_rollback >/dev/null 2>&1 || log_error "Rollback failed — see the audit journal"
+        fi
+        for ((i = ${#_VA_CREATED_DIRS[@]} - 1; i >= 0; i--)); do
+            rmdir -- "${_VA_CREATED_DIRS[i]}" 2>/dev/null || true
+        done
+        log_error "Generation failed — files written by this run were restored"
+    fi
+    _VA_CREATED_DIRS=()
+    return "$rc"
+}
 
 # get_os: canonical implementation lives in lib/env.sh (sourced above, P1-9).
 # WSL is reported as "wsl". This script has no get_os consumers today — the
@@ -120,14 +260,13 @@ generate_github_actions() {
     validate_project_dir || return 1
 
     local workflow_dir=".github/workflows"
-    if [[ ! -d "$workflow_dir" ]]; then
-        mkdir -p "$workflow_dir"
-        log_info "Created GitHub Actions workflow directory"
-    fi
+    _va_ensure_dir "$workflow_dir" || return 1
 
     local workflow_file="$workflow_dir/version-manager.yml"
 
-    cat > "$workflow_file" << 'EOF'
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << 'EOF' || { rm -f -- "$staged"; return 1; }
 name: Version Manager CI
 
 on:
@@ -193,8 +332,9 @@ jobs:
       run: |
         npm test
 EOF
+    _va_publish "$workflow_file" "$staged" || return 1
 
-    log_success "GitHub Actions workflow generated at $workflow_file"
+    _va_report "GitHub Actions workflow" "$workflow_file"
 }
 
 # Generate GitLab CI configuration
@@ -203,7 +343,9 @@ generate_gitlab_ci() {
 
     local ci_file=".gitlab-ci.yml"
 
-    cat > "$ci_file" << 'EOF'
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << 'EOF' || { rm -f -- "$staged"; return 1; }
 stages:
   - test
 
@@ -249,8 +391,9 @@ java-test:
   script:
     - java -version
 EOF
+    _va_publish "$ci_file" "$staged" || return 1
 
-    log_success "GitLab CI configuration generated at $ci_file"
+    _va_report "GitLab CI configuration" "$ci_file"
 }
 
 # Generate CircleCI configuration
@@ -258,14 +401,13 @@ generate_circleci() {
     validate_project_dir || return 1
 
     local circleci_dir=".circleci"
-    if [[ ! -d "$circleci_dir" ]]; then
-        mkdir -p "$circleci_dir"
-        log_info "Created CircleCI directory"
-    fi
+    _va_ensure_dir "$circleci_dir" || return 1
 
     local config_file="$circleci_dir/config.yml"
 
-    cat > "$config_file" << 'EOF'
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << 'EOF' || { rm -f -- "$staged"; return 1; }
 version: 2.1
 
 jobs:
@@ -358,8 +500,9 @@ workflows:
       - rust-test
       - java-test
 EOF
+    _va_publish "$config_file" "$staged" || return 1
 
-    log_success "CircleCI configuration generated at $config_file"
+    _va_report "CircleCI configuration" "$config_file"
 }
 
 # Generate Docker CI job for GitHub Actions
@@ -367,14 +510,13 @@ generate_docker_ci() {
     validate_project_dir || return 1
 
     local workflow_dir=".github/workflows"
-    if [[ ! -d "$workflow_dir" ]]; then
-        mkdir -p "$workflow_dir"
-        log_info "Created GitHub Actions workflow directory"
-    fi
+    _va_ensure_dir "$workflow_dir" || return 1
 
     local workflow_file="$workflow_dir/docker-build.yml"
 
-    cat > "$workflow_file" << 'EOF'
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << 'EOF' || { rm -f -- "$staged"; return 1; }
 name: Docker Build
 
 on:
@@ -417,18 +559,19 @@ jobs:
         load: true
         tags: version-manager-${{ matrix.name }}:latest
 EOF
+    _va_publish "$workflow_file" "$staged" || return 1
 
-    log_success "Docker CI workflow generated at $workflow_file"
+    _va_report "Docker CI workflow" "$workflow_file"
 }
 
 # Generate all CI/CD templates
 generate_all_ci() {
     log_info "Generating all CI/CD templates..."
-    generate_github_actions
-    generate_gitlab_ci
-    generate_circleci
-    generate_docker_ci
-    log_success "All CI/CD templates generated successfully"
+    generate_github_actions || return 1
+    generate_gitlab_ci || return 1
+    generate_circleci || return 1
+    generate_docker_ci || return 1
+    _va_report "All CI/CD templates"
 }
 
 # ============================================================================
@@ -443,7 +586,9 @@ generate_dockerfile_node() {
     local dockerfile="Dockerfile.node"
     local node_version="${1:-$(cat .nvmrc 2>/dev/null || echo '20.19.2')}"
 
-    cat > "$dockerfile" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 # syntax=docker/dockerfile:1
 # Node.js multi-stage image (P2-7): full-toolchain builder, distro-slim
 # runtime, non-root USER, HEALTHCHECK, artifacts-only runtime copies.
@@ -471,8 +616,9 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "require('http').get('http://127.0.0.1:3000/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" || exit 1
 CMD ["npm", "start"]
 EOF
+    _va_publish "$dockerfile" "$staged" || return 1
 
-    log_success "Node.js Dockerfile generated at $dockerfile"
+    _va_report "Node.js Dockerfile" "$dockerfile"
 }
 
 # Generate Dockerfile for Python projects
@@ -483,7 +629,9 @@ generate_dockerfile_python() {
     local dockerfile="Dockerfile.python"
     local python_version="${1:-$(cat .python-version 2>/dev/null || echo '3.12.11')}"
 
-    cat > "$dockerfile" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 # syntax=docker/dockerfile:1
 # Python multi-stage image (P2-7): dependencies resolve into a virtualenv
 # in the builder, distro-slim runtime, non-root USER, HEALTHCHECK,
@@ -514,8 +662,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 CMD ["python", "app.py"]
 EOF
+    _va_publish "$dockerfile" "$staged" || return 1
 
-    log_success "Python Dockerfile generated at $dockerfile"
+    _va_report "Python Dockerfile" "$dockerfile"
 }
 
 # Generate docker-compose.yml
@@ -534,7 +683,9 @@ generate_docker_compose() {
     # there hid it and the container could not start. Host ports are unique —
     # python/rust both listen on 8000 and go/java on 8080 inside the
     # container, and duplicate host ports made `docker compose up` fail.
-    cat > "$compose_file" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 version: '3.8'
 
 services:
@@ -579,8 +730,9 @@ services:
     ports:
       - "8081:8080"
 EOF
+    _va_publish "$compose_file" "$staged" || return 1
 
-    log_success "docker-compose.yml generated at $compose_file"
+    _va_report "docker-compose.yml" "$compose_file"
 }
 
 # Generate Dockerfile for Go projects
@@ -591,7 +743,9 @@ generate_dockerfile_go() {
     local dockerfile="Dockerfile.go"
     local go_version="${1:-$(cat .go-version 2>/dev/null || echo '1.23.4')}"
 
-    cat > "$dockerfile" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 # syntax=docker/dockerfile:1
 # Go multi-stage image (P2-7): static build in the Go toolchain builder,
 # distro-slim runtime, non-root USER, HEALTHCHECK, binary-only copy.
@@ -616,8 +770,9 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
 CMD ["/app/server"]
 EOF
+    _va_publish "$dockerfile" "$staged" || return 1
 
-    log_success "Go Dockerfile generated at $dockerfile"
+    _va_report "Go Dockerfile" "$dockerfile"
 }
 
 # Generate Dockerfile for Rust projects
@@ -628,7 +783,9 @@ generate_dockerfile_rust() {
     local dockerfile="Dockerfile.rust"
     local rust_version="${1:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
 
-    cat > "$dockerfile" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 # syntax=docker/dockerfile:1
 # Rust multi-stage image (P2-7): release build in the Rust toolchain
 # builder, distro-slim runtime, non-root USER, HEALTHCHECK, binary-only
@@ -653,8 +810,9 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
 CMD ["/app/server"]
 EOF
+    _va_publish "$dockerfile" "$staged" || return 1
 
-    log_success "Rust Dockerfile generated at $dockerfile"
+    _va_report "Rust Dockerfile" "$dockerfile"
 }
 
 # Generate Dockerfile for Java projects
@@ -665,7 +823,9 @@ generate_dockerfile_java() {
     local dockerfile="Dockerfile.java"
     local java_version="${1:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
 
-    cat > "$dockerfile" << EOF
+    local staged
+    staged=$(_va_stage) || return 1
+    cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
 # syntax=docker/dockerfile:1
 # Java multi-stage image (P2-7): package in the JDK builder (assumes a
 # committed Maven wrapper ./mvnw), JRE runtime, non-root USER, HEALTHCHECK,
@@ -689,20 +849,21 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/actuator/health || exit 1
 CMD ["java", "-jar", "app.jar"]
 EOF
+    _va_publish "$dockerfile" "$staged" || return 1
 
-    log_success "Java Dockerfile generated at $dockerfile"
+    _va_report "Java Dockerfile" "$dockerfile"
 }
 
 # Generate all Docker configurations
 generate_docker_configs() {
     log_info "Generating Docker configurations..."
-    generate_dockerfile_node
-    generate_dockerfile_python
-    generate_dockerfile_go
-    generate_dockerfile_rust
-    generate_dockerfile_java
-    generate_docker_compose
-    log_success "Docker configurations generated successfully"
+    generate_dockerfile_node || return 1
+    generate_dockerfile_python || return 1
+    generate_dockerfile_go || return 1
+    generate_dockerfile_rust || return 1
+    generate_dockerfile_java || return 1
+    generate_docker_compose || return 1
+    _va_report "Docker configurations"
 }
 
 # ============================================================================
@@ -713,14 +874,20 @@ generate_docker_configs() {
 configure_auto_switch() {
     log_info "Configuring auto-switching for version managers..."
 
-    # This uses the existing version-manager.sh script for configuration
-    if [[ -f "./version-manager.sh" ]]; then
-        ./version-manager.sh auto-switch
-        log_success "Auto-switching configured successfully"
-    else
-        log_error "version-manager.sh not found. Cannot configure auto-switching."
+    # Delegates to THIS checkout's version-manager.sh (AX-18). The old
+    # "./version-manager.sh" resolved against the caller's working directory:
+    # it failed from any other directory and would execute an unrelated
+    # version-manager.sh sitting in the current project.
+    local vm="$SCRIPT_DIR/version-manager.sh"
+    if [[ ! -f "$vm" ]]; then
+        log_error "version-manager.sh not found next to $SCRIPT_NAME ($vm). Cannot configure auto-switching."
         return 1
     fi
+    if ! bash "$vm" auto-switch; then
+        log_error "Auto-switching configuration failed (see version-manager.sh output above)"
+        return 1
+    fi
+    log_success "Auto-switching configured successfully"
 }
 
 # ============================================================================
@@ -731,14 +898,20 @@ configure_auto_switch() {
 configure_lazy_load() {
     log_info "Configuring lazy-loading for version managers..."
 
-    # This uses the existing version-manager.sh script for configuration
-    if [[ -f "./version-manager.sh" ]]; then
-        ./version-manager.sh lazy-load
-        log_success "Lazy-loading configured successfully"
-    else
-        log_error "version-manager.sh not found. Cannot configure lazy-loading."
+    # Delegates to THIS checkout's version-manager.sh (AX-18). The old
+    # "./version-manager.sh" resolved against the caller's working directory:
+    # it failed from any other directory and would execute an unrelated
+    # version-manager.sh sitting in the current project.
+    local vm="$SCRIPT_DIR/version-manager.sh"
+    if [[ ! -f "$vm" ]]; then
+        log_error "version-manager.sh not found next to $SCRIPT_NAME ($vm). Cannot configure lazy-loading."
         return 1
     fi
+    if ! bash "$vm" lazy-load; then
+        log_error "Lazy-loading configuration failed (see version-manager.sh output above)"
+        return 1
+    fi
+    log_success "Lazy-loading configured successfully"
 }
 
 # ============================================================================
@@ -772,6 +945,11 @@ ${BOLD}Options:${RESET}
   --silent                  Run in silent mode
   --debug                   Enable debug output
   --no-color                Disable colored output
+  --dry-run                 Print what would be created/replaced; write nothing
+
+Generated files are published through a backup transaction: an existing
+file is backed up before it is replaced (restored if any later file of the
+same command fails), unchanged files are left untouched.
 
 ${BOLD}Examples:${RESET}
   # Configure automatic version switching
@@ -816,13 +994,22 @@ parse_args() {
         esac
     done
 
-    echo "$@"
+    # One word per line (AX-1 parity): `echo "$@"` space-joined the words, so
+    # `register <path>` arrived as the single unknown command "register <path>".
+    # --dry-run was applied before sourcing (AX-18) and is not a command word.
+    local word
+    for word in "$@"; do
+        [[ "$word" == --dry-run ]] && continue
+        printf '%s\n' "$word"
+    done
 }
 
 # Main function
 main() {
-    # Initialize
-    init_directories
+    # Initialize (a --dry-run preview writes nothing, not even these dirs)
+    if [[ "${TRANSACTION_DRY_RUN:-0}" != "1" ]]; then
+        init_directories
+    fi
 
     # Parse arguments
     local args
@@ -833,6 +1020,14 @@ main() {
     case "$command" in
         init)
             log_info "Initializing advanced version management system..."
+            if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                if [[ -f "$CONFIG_FILE" ]]; then
+                    log_info "[dry-run] $CONFIG_FILE exists; init would leave it unchanged"
+                else
+                    log_info "[dry-run] would create $CONFIG_FILE"
+                fi
+                return 0
+            fi
             # Create config directory and basic config file
             mkdir -p "$CONFIG_DIR"
             if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -849,7 +1044,11 @@ EOF
         register)
             log_info "Registering project directory..."
             local path="${args[1]:-.}"
-            echo "$path" >> "$STATE_DIR/projects.txt"
+            if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                log_info "[dry-run] would append $path to $STATE_DIR/projects.txt"
+                return 0
+            fi
+            printf '%s\n' "$path" >> "$STATE_DIR/projects.txt"
             log_success "Project directory registered: $path"
             ;;
         auto-switch)
@@ -859,31 +1058,31 @@ EOF
             configure_lazy_load
             ;;
         github-actions)
-            generate_github_actions
+            _va_generate version_advanced_github_actions generate_github_actions
             ;;
         gitlab-ci)
-            generate_gitlab_ci
+            _va_generate version_advanced_gitlab_ci generate_gitlab_ci
             ;;
         circleci)
-            generate_circleci
+            _va_generate version_advanced_circleci generate_circleci
             ;;
         ci-all)
-            generate_all_ci
+            _va_generate version_advanced_ci_all generate_all_ci
             ;;
         docker)
-            generate_docker_configs
+            _va_generate version_advanced_docker generate_docker_configs
             ;;
         docker-go)
-            generate_dockerfile_go
+            _va_generate version_advanced_docker_go generate_dockerfile_go
             ;;
         docker-rust)
-            generate_dockerfile_rust
+            _va_generate version_advanced_docker_rust generate_dockerfile_rust
             ;;
         docker-java)
-            generate_dockerfile_java
+            _va_generate version_advanced_docker_java generate_dockerfile_java
             ;;
         docker-compose)
-            generate_docker_compose
+            _va_generate version_advanced_docker_compose generate_docker_compose
             ;;
         help|--help|-h)
             show_usage
