@@ -275,6 +275,24 @@ test_portable_probes() {
     record assert_equals "" "$unguarded" "every cmp -s is guarded by command -v cmp (AX-21)"
 }
 
+# ENGINEERING_RULES 7.1: every release-asset download in CI/release config
+# (`curl ... -o <file>` of a GitHub release tarball) is SHA-256 verified
+# before use — the Buildkite gitleaks install used to unpack and install
+# an unverified tarball.
+test_ci_downloads_checksum_verified() {
+    local f unverified=""
+    for f in .buildkite/pipeline.yml .github/workflows/release.yml .github/workflows/test.yml; do
+        [[ -f "$ROOT_DIR/$f" ]] || continue
+        unverified+=$(awk -v f="$f" '
+            /curl .*-o / && /releases\/download|\\$/ { want = NR; next }
+            want && /releases\/download/ && !seen { seen = 1 }
+            want && /sha256sum -c/ { want = 0; seen = 0 }
+            want && NR - want > 6 { print f ":" want; want = 0; seen = 0 }
+            END { if (want) print f ":" want }' "$ROOT_DIR/$f")
+    done
+    record assert_equals "" "$unverified" "every CI release-asset download is SHA-256 verified (ENGINEERING_RULES 7.1)"
+}
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 test_make_clean_scoped
 test_sync_stub_removed
@@ -286,6 +304,7 @@ test_generated_workflows_sha_pinned
 test_package_json_no_shellcheck
 test_restore_byproduct_gone
 test_portable_probes
+test_ci_downloads_checksum_verified
 
 rm -rf "$HOME_SANDBOX"
 

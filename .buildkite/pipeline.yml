@@ -58,13 +58,20 @@ steps:
         key: "secret-scan"
         command: |
           git fetch --unshallow || true
-          command -v gitleaks >/dev/null 2>&1 || {
-            echo "installing pinned gitleaks v8.28.0"
+          # ENGINEERING_RULES 7.1: the pinned release tarball is SHA-256
+          # verified before it is unpacked or installed. The digest is the
+          # linux_x64 entry of gitleaks_8.28.0_checksums.txt, cross-checked
+          # against a locally hashed download (2026-10-10). Every step exits
+          # explicitly: errexit does not hold inside a `||` group.
+          if ! command -v gitleaks >/dev/null 2>&1; then
+            echo "installing pinned gitleaks v8.28.0 (SHA-256 verified)"
             curl -fsSL -o /tmp/gitleaks.tgz \
-              https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
-            tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
-            install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
-          }
+              https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz || exit 1
+            echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tgz" | sha256sum -c - \
+              || { echo "+++ gitleaks tarball checksum mismatch — refusing to install"; exit 1; }
+            tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks || exit 1
+            install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks || exit 1
+          fi
           gitleaks detect --verbose --redact
         agents:
           queue: "linux-small"
