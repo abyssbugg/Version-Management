@@ -75,7 +75,7 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 
 ## Deferred / Watch List
 
-- **Option C hybrid** (compiled helper for planning/locking/downloads) — revisit after Phase 3 ships. *(P3-5)*
+- **Option C hybrid** (compiled helper for planning/locking/downloads) — revisited after Phase 3 and **not adopted** ([ADR-006](adr/adr-006-compiled-helper-not-adopted.md), 2026-10-10). *(P3-5 decided)*
 - **Windows/Git-Bash CI runner** — only if native Windows support is ever implemented; today native Windows is documented as unsupported (`9cc1f67`). *(P2-10 resolved)*
 - **Module decomposition of `lib/cache.sh` / `version-manager.sh`** — refactor around stable interfaces only after Phase 4 contracts exist; file size alone is not a trigger.
 
@@ -126,6 +126,10 @@ P3-2 per-operation audit metadata (`e9c9730`); P3-4 API conventions and the
 fell open without `shasum` (`eb18556`). P2-10 is resolved by correcting the
 platform claims (`9cc1f67`), not by adding a Windows runner. The expected
 `broken` state of the dormant `release-attest` step is documented in
-`docs/RELEASE_CHECKLIST.md` (`5a0167d`). Still open: 5.1 live signing proof
-(needs the first tagged release, an owner action) and P3-5 (deferred by
-decision).
+`docs/RELEASE_CHECKLIST.md` (`5a0167d`). P3-5 was revisited, since its
+ADR-001 trigger had fired, and decided: Option C is not adopted (ADR-006).
+P2-1 is recorded as resolved by policy (ENGINEERING_RULES §3, enforced by
+`test_library_contract.sh`). SECURITY.md's audit-journal format and
+known-gaps list are current (`86792f8`); kcov `coverage/` is ignored
+(`8f83c42`). The only open item is 5.1 live signing proof, which closes
+with the first tagged release (an owner action).

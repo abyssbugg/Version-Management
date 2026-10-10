@@ -1,6 +1,6 @@
 # ADR-001: Keep Shell, Add Guardrails
 
-**Status:** Accepted (adjudicated 2026-07-04, MASTER_AUDIT §5.5; reinforced by remediation-directive rule 3, 2026-08-12)
+**Status:** Accepted (adjudicated 2026-07-04, MASTER_AUDIT §5.5; reinforced by remediation-directive rule 3, 2026-08-12). The deferred Option C clause is resolved by [ADR-006](adr-006-compiled-helper-not-adopted.md) (2026-10-10: not adopted).
 
 ## Context
 

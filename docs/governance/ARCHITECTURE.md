@@ -1,6 +1,6 @@
 # ARCHITECTURE — Current State & Target End-State
 
-**Decision record:** Keep the shell-native architecture and harden it (Option B — see MASTER_AUDIT §5.5). No rewrite. Compiled-helper hybrid deferred.
+**Decision record:** Keep the shell-native architecture and harden it (Option B — see MASTER_AUDIT §5.5). No rewrite. Compiled-helper hybrid (Option C) not adopted — [ADR-006](adr/adr-006-compiled-helper-not-adopted.md).
 
 ## Current architecture (verified at `ffda468`)
 
