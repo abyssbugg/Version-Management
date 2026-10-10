@@ -45,20 +45,21 @@ _LOGGER_SH_LOADED=1
 # shell options; callers own their strict-mode posture. Argument validation
 # and error propagation are explicit inside library functions.
 
-# Color codes for terminal output. Only defined when the caller has not
-# defined them: `${BLUE+x}` distinguishes UNSET from deliberately EMPTY (a
-# caller that disabled colors with BLUE='' keeps them disabled). Plain
-# assignments, not readonly (AX-12): a sourced library must not freeze the
-# caller's globals — scripts that define their own palette after sourcing
-# (setup-wizard, system-diagnostics, analytics-report) died at startup with
-# "GREEN: readonly variable".
-if [[ -z "${BLUE+x}" ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'
-    NC='\033[0m' # No Color
-fi
+# Color codes for terminal output. Each one is defined only when the caller
+# has not defined it: `${VAR=default}` leaves a set (even deliberately
+# EMPTY) variable alone, so a caller that disabled colors keeps them
+# disabled, and a caller's own — possibly readonly — palette is never
+# assigned to. Plain assignments, never readonly (AX-12): a sourced library
+# must not freeze the caller's globals — scripts that define their own
+# palette after sourcing (setup-wizard, system-diagnostics, analytics-report)
+# died at startup with "GREEN: readonly variable", and sourcing the logger
+# after a readonly partial palette (tools/preview-nerd-fonts.sh) died the
+# same way.
+: "${RED=\033[0;31m}"
+: "${GREEN=\033[0;32m}"
+: "${YELLOW=\033[1;33m}"
+: "${BLUE=\033[0;34m}"
+: "${NC=\033[0m}" # No Color
 
 # Check if terminal supports colors
 _supports_color() {

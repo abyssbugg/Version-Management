@@ -73,6 +73,14 @@ test_logger_globals_and_child_bash() {
     chk "palette=custom-green" "$out" "AX-12: a script may define its own palette after sourcing the logger"
 
     out=$(/usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin "$BASH_BIN" -c '
+        set -euo pipefail
+        readonly GREEN="g" RED="r" NC=""
+        source "$1/lib/logger.sh"
+        printf "sourced green=%s blue=%s\n" "$GREEN" "${BLUE:+set}"
+    ' _ "$ROOT_DIR" 2>&1)
+    chk "sourced green=g blue=set" "$out" "AX-12: sourcing the logger after a readonly partial palette keeps it and fills the rest"
+
+    out=$(/usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin "$BASH_BIN" -c '
         BLUE="" GREEN=""
         source "$1/lib/logger.sh"
         printf "blue=[%s] green=[%s]\n" "$BLUE" "$GREEN"
