@@ -388,6 +388,9 @@ test_helpers_outside_home_roots() {
     local sys_log="$LOGS/sysroot.log" p rc
     : > "$sys_log"
     for p in /usr /usr/bin /usr/local /etc; do
+        # Deliberate subshell-local shadows of mv/rm/mkdir (never exported,
+        # never meant for find -exec).
+        # shellcheck disable=SC2032
         (
             mv() { printf 'mv %s\n' "$*" >> "$sys_log"; return 1; }
             rm() { printf 'rm %s\n' "$*" >> "$sys_log"; return 1; }
