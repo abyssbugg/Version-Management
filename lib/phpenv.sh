@@ -202,6 +202,11 @@ phpenv_install_version() {
     fi
 
     # Install the version
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: phpenv install $version; nothing installed"
+        return 0
+    fi
+
     if phpenv install "$version" 2>/dev/null; then
         log_success "PHP $version installed successfully"
         # Invalidate cache

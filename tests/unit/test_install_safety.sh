@@ -586,6 +586,71 @@ test_brew_path_dry_run() {
     return "$_T_CASE_FAILS"
 }
 
+# ROADMAP 3.4: runtime installers (nvm/pyenv/goenv/rbenv/phpenv/rustup
+# version installs, global npm/pip/gem packages) ran for real under
+# TRANSACTION_DRY_RUN=1 / --dry-run.
+RTBIN="$_SBX/rtbin"
+mkdir -p "$RTBIN"
+for _t in pyenv goenv phpenv rustup rbenv jenv pip gem npm composer; do
+    printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >> "${RT_SHIM_LOG:-/dev/null}"\nexit 0\n' "$_t" > "$RTBIN/$_t"
+    chmod +x "$RTBIN/$_t"
+done
+unset _t
+
+_rt_dry_case() {  # <label> <kind lib|vm> <lib file|-> <fn> <arg> <expected plan text>
+    local label="$1" kind="$2" lib="$3" fn="$4" arg="$5" expect="$6" out rc script
+    _clean_home; _reset_logs
+    if [[ "$kind" == lib ]]; then
+        script='source "$1" >/dev/null 2>&1 || exit 97; "$2" "$3"'
+        out=$(_child TRANSACTION_DRY_RUN=1 RT_SHIM_LOG="$LOGS/rt" PATH="$RTBIN:$BREWBIN:$BASE_PATH" -- \
+            "$script" _ "$ROOT_DIR/lib/$lib" "$fn" "$arg" 2>&1)
+    else
+        script='root="$1"; fn="$2"; arg="$3"; set --
+source "$root/version-manager.sh" >/dev/null 2>&1 || exit 97
+"$fn" "$arg"'
+        out=$(_child TRANSACTION_DRY_RUN=1 RT_SHIM_LOG="$LOGS/rt" PATH="$RTBIN:$BREWBIN:$BASE_PATH" -- \
+            "$script" _ "$ROOT_DIR" "$fn" "$arg" 2>&1)
+    fi
+    rc=$?
+    chk 0 "$rc" "$label: dry-run returns 0"
+    chk_contains "$expect" "$out" "$label: dry-run prints the plan"
+    chk_not_contains "install" "$(_logs rt)" "$label: no install/global-package command runs"
+    chk "" "$(_logs brew)" "$label: no brew command runs"
+    chk 0 "$(_count "$HOME/.nvm" "$HOME/.pyenv" "$HOME/.rbenv" "$HOME/.phpenv")" "$label: no manager directory created"
+}
+
+test_runtime_installers_dry_run() {
+    _rt_dry_case "pyvm_install_version" lib pyvm.sh pyvm_install_version 3.12.1 "[dry-run] would run: pyenv install --skip-existing 3.12.1"
+    _rt_dry_case "gvm_install_version" lib gvm.sh gvm_install_version 1.23.4 "[dry-run] would run: goenv install 1.23.4"
+    _rt_dry_case "phpenv_install_version" lib phpenv.sh phpenv_install_version 8.3.0 "[dry-run] would run: phpenv install 8.3.0"
+    _rt_dry_case "rustup_install_version" lib rustup.sh rustup_install_version 1.81.0 "[dry-run] would run: rustup toolchain install 1.81.0"
+    _rt_dry_case "install_node_version" vm - install_node_version 20.19.2 "[dry-run] would run: nvm install 20.19.2"
+    _rt_dry_case "install_python_version" vm - install_python_version 3.12.1 "[dry-run] would run: pyenv install 3.12.1"
+    _rt_dry_case "install_ruby_version" vm - install_ruby_version 3.3.1 "[dry-run] would run: rbenv install 3.3.1"
+    _rt_dry_case "install_php_version" vm - install_php_version 8.3.0 "[dry-run] would run: phpenv install 8.3.0"
+    _rt_dry_case "install_fnm" vm - install_fnm "" "[dry-run] would run: brew install fnm"
+
+    # setup-versions.sh install-* through the CLI with --dry-run.
+    local proj="$_SBX/rtproj" out rc cmd
+    rm -rf -- "$proj" && mkdir -p "$proj"
+    printf '3.12.1\n' > "$proj/.python-version"
+    printf '1.23.4\n' > "$proj/.go-version"
+    printf '1.81.0\n' > "$proj/rust-toolchain"
+    printf '17\n' > "$proj/.java-version"
+    printf '8.3.0\n' > "$proj/.php-version"
+    for cmd in install-python install-go install-rust install-java install-php; do
+        _clean_home; _reset_logs
+        out=$(_child TRANSACTION_DRY_RUN=0 RT_SHIM_LOG="$LOGS/rt" PATH="$RTBIN:$BASE_PATH" -- \
+            'cd "$1" && exec "$BASH" "$2/setup-versions.sh" "$3" --dry-run' _ "$proj" "$ROOT_DIR" "$cmd" 2>&1)
+        rc=$?
+        chk 0 "$rc" "setup-versions $cmd --dry-run exits 0"
+        chk_contains "[dry-run] would run:" "$out" "setup-versions $cmd --dry-run prints the plan"
+        chk "" "$(grep -E ' (install|local) ' "$LOGS/rt" 2>/dev/null)" "setup-versions $cmd --dry-run runs no install/local command"
+    done
+    chk "17" "$(cat "$proj/.java-version")" "project version files untouched by --dry-run"
+    return "$_T_CASE_FAILS"
+}
+
 # =============================================================================
 # (d) privileged build-dependency installs need explicit consent
 # =============================================================================
@@ -878,6 +943,7 @@ run_tcase test_failed_clone_restores_libs
 run_tcase test_failed_clone_restores_version_manager
 run_tcase test_brew_path_never_displaces
 run_tcase test_brew_path_dry_run
+run_tcase test_runtime_installers_dry_run
 run_tcase test_privileged_installs_need_consent
 run_tcase test_confirm_gate_contract
 run_tcase test_cli_confirm_and_global_flags

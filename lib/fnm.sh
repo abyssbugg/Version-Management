@@ -56,6 +56,10 @@ fnm_install() {
     case "$os_type" in
         "macos")
             if command -v brew >/dev/null 2>&1; then
+                if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+                    log_info "[dry-run] would run: brew install fnm; nothing installed"
+                    return 0
+                fi
                 log_info "Installing fnm via Homebrew"
                 if brew install fnm; then
                     log_success "fnm installed successfully via Homebrew"

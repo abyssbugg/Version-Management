@@ -64,6 +64,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             export VMS_CONFIRM=1
             continue
         fi
+        # --dry-run anywhere (ROADMAP 3.4): every installer and rc writer
+        # previews instead of acting. configure/create-versions keep parsing
+        # their own --dry-run too.
+        if [[ "$_vms_flag" == --dry-run ]]; then
+            export TRANSACTION_DRY_RUN=1
+            continue
+        fi
         [[ "$_vms_leading" == 1 ]] || continue
         case "$_vms_flag" in
             --silent) SILENT_MODE=true ;;
@@ -157,7 +164,7 @@ fi
 _VMS_STATUS_MODE=false
 for _vms_arg in "$@"; do
     case "$_vms_arg" in
-        --silent|--debug|--no-color|--auto-install|--confirm) continue ;;
+        --silent|--debug|--no-color|--auto-install|--confirm|--dry-run) continue ;;
         *) break ;;
     esac
 done
@@ -573,6 +580,12 @@ install_fnm() {
         return 0
     fi
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: brew install fnm"
+        configure_fnm
+        return 0
+    fi
+
     if ! check_internet; then
         log_error "No internet connection available"
         return 1
@@ -930,6 +943,11 @@ install_node_version() {
 
     log_info "Installing Node.js version: $version"
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: nvm install $version, nvm use/alias default $version, npm install -g npm@latest yarn pnpm typescript ts-node nodemon pm2 (NVM is installed first when missing); nothing installed"
+        return 0
+    fi
+
     # Ensure NVM is installed
     if [[ ! -d "$HOME/.nvm" ]]; then
         log_warn "NVM not installed. Installing NVM first..."
@@ -972,6 +990,11 @@ install_python_version() {
 
     log_info "Installing Python version: $version"
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: pyenv install $version, pyenv global $version, pip install --upgrade pip setuptools wheel, pip install virtualenv pipenv poetry black flake8 mypy pytest (pyenv is installed first when missing); nothing installed"
+        return 0
+    fi
+
     # Ensure pyenv is installed
     if ! command_exists pyenv; then
         log_warn "Pyenv not installed. Installing pyenv first..."
@@ -1005,6 +1028,11 @@ install_ruby_version() {
 
     log_info "Installing Ruby version: $version"
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: rbenv install $version, rbenv global $version, gem install bundler rails pry rubocop (rbenv is installed first when missing); nothing installed"
+        return 0
+    fi
+
     # Ensure rbenv is installed
     if ! command_exists rbenv; then
         log_warn "rbenv not installed. Installing rbenv first..."
@@ -1036,6 +1064,11 @@ install_php_version() {
     fi
 
     log_info "Installing PHP version: $version"
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: phpenv install $version, phpenv global $version, Composer install if missing, composer global require laravel/installer (phpenv is installed first when missing); nothing installed"
+        return 0
+    fi
 
     # Ensure phpenv is installed
     if ! command_exists phpenv; then
@@ -1833,6 +1866,9 @@ ${BOLD}Options:${RESET}
   --auto-install            Reserved (accepted; currently has no effect)
   --confirm                 Consent to privileged (sudo) install steps
                             non-interactively (same as VMS_CONFIRM=1)
+  --dry-run                 Print what install-*/configure/create-versions
+                            would do; install nothing, change no user file
+                            (same as TRANSACTION_DRY_RUN=1)
 
 ${BOLD}Examples:${RESET}
   # Install all version managers
@@ -1888,7 +1924,7 @@ parse_args() {
                 AUTO_INSTALL=true
                 shift
                 ;;
-            --confirm)
+            --confirm|--dry-run)
                 shift
                 ;;
             *)
@@ -1906,7 +1942,7 @@ parse_args() {
     # command word.
     local word
     for word in "$@"; do
-        [[ "$word" == --confirm ]] && continue
+        [[ "$word" == --confirm || "$word" == --dry-run ]] && continue
         printf '%s\n' "$word"
     done
 }

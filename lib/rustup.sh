@@ -186,6 +186,11 @@ rustup_install_version() {
     fi
 
     # Install the version
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: rustup toolchain install $version; nothing installed"
+        return 0
+    fi
+
     if rustup toolchain install "$version" 2>/dev/null; then
         log_success "Rust $version installed successfully"
         # Invalidate cache

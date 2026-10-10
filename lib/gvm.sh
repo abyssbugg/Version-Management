@@ -168,6 +168,11 @@ gvm_install_version() {
     fi
 
     # Install the version
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: goenv install $version; nothing installed"
+        return 0
+    fi
+
     if goenv install "$version" 2>/dev/null; then
         log_success "Go $version installed successfully"
         # Invalidate cache

@@ -54,8 +54,9 @@ DEFAULT_COMMAND="pro-status"
 
 # Usage information
 usage() {
-    log_info "Usage: $0 [command]"
+    log_info "Usage: $0 [command] [--dry-run]"
     log_info "  command: Action to perform (default: $DEFAULT_COMMAND)"
+    log_info "  --dry-run: print what would be installed/changed; change nothing"
     log_info ""
     log_info "Available commands:"
     log_info "  pro-status    - Show professional status of version managers"
@@ -362,6 +363,10 @@ install_node_version() {
     local node_version
     node_version=$(cat .nvmrc)
     log_info "Target Node.js version: v$node_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: nvm install $node_version (reinstalling global packages from the current version), nvm use/alias default; nothing installed"
+        return 0
+    fi
 
     # Source nvm and install
     if source_nvm_if_available; then
@@ -405,6 +410,10 @@ install_python_version() {
     local python_version
     python_version=$(cat .python-version)
     log_info "Target Python version: $python_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: pyenv install $python_version, pyenv local $python_version; nothing installed"
+        return 0
+    fi
 
     # Install Python version
     log_info "Installing Python $python_version..."
@@ -527,6 +536,12 @@ _setup_versions_strip_legacy_nvm() {
 # Main function
 main() {
     local command="${1:-$DEFAULT_COMMAND}"
+    # --dry-run (ROADMAP 3.4): installers print their plan, rc writers
+    # preview; no lock is taken because nothing is mutated.
+    local arg
+    for arg in "$@"; do
+        [[ "$arg" == --dry-run ]] && export TRANSACTION_DRY_RUN=1
+    done
 
     # Validate command parameter
     case "$command" in
@@ -555,7 +570,7 @@ main() {
             ;;
     esac
 
-    case "$command" in
+    [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]] || case "$command" in
         configure-nvm)
             # Writes the managed NVM block in $HOME/.zshrc — the SAME target
             # version-manager.sh and lib/auto-activate.sh guard. Share one lock
@@ -618,6 +633,10 @@ install_go_version() {
     local go_version
     go_version=$(cat .go-version)
     log_info "Target Go version: $go_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: goenv install $go_version, goenv local $go_version; nothing installed"
+        return 0
+    fi
 
     # Install Go version
     log_info "Installing Go $go_version..."
@@ -649,6 +668,10 @@ install_rust_version() {
     local rust_version
     rust_version=$(cat rust-toolchain)
     log_info "Target Rust version: $rust_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: rustup toolchain install $rust_version; nothing installed"
+        return 0
+    fi
 
     # Install Rust version
     log_info "Installing Rust $rust_version..."
@@ -677,6 +700,10 @@ install_java_version() {
     local java_version
     java_version=$(cat .java-version)
     log_info "Target Java version: $java_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: jenv local $java_version; nothing installed"
+        return 0
+    fi
 
     # Set local Java version
     log_info "Setting Java $java_version..."
@@ -705,6 +732,10 @@ install_php_version() {
     local php_version
     php_version=$(cat .php-version)
     log_info "Target PHP version: $php_version"
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: phpenv install $php_version, phpenv local $php_version, Composer install if missing; nothing installed"
+        return 0
+    fi
 
     # Install PHP version
     log_info "Installing PHP $php_version..."

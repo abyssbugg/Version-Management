@@ -192,6 +192,11 @@ nvm_install_version() {
         return 0
     fi
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: nvm install $clean_version (reinstalling global packages from the current version); nothing installed"
+        return 0
+    fi
+
     # Sync global packages from current version during install
     local install_args=("$clean_version")
     local sync_from
@@ -450,6 +455,11 @@ nvm_install_lts() {
     if [[ "$sync_from" != "none" && "$sync_from" != "system" ]]; then
         lts_install_args+=("--reinstall-packages-from=$sync_from")
         log_info "Will sync global packages from $sync_from"
+    fi
+
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: nvm install ${lts_install_args[*]}; nothing installed"
+        return 0
     fi
 
     if nvm install "${lts_install_args[@]}" >/dev/null 2>&1; then

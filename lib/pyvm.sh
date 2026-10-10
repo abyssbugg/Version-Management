@@ -196,6 +196,11 @@ pyvm_install_version() {
     fi
 
     # Install the version
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would run: pyenv install --skip-existing $version; nothing installed"
+        return 0
+    fi
+
     if pyenv install --skip-existing "$version" 2>/dev/null; then
         log_success "Python $version installed successfully"
         # Invalidate cache
