@@ -163,3 +163,6 @@ pyenv/phpenv installers skipped WSL build dependencies); both are fixed in
 WSL-3) cannot run until the GitHub Actions billing lock is cleared — the
 same owner action that keeps 5.1 at `[~]` (a manual Test dispatch on
 2026-10-11 was refused with "account is locked due to a billing issue").
+Also fixed: an interrupted test run orphaned the running test and leaked its
+sandbox (TH-1, `4e15ee7`). The release SHA is re-attested after each landing;
+the newest `.release-attested-*` marker names the commit to tag.

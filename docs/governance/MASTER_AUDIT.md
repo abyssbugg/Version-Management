@@ -582,10 +582,25 @@ Found on the way: `tests/unit/test_lock.sh` resolved `source
 `lib/` (true inside `.worktrees/`, where SC2032 fired). An explicit
 `# shellcheck source=` makes the result location-independent (`82840d9`).
 
-Hosted evidence: Buildkite #68 (`82840d9`) passed every gate — Linux
-73/73, macOS 73/73, kcov union coverage 2197/5583 = 39.35% (floor 37.0).
-Local gate in the worktree: lint (132 scripts), syntax (141 files), unit
-49/49, integration 24/24, actionlint 1.7.12 clean on all three workflows.
+TH-1 (test hygiene, **FIXED** `4e15ee7`; found when an interrupted local run left
+`vms-test-home.*`/`vms-test-out.*` behind): `tests/test_runner.sh` starts each
+file in its own session, so TERM, HUP or Ctrl-C aimed at the runner never
+reached the test. The test kept running as an orphan and its sandbox and
+output file stayed in TMPDIR. The runner now traps INT/TERM/HUP, stops the
+file's process group and removes both; parallel mode forwards TERM to every
+per-file subshell. `tests/integration/test_runner_interrupt.sh`: RED 7
+failures on `cedeb3b` (sequential TERM, sequential INT, parallel TERM: an
+orphaned test and a leaked sandbox and output file in each case, plus the
+runner ignoring a lone INT) → GREEN. The 34 directories that pre-fix runs had
+left in TMPDIR were deleted.
+
+Hosted evidence: Buildkite #68 (`82840d9`), #69 (`9fd2012`) and #70 (the
+attestation-marker commit `cedeb3b`) passed every gate — Linux 73/73, macOS
+73/73, kcov union coverage 2197/5583 = 39.35% (floor 37.0). Local gate in the
+worktree: lint (132 scripts), syntax (141 files), unit 49/49, integration
+24/24, actionlint 1.7.12 clean on all three workflows; with TH-1, lint 133
+scripts, syntax 142 files, integration 25/25, and Buildkite #72 (`4e15ee7`)
+passed every gate with Linux 74/74 and macOS 74/74.
 
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
