@@ -282,15 +282,16 @@ test_portable_probes() {
 # before use — the Buildkite gitleaks install used to unpack and install
 # an unverified tarball.
 test_ci_downloads_checksum_verified() {
-    local f unverified=""
-    for f in .buildkite/pipeline.yml .github/workflows/release.yml .github/workflows/test.yml; do
-        [[ -f "$ROOT_DIR/$f" ]] || continue
+    local p f unverified=""
+    for p in "$ROOT_DIR"/.buildkite/pipeline.yml "$ROOT_DIR"/.github/workflows/*.yml; do
+        [[ -f "$p" ]] || continue
+        f="${p#"$ROOT_DIR"/}"
         unverified+=$(awk -v f="$f" '
             /curl .*-o / && /releases\/download|\\$/ { want = NR; next }
             want && /releases\/download/ && !seen { seen = 1 }
             want && /sha256sum -c/ { want = 0; seen = 0 }
             want && NR - want > 6 { print f ":" want; want = 0; seen = 0 }
-            END { if (want) print f ":" want }' "$ROOT_DIR/$f")
+            END { if (want) print f ":" want }' "$p")
     done
     record assert_equals "" "$unverified" "every CI release-asset download is SHA-256 verified (ENGINEERING_RULES 7.1)"
 }
@@ -312,6 +313,26 @@ test_precommit_revs_sha_pinned() {
     record assert_equals "4" "$count" "all four remote hook repos are SHA-pinned (RA-5)"
 }
 
+# WSL-3: every action used by this repository's own workflows is pinned to a
+# full commit SHA with a version comment (AGENTS.md; a tag can be moved
+# upstream, a commit cannot). Glob, not a list, so a new workflow is covered
+# the moment it lands. 40-hex is checked with grep -E (mawk has no {n}).
+test_repo_workflow_actions_sha_pinned() {
+    local f rel unpinned="" files=0 uses=0
+    for f in "$ROOT_DIR"/.github/workflows/*.yml; do
+        [[ -f "$f" ]] || continue
+        files=$((files + 1))
+        rel="${f#"$ROOT_DIR"/}"
+        uses=$((uses + $(grep -cE '^[[:space:]]*(-[[:space:]]+)?uses:' "$f")))
+        unpinned+=$(grep -nE '^[[:space:]]*(-[[:space:]]+)?uses:' "$f" \
+            | grep -vE 'uses:[[:space:]]*[^@[:space:]]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]' \
+            | sed "s|^|$rel:|")
+    done
+    record assert_equals "" "$unpinned" "every .github/workflows action is commit-SHA pinned with a version comment (WSL-3)"
+    record assert_equals "1" "$([[ "$files" -ge 3 && "$uses" -gt 0 ]] && echo 1 || echo 0)" \
+        "the pin guard scanned the workflows ($files files, $uses uses lines)"
+}
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 test_make_clean_scoped
 test_sync_stub_removed
@@ -325,6 +346,7 @@ test_restore_byproduct_gone
 test_portable_probes
 test_ci_downloads_checksum_verified
 test_precommit_revs_sha_pinned
+test_repo_workflow_actions_sha_pinned
 
 rm -rf "$HOME_SANDBOX"
 

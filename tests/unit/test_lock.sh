@@ -3,6 +3,10 @@
 set -euo pipefail
 
 source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
+# Explicit path: without it ShellCheck resolved ../../lib/lock.sh against the
+# checkout's parent directory, so the lint result depended on where the
+# repository was checked out.
+# shellcheck source=lib/lock.sh
 source ../../lib/lock.sh
 
 coverage_init "lock"
@@ -235,6 +239,9 @@ test_reclaim_never_displaces_recycled_live_lock() {
   }
   mv() { _race_hook; command mv "$@"; }
   rmdir() { _race_hook; command rmdir "$@"; }
+  # The shims target lock.sh's own mv/rmdir/rm calls; logger.sh's
+  # `find ... -delete` is not meant to reach them.
+  # shellcheck disable=SC2032
   rm() { _race_hook; command rm "$@"; }
   _lock_reclaim_if_stale "$L" >/dev/null 2>&1 || true
   unset -f mv rmdir rm _race_hook

@@ -1,0 +1,87 @@
+name: WSL2
+
+# Live WSL2 lane (MASTER_AUDIT WSL-3). Buildkite (.buildkite/pipeline.yml) is
+# the sole AUTOMATIC CI engine, but it has no Windows hosts, so the WSL2 run
+# lives here on a GitHub-hosted Windows runner. MANUAL-ONLY
+# (workflow_dispatch), like test.yml, so the two engines never double-fire.
+# Run it before a release that touches platform code:
+#   gh workflow run wsl.yml --ref <branch>
+#
+# The suite runs as an unprivileged user from a clone in the Linux
+# filesystem: that is how a real WSL2 user runs it, it exercises the
+# permission cases that are skipped as root, and the clone gets LF line
+# endings and git file modes instead of DrvFs (/mnt/<drive>) semantics.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wsl2:
+    name: Tests (WSL2, Ubuntu 24.04)
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      # Hand the workspace to the Linux guest as a translated path (/p).
+      WSLENV: GITHUB_WORKSPACE/p
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up WSL2 (Ubuntu 24.04)
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364  # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 2
+          additional-packages: git make python3 shellcheck zsh
+
+      - name: Prove the guest runs a WSL2 kernel
+        shell: wsl-bash -u root {0}
+        run: |
+          cat /proc/version
+          grep -q 'WSL2' /proc/sys/kernel/osrelease
+
+      - name: Stage an unprivileged clone in the Linux filesystem
+        shell: wsl-bash -u root {0}
+        run: |
+          src="${GITHUB_WORKSPACE:?WSLENV did not pass GITHUB_WORKSPACE}"
+          # The Windows checkout is owned by another uid as seen from the guest.
+          git config --global --add safe.directory "$src"
+          useradd --create-home --shell /bin/bash vmstest
+          git clone --quiet --no-local "$src" /home/vmstest/vms
+          chown -R vmstest:vmstest /home/vmstest/vms
+
+      - name: Live platform contract (get_os reports wsl)
+        shell: wsl-bash -u vmstest {0}
+        run: |
+          cd /home/vmstest/vms
+          got="$(bash -c 'source lib/env.sh >/dev/null 2>&1; get_os')"
+          echo "get_os -> $got"
+          test "$got" = wsl
+
+      - name: Full suite (make test)
+        shell: wsl-bash -u vmstest {0}
+        run: |
+          cd /home/vmstest/vms
+          make test
+
+      - name: Copy the test manifest out of the guest
+        if: always()
+        shell: wsl-bash -u root {0}
+        run: |
+          dest="${GITHUB_WORKSPACE:?WSLENV did not pass GITHUB_WORKSPACE}/test-results-wsl2"
+          mkdir -p "$dest"
+          if [ -d /home/vmstest/vms/test-results ]; then
+            cp -R /home/vmstest/vms/test-results/. "$dest/"
+          else
+            echo "no test-results directory was produced"
+          fi
+
+      - name: Upload the test manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: test-results-wsl2
+          path: test-results-wsl2/
+          if-no-files-found: warn
