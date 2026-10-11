@@ -299,13 +299,13 @@ test_ci_downloads_checksum_verified() {
 # full commit SHA with a `# frozen: <tag>` comment — a tag can be moved
 # upstream, a commit cannot.
 test_precommit_revs_sha_pinned() {
+    # awk only selects the rev lines of remote repos; the 40-hex check is done
+    # by grep -E because mawk (Ubuntu's default awk) has no {n} intervals.
     local unpinned
     unpinned=$(awk '
         /^[[:space:]]*-[[:space:]]*repo:/ { remote = ($0 !~ /repo:[[:space:]]*(local|meta)[[:space:]]*$/) ; next }
-        remote && /^[[:space:]]*rev:/ {
-            if ($0 !~ /rev:[[:space:]]*[0-9a-f]{40}[[:space:]]+#[[:space:]]*frozen:[[:space:]]*[^[:space:]]+/) print NR ": " $0
-            remote = 0
-        }' "$ROOT_DIR/.pre-commit-config.yaml")
+        remote && /^[[:space:]]*rev:/ { print NR ": " $0; remote = 0 }' "$ROOT_DIR/.pre-commit-config.yaml" \
+        | grep -Ev 'rev:[[:space:]]*[0-9a-f]{40}[[:space:]]+#[[:space:]]*frozen:[[:space:]]*[^[:space:]]+')
     record assert_equals "" "$unpinned" "every remote pre-commit rev is a commit SHA with a frozen tag comment (RA-5)"
     local count
     count=$(grep -cE '^[[:space:]]*rev:[[:space:]]*[0-9a-f]{40}[[:space:]]+# frozen:' "$ROOT_DIR/.pre-commit-config.yaml")
