@@ -206,10 +206,11 @@ Run the built-in compatibility check:
 ./tools/system-diagnostics.sh --full
 ```
 
-Or run the cross-platform test:
+Or run the cross-platform test (through the runner, which gives it a
+sandboxed HOME — test files refuse to run against your real home):
 
 ```bash
-./tests/integration/test_cross_platform.sh
+TEST_FILTER=/integration/test_cross_platform.sh bash tests/test_runner.sh integration
 ```
 
 ## Reporting Compatibility Issues

@@ -2,6 +2,78 @@
 
 # Test helpers for shell scripts
 
+# =============================================================================
+# RA-6 (re-audit 2026-10-10): refuse to run against the real home directory.
+# =============================================================================
+# Tests mutate $HOME freely (rc files, backups, fonts, state). They are meant
+# to run under tests/test_runner.sh, which gives every test file a fresh
+# mktemp HOME. A test started by hand from a normal shell would otherwise
+# write into the developer's real home. The account's home is read from the
+# password database, not from $HOME, and compared after resolving symlinks.
+# Fail closed when it cannot be determined. A non-interactive shell (a test
+# file) exits; an interactive shell that sources this file only gets
+# `return 1`, so a developer's session is never killed.
+# tests/test_runner.sh itself runs in the real home (it CREATES the sandboxes)
+# and opts out by setting the NON-exported shell variable
+# _VMS_HELPERS_CALLER=test_runner. An exported (inherited) value is ignored,
+# so a test child can never inherit the opt-out.
+_vms_passwd_home() {
+  local user home=""
+  if command -v python3 >/dev/null 2>&1; then
+    home=$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null) || home=""
+  fi
+  if [[ -z "$home" ]]; then
+    user=$(id -un 2>/dev/null) || user=""
+    if [[ -n "$user" ]] && command -v getent >/dev/null 2>&1; then
+      home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6) || home=""
+    elif [[ -n "$user" ]] && command -v dscl >/dev/null 2>&1; then
+      home=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}') || home=""
+    fi
+  fi
+  [[ -n "$home" ]] || return 1
+  printf '%s\n' "$home"
+}
+
+_vms_canonical_dir() {  # print the symlink-resolved path, or the input unchanged
+  local d="${1%/}"
+  [[ -n "$d" ]] || d="/"
+  if [[ -d "$d" ]]; then
+    (cd -P -- "$d" 2>/dev/null && pwd -P) || printf '%s\n' "$d"
+  else
+    printf '%s\n' "$d"
+  fi
+}
+
+_vms_refuse_real_home() {
+  local real current
+  if [[ -z "${HOME:-}" ]]; then
+    echo "FATAL: tests/helpers.sh: HOME is unset — run tests via tests/test_runner.sh (sandboxed HOME, RA-6)" >&2
+    return 1
+  fi
+  if ! real=$(_vms_passwd_home); then
+    echo "FATAL: tests/helpers.sh: cannot determine this account's home directory to prove HOME is a sandbox — refusing (RA-6)" >&2
+    return 1
+  fi
+  current=$(_vms_canonical_dir "$HOME")
+  real=$(_vms_canonical_dir "$real")
+  if [[ "$current" == "$real" ]]; then
+    echo "FATAL: tests/helpers.sh: HOME is your real home ($real) — tests mutate HOME; run them via tests/test_runner.sh or make test-unit (sandboxed HOME, RA-6)" >&2
+    return 1
+  fi
+  return 0
+}
+
+_vms_helpers_runner_optout() {
+  [[ "$(declare -p _VMS_HELPERS_CALLER 2>/dev/null)" == 'declare -- _VMS_HELPERS_CALLER="test_runner"' ]]
+}
+
+if ! _vms_helpers_runner_optout && ! _vms_refuse_real_home; then
+  case "$-" in
+    *i*) return 1 ;;
+    *) exit 1 ;;
+  esac
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -104,42 +176,6 @@ assert_exit_code() {
   else
     echo -e "${RED}✗ ${message} (expected exit $expected_code, got $actual_code)${NC}"
     return 1
-  fi
-}
-
-# Mocking functions
-mock_command() {
-  local command="$1"
-  local mock_script="$2"
-  local var_name="ORIGINAL_${command}"
-
-  # Check if the original variable is set
-  if [ -z "${!var_name}" ]; then
-    # Save original command path
-    eval "${var_name}=\"\$(type -P ${command})\""
-  fi
-
-  # Create mock script
-  echo "#!/usr/bin/env bash" > "$mock_script"
-  echo "echo \"Mocked $command called with \$@\"" >> "$mock_script"
-  chmod +x "$mock_script"
-
-  # Override PATH to include mock directory
-  export PATH="/tmp/mocks:$PATH"
-  mkdir -p /tmp/mocks
-  ln -sf "$mock_script" "/tmp/mocks/$command"
-}
-
-restore_command() {
-  local command="$1"
-  local var_name="ORIGINAL_${command}"
-  local original_path="${!var_name}"
-
-  if [ -n "$original_path" ]; then
-    # Remove mock
-    rm -f "/tmp/mocks/$command"
-    # Restore PATH
-    export PATH="${PATH//\/tmp\/mocks:/}"
   fi
 }
 

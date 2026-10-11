@@ -28,45 +28,48 @@ test-all: test
 # ============================================================================
 # Individual Unit Test Targets
 # ============================================================================
+# Each target runs ONE test file through tests/test_runner.sh (sandboxed
+# HOME, cwd = test dir) — never `bash tests/...` directly, which ran the
+# test against the real HOME from the repo root (RA-6).
 
 # Core library tests
 test-env:
 	@echo "=== Testing lib/env.sh ==="
-	@bash tests/unit/test_env.sh
+	@TEST_FILTER=/unit/test_env.sh bash tests/test_runner.sh unit
 
 test-logger:
 	@echo "=== Testing lib/logger.sh ==="
-	@bash tests/unit/test_logger.sh
+	@TEST_FILTER=/unit/test_logger.sh bash tests/test_runner.sh unit
 
 test-cache:
 	@echo "=== Testing lib/cache.sh ==="
-	@bash tests/unit/test_cache.sh
+	@TEST_FILTER=/unit/test_cache.sh bash tests/test_runner.sh unit
 
 test-backup:
 	@echo "=== Testing lib/backup.sh ==="
-	@bash tests/unit/test_backup.sh
+	@TEST_FILTER=/unit/test_backup.sh bash tests/test_runner.sh unit
 
 # Version manager tests
 test-gvm:
 	@echo "=== Testing lib/gvm.sh (Go) ==="
-	@bash tests/unit/test_gvm.sh
+	@TEST_FILTER=/unit/test_gvm.sh bash tests/test_runner.sh unit
 
 test-jenv:
 	@echo "=== Testing lib/jenv.sh (Java) ==="
-	@bash tests/unit/test_jenv.sh
+	@TEST_FILTER=/unit/test_jenv.sh bash tests/test_runner.sh unit
 
 test-rustup:
 	@echo "=== Testing lib/rustup.sh (Rust) ==="
-	@bash tests/unit/test_rustup.sh
+	@TEST_FILTER=/unit/test_rustup.sh bash tests/test_runner.sh unit
 
 # Theme and advanced tests
 test-theme:
 	@echo "=== Testing lib/theme-ops.sh ==="
-	@bash tests/unit/test_theme_ops.sh
+	@TEST_FILTER=/unit/test_theme_ops.sh bash tests/test_runner.sh unit
 
 test-advanced:
 	@echo "=== Testing version-advanced.sh ==="
-	@bash tests/unit/test_version_advanced.sh
+	@TEST_FILTER=/unit/test_version_advanced.sh bash tests/test_runner.sh unit
 
 # ============================================================================
 # Integration Test Targets
@@ -74,15 +77,15 @@ test-advanced:
 
 test-setup:
 	@echo "=== Testing setup integration ==="
-	@bash tests/integration/test_setup.sh
+	@TEST_FILTER=/integration/test_setup.sh bash tests/test_runner.sh integration
 
 test-nvm-fixes:
 	@echo "=== Testing NVM fixes integration ==="
-	@bash tests/integration/test_nvm_fixes.sh
+	@TEST_FILTER=/integration/test_nvm_fixes.sh bash tests/test_runner.sh integration
 
 test-version-manager:
 	@echo "=== Testing version manager integration ==="
-	@bash tests/integration/test_version_manager.sh
+	@TEST_FILTER=/integration/test_version_manager.sh bash tests/test_runner.sh integration
 
 # ============================================================================
 # Coverage and Reporting

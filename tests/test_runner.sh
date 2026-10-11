@@ -32,7 +32,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source test helpers (for coverage reporting)
+# Source test helpers (for coverage reporting). The runner runs in the real
+# home — it creates the per-test sandboxes — so it opts out of helpers.sh's
+# real-HOME refusal (RA-6) with a NON-exported variable that test children
+# never inherit.
+# shellcheck disable=SC2034 # read by tests/helpers.sh via declare -p
+_VMS_HELPERS_CALLER=test_runner
 # shellcheck source=tests/helpers.sh
 if [[ -f "$SCRIPT_DIR/helpers.sh" ]]; then
     source "$SCRIPT_DIR/helpers.sh"
