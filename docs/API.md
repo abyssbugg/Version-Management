@@ -163,6 +163,7 @@ default storage path is required.
 | `transaction_commit` | Finish the transaction; backups are kept | `transaction_commit` |
 | `transaction_rollback` | Restore every registered file hash-verified; non-zero (1..255) when any restore fails | `transaction_rollback` |
 | `transaction_is_active` | A transaction is open in this shell | `transaction_is_active && ...` |
+| `transaction_get_name` | Print the open transaction's name (empty when none) | `name=$(transaction_get_name)` |
 | `create_restore_point` | Snapshot named files under a restore-point name | `create_restore_point "before_theme" "$HOME/.zshrc"` |
 | `list_restore_points` | List restore points | `list_restore_points` |
 | `restore_from_point` | Restore a restore point (`RESTORE_ALL_OR_NOTHING=1`: transactional, all-or-nothing) | `restore_from_point "before_theme"` |
