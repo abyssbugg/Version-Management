@@ -1,0 +1,10 @@
+# Minimum UNION line coverage of lib/ for the kcov unit-suite run
+# (tests/test_runner.sh coverage; Buildkite step coverage-kcov). A line
+# counts once, as executed if any unit test executed it.
+#
+# Baseline: Buildkite build #63 (commit 4b289fb) measured 2110/5498 =
+# 38.38% with this exact union rule. The floor sits one point below that
+# so kcov run-to-run noise cannot flake the gate; it is a ratchet:
+# raise it when coverage rises, and lower it only with a recorded decision
+# in docs/governance/MASTER_AUDIT.md.
+37.0

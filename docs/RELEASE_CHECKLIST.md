@@ -10,7 +10,7 @@ section [OPERATIONS.md](OPERATIONS.md) "Release path".
 
 | Check | Enforcer | Automatic |
 | ----- | -------- | --------- |
-| ShellCheck lint, fail-closed syntax, pre-commit, gitleaks, tests (Linux + macOS), kcov coverage | Buildkite on every push (`.buildkite/pipeline.yml`) | Yes |
+| ShellCheck lint, fail-closed syntax, pre-commit, gitleaks, tests (Linux + macOS), kcov coverage with a union line-coverage floor (`tests/coverage-floor`) | Buildkite on every push (`.buildkite/pipeline.yml`) | Yes |
 | Version consistency (`package.json` ↔ release tag) | `release.yml` `validate` job | Yes |
 | Release SHA attested before anything publishes | `release.yml` `attest-guard` job (first job; everything else `needs` it) | Yes, fail-closed |
 | Every job tests, archives, signs, and publishes the release commit (`release_sha`) | `attest-guard` output `release_sha`; every checkout pins `ref:` to it; `build` asserts `HEAD == release_sha` and a clean tree before archiving | Yes, fail-closed |

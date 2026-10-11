@@ -8,6 +8,7 @@ S=$(mktemp -d "$ROOT/tmp_rovodev_coverage.XXXXXX")
 trap 'rm -rf -- "$S"' EXIT
 mkdir -p "$S/repo/tests/unit" "$S/repo/lib" "$S/bin" "$S/home"
 cp "$ROOT/tests/test_runner.sh" "$S/repo/tests/"
+[[ ! -f "$ROOT/tests/coverage-floor" ]] || cp "$ROOT/tests/coverage-floor" "$S/repo/tests/"
 export HOME="$S/home" TMPDIR="$S" XDG_CONFIG_HOME="$S/home/.config" XDG_CACHE_HOME="$S/home/.cache"
 export PATH="$S/bin:$PATH"
 # Reject a missing isolation prerequisite before creating runner resources.
@@ -35,7 +36,12 @@ shift
 [[ "$3" == /*/tests/unit/test_sample.sh ]] || exit 41
 out="$2/test_sample.sh"; mkdir -p "$out"
 # Synthetic report tests the runner contract; live coverage is verified separately.
-if [[ "${EMPTY_REPORT:-0}" != 1 ]]; then
+if [[ "${LOW_REPORT:-0}" == 1 ]]; then
+ # 1 of 10 lines executed: real instrumentation, but 10% union coverage.
+ { printf '<coverage lines-valid="10" lines-covered="1"><packages><package><classes><class filename="lib/sample.sh"><lines>'
+   for n in 1 2 3 4 5 6 7 8 9 10; do printf '<line number="%s" hits="%s"/>' "$n" "$([[ $n == 1 ]] && echo 1 || echo 0)"; done
+   printf '</lines></class></classes></package></packages></coverage>\n'; } > "$out/cobertura.xml"
+elif [[ "${EMPTY_REPORT:-0}" != 1 ]]; then
  printf '<coverage lines-valid="2" lines-covered="1"><packages><package><classes><class filename="lib/sample.sh"><lines><line number="1" hits="1"/></lines></class></classes></package></packages></coverage>\n' > "$out/cobertura.xml"
 fi
 bash "$3"
@@ -52,6 +58,18 @@ fi
 if TEST_FILTER=absent bash "$S/repo/tests/test_runner.sh" coverage > "$S/no-tests.log" 2>&1; then
  echo 'FAIL: no tests was treated as coverage success'; exit 1
 fi
+# Coverage floor (re-audit 2026-10-10): instrumented but below the committed
+# union floor fails; so does a missing floor file. A passing run records it.
+grep -q 'union line coverage: 1/1 = 100.00%' "$S/pass.log" || { echo 'FAIL: union coverage not reported'; exit 1; }
+if LOW_REPORT=1 bash "$S/repo/tests/test_runner.sh" coverage > "$S/low.log" 2>&1; then
+ echo 'FAIL: coverage below the floor passed'; exit 1
+fi
+grep -q 'coverage below floor: 10.00%' "$S/low.log" || { echo 'FAIL: below-floor reason not reported'; exit 1; }
+mv "$S/repo/tests/coverage-floor" "$S/floor.saved"
+if bash "$S/repo/tests/test_runner.sh" coverage > "$S/no-floor.log" 2>&1; then
+ echo 'FAIL: a missing coverage floor passed'; exit 1
+fi
+mv "$S/floor.saved" "$S/repo/tests/coverage-floor"
 # B1.8: timeout must stop descendants too; inherited tracer pipes otherwise hang.
 cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
 #!/usr/bin/env bash
@@ -121,4 +139,4 @@ finally:
         os.waitpid(pid, 0)
     os.close(fd)
 PY
-echo 'coverage runner: tracing, failures, reports, descendant cleanup and noninteractive stdin PASS'
+echo 'coverage runner: tracing, failures, reports, union floor, descendant cleanup and noninteractive stdin PASS'

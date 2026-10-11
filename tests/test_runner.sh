@@ -320,8 +320,12 @@ main() {
     [[ "$failed_files" -gt 0 ]] && exit 1
     if [[ "$KCOV_MODE" == true ]]; then
         # A successful subprocess alone does not prove instrumentation occurred.
-        python3 - "$KCOV_DIR" "${#test_files[@]}" <<'PY' || exit 3
-import pathlib, sys, xml.etree.ElementTree as ET
+        # Coverage floor (re-audit 2026-10-10): the per-test reports are merged
+        # by (lib file, line) — a line counts as executed if ANY test executed
+        # it — and the union percentage must reach tests/coverage-floor.
+        # Fail-closed: a missing or unparsable floor file fails the gate.
+        python3 - "$KCOV_DIR" "${#test_files[@]}" "$SCRIPT_DIR/coverage-floor" <<'PY' || exit 3
+import collections, os, pathlib, sys, xml.etree.ElementTree as ET
 reports = list(pathlib.Path(sys.argv[1]).glob('test_*/cobertura.xml'))
 try:
     roots = [ET.parse(path).getroot() for path in reports]
@@ -333,6 +337,42 @@ except (ValueError, ET.ParseError, OSError) as exc:
     print('coverage validation failed: ' + str(exc), file=sys.stderr)
     sys.exit(1)
 print(f'Validated {len(reports)} real coverage reports: {hits}/{valid} executed library lines (summed per suite)')
+
+# Union by normalized lib-relative path (kcov mixes source-relative and
+# absolute filenames across reports).
+lines = collections.defaultdict(dict)
+for root in roots:
+    sources = [s.text for s in root.iter('source') if s.text]
+    base = sources[0] if sources else ''
+    for cls in root.iter('class'):
+        name = cls.get('filename') or ''
+        full = os.path.normpath(name if os.path.isabs(name) else os.path.join(base, name))
+        key = full.split('/lib/', 1)[1] if '/lib/' in full else os.path.basename(full)
+        for line in cls.iter('line'):
+            number = int(line.get('number', '0'))
+            hit = int(line.get('hits', '0')) > 0
+            lines[key][number] = lines[key].get(number, False) or hit
+union_valid = sum(len(v) for v in lines.values())
+union_hit = sum(sum(1 for h in v.values() if h) for v in lines.values())
+pct = 100.0 * union_hit / union_valid
+try:
+    entries = [ln.split('#', 1)[0].strip() for ln in pathlib.Path(sys.argv[3]).read_text().splitlines()]
+    entries = [e for e in entries if e]
+    if len(entries) != 1:
+        raise ValueError('expected exactly one percentage value')
+    floor = float(entries[0])
+    if not 0.0 < floor <= 100.0:
+        raise ValueError(f'out of range: {floor}')
+except (OSError, ValueError) as exc:
+    print(f'coverage floor unreadable ({sys.argv[3]}): {exc}', file=sys.stderr)
+    sys.exit(1)
+summary = [f'union line coverage: {union_hit}/{union_valid} = {pct:.2f}% (floor {floor:.2f}%)']
+summary += [f'  {k}: {sum(1 for h in v.values() if h)}/{len(v)}' for k, v in sorted(lines.items())]
+(pathlib.Path(sys.argv[1]) / 'coverage-summary.txt').write_text('\n'.join(summary) + '\n')
+print(summary[0])
+if pct < floor:
+    print(f'coverage below floor: {pct:.2f}% < {floor:.2f}% — add tests, or lower tests/coverage-floor only with a recorded decision', file=sys.stderr)
+    sys.exit(1)
 PY
     fi
     exit 0
