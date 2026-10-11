@@ -13,6 +13,8 @@
 #   8. P2-11 no shellcheck devDependency in package.json (CI installs via apt)
 #   9. P2-12 tests/unit/test_restore.txt removed and gitignored
 #  10. AX-21 GNU-first stat mode probes; every cmp -s guarded
+#  11. ENGINEERING_RULES 7.1 CI release-asset downloads checksum-verified
+#  12. RA-5  remote pre-commit hook revs pinned to commit SHAs
 #
 # Environment notes:
 #   - Every sourcing subprocess gets a sandboxed HOME (AGENTS.md: never touch
@@ -293,6 +295,23 @@ test_ci_downloads_checksum_verified() {
     record assert_equals "" "$unverified" "every CI release-asset download is SHA-256 verified (ENGINEERING_RULES 7.1)"
 }
 
+# RA-5 (re-audit 2026-10-10): every remote pre-commit hook repo is pinned to a
+# full commit SHA with a `# frozen: <tag>` comment — a tag can be moved
+# upstream, a commit cannot.
+test_precommit_revs_sha_pinned() {
+    local unpinned
+    unpinned=$(awk '
+        /^[[:space:]]*-[[:space:]]*repo:/ { remote = ($0 !~ /repo:[[:space:]]*(local|meta)[[:space:]]*$/) ; next }
+        remote && /^[[:space:]]*rev:/ {
+            if ($0 !~ /rev:[[:space:]]*[0-9a-f]{40}[[:space:]]+#[[:space:]]*frozen:[[:space:]]*[^[:space:]]+/) print NR ": " $0
+            remote = 0
+        }' "$ROOT_DIR/.pre-commit-config.yaml")
+    record assert_equals "" "$unpinned" "every remote pre-commit rev is a commit SHA with a frozen tag comment (RA-5)"
+    local count
+    count=$(grep -cE '^[[:space:]]*rev:[[:space:]]*[0-9a-f]{40}[[:space:]]+# frozen:' "$ROOT_DIR/.pre-commit-config.yaml")
+    record assert_equals "4" "$count" "all four remote hook repos are SHA-pinned (RA-5)"
+}
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 test_make_clean_scoped
 test_sync_stub_removed
@@ -305,6 +324,7 @@ test_package_json_no_shellcheck
 test_restore_byproduct_gone
 test_portable_probes
 test_ci_downloads_checksum_verified
+test_precommit_revs_sha_pinned
 
 rm -rf "$HOME_SANDBOX"
 
