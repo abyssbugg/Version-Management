@@ -158,10 +158,14 @@ The later A3 audit reopens the universal claim in 3.4: older public entrypoints
 were missed by the original adoption survey. This is additional Phase 3 safety
 work, not a rewrite or an assertion that every future writer is protected.
 
-- [~] **A3-1..A3-6** Theme publishers (`e380f22`), trusted Node sync (`9b797a2`),
-  public local-version mutations (`a084fd8`), restore preview/mappings
-  (`2a53f05`), Docker version validation (`c6c0e4c`): all five lanes merged on
-  `fix/a3-integration`; targeted tests pass. Full integrated verification pending.
+- [x] **A3-1..A3-6 local remediation** Theme publishers (`e380f22`), trusted Node
+  sync (`9b797a2`), public local-version mutations (`a084fd8`), restore
+  preview/mappings (`2a53f05`), Docker version validation (`c6c0e4c`): all five
+  lanes merged on `fix/a3-integration`, worktrees/merged branches removed.
+  Integration corrections `9e35599`, review fixes `dca3981`/`506ee30`.
+  Local lint/syntax, 54 unit + 26 integration files, full pre-commit and gitleaks
+  pass. CodeRabbit's two findings addressed with regressions. This does not
+  close the delivery-proof item below or the general mutation-coverage boundary.
 - [ ] **Delivery proof remains separate:** current-branch hosted Linux/macOS and
   coverage results, first live WSL2 run, and tagged signed-release verification.
   Existing Buildkite #74 evidence belongs to `5ffb380`, not these changes.

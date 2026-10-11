@@ -624,13 +624,32 @@ activation but not compensating runtime installation or arbitrary manager state.
 Node synchronization uses the existing updater in a separate process, never an
 unsafe raw-write fallback. These restrictions are documented in `docs/API.md`.
 
-Validation status: targeted sandboxed regressions and lane lint/syntax passed;
-full integrated gates are in progress. No current-branch hosted result, live
-WSL execution, container-build proof or signed-release result is claimed.
-Qodo review operations failed server-side; automated review is not a clean bill
-of health. The first delegated review claims were rejected after checking actual
-control flow and regressions (recovery order, symlink-target registration,
-transaction ownership, and shell last-command status propagation).
+Validation (2026-10-11): `make lint` passed (140 scripts), `make syntax-check`
+passed, `make test-unit` passed 54/54 and `make test-integration` passed 26/26,
+zero failures/skips/errors. Full `pre-commit run --all-files` passed after the
+new module's executable mode was corrected. Gitleaks scanned the repair commit
+range with no findings; changed documentation file links resolve. All five
+worktrees were merged and removed, with merged lane branches deleted normally.
+No host workstation installation or personal launcher was changed.
+
+CodeRabbit completed review of 27 changed files. Its major finding (unchecked
+theme transaction lifecycle when errexit is suppressed) was reproduced with four
+failed assertions and fixed in `dca3981`; the regression passes. Its minor
+callback-diagnostic finding was addressed in `506ee30`, with a passing regression
+and applicable hooks. Integration follow-ups are in `9e35599`. Qodo failed twice
+server-side; no successful Qodo result is claimed. Earlier delegated claims were
+rejected against actual control flow and tests (interrupted recovery order,
+symlink-target registration, transaction ownership, and last-command exit status).
+
+**Outstanding verification:** no current-branch hosted Linux/macOS or coverage
+result, live WSL2 execution, container-build proof, or signed-release result is
+claimed. Local `bash tests/test_runner.sh coverage` failed before execution:
+`Failed to exchange stderr for pipe: Bad file descriptor`, followed by
+`kcov: error: Can't start/attach to ...` (all 54 subprocesses exited 255; runner
+exited 1). Coverage was not weakened or reported as passing. Local Docker probing
+also found no daemon at `/var/run/docker.sock`. Prior Buildkite #74 evidence
+belongs to baseline `5ffb380`, not this integration branch. Billing/release
+configuration and remote refs were not changed.
 
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
