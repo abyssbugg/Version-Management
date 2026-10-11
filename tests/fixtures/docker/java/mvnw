@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-if [[ "${1:-}" != "package" ]]; then
+if [[ "$*" != '-q -DskipTests package' ]]; then
     echo "Fixture wrapper: only 'package' goal supported (received: ${1:-<no args>})" >&2
     exit 1
 fi
