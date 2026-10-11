@@ -148,7 +148,6 @@ theme_detect_current() {
 # Switch to specified theme
 # Args: theme_name - name of the theme to switch to
 # Returns: 0 on success, 1 on failure
-# Note: Requires active transaction (call transaction_start first) for safe mutation
 theme_switch() {
     local theme_name="$1"
 
@@ -168,40 +167,28 @@ theme_switch() {
     theme_file=$(get_theme_file "$theme_name") || return 1
     local theme_path="$THEME_BASE_DIR/$theme_file"
 
-    # Create temporary content file for mutation_file_publish
-    local tmp_content
-    tmp_content=$(mktemp) || {
-        log_error "Failed to create temporary file for theme content"
-        return 1
-    }
-    
-    if ! cp "$theme_path" "$tmp_content" 2>/dev/null; then
-        log_error "Failed to read theme file: $theme_path"
-        rm -f "$tmp_content"
-        return 1
+    # Create backup before switching (handled by backup.sh)
+    if command -v create_backup >/dev/null 2>&1; then
+        create_backup "$P10K_CONFIG"
     fi
 
-    # Use mutation_file_publish for safe, transaction-aware file writing
-    # (handles symlink resolution, mode preservation, dry-run, and idempotency)
-    if ! mutation_file_publish "$P10K_CONFIG" "$tmp_content"; then
+    # Copy theme file to P10K config location
+    if cp "$theme_path" "$P10K_CONFIG" 2>/dev/null; then
+        log_success "Theme '$theme_name' applied successfully"
+        log_info "Restart your terminal or run 'source ~/.zshrc' to apply changes"
+
+        # Add specific instructions for certain themes
+        case "$theme_name" in
+            "professional"|"vscode")
+                log_info "Make sure you have a Nerd Font installed for best experience"
+                ;;
+        esac
+
+        return 0
+    else
         log_error "Failed to apply theme '$theme_name'"
-        rm -f "$tmp_content"
         return 1
     fi
-
-    rm -f "$tmp_content"
-    
-    log_success "Theme '$theme_name' applied successfully"
-    log_info "Restart your terminal or run 'source ~/.zshrc' to apply changes"
-
-    # Add specific instructions for certain themes
-    case "$theme_name" in
-        "professional"|"vscode")
-            log_info "Make sure you have a Nerd Font installed for best experience"
-            ;;
-    esac
-
-    return 0
 }
 
 # Generate theme preview
@@ -349,17 +336,13 @@ theme_get_description() {
         return 1
     fi
 
-    # Use loop-based lookup like get_theme_description (numeric array, string key lookup)
-    local i
-    for i in "${!THEME_NAMES[@]}"; do
-        if [[ "${THEME_NAMES[$i]}" == "$theme_name" ]]; then
-            echo "${THEME_DESCRIPTIONS[$i]}"
-            return 0
-        fi
-    done
+    if [[ -z "${THEME_DESCRIPTIONS[$theme_name]:-}" ]]; then
+        log_error "Unknown theme: $theme_name"
+        return 1
+    fi
 
-    log_error "Unknown theme: $theme_name"
-    return 1
+    echo "${THEME_DESCRIPTIONS[$theme_name]}"
+    return 0
 }
 
 # Check if theme requires Nerd Font
