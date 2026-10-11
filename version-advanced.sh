@@ -847,6 +847,9 @@ generate_dockerfile_java() {
     local java_version="${1:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
 
     _validate_docker_version_tag "$java_version" || return 1
+    # Temurin's published tag for the shipped 17.0.12 pin includes build 7.
+    # Keep the requested patch version, rather than silently floating to 17.
+    [[ "$java_version" != 17.0.12 ]] || java_version=17.0.12_7
 
     local staged
     staged=$(_va_stage) || return 1

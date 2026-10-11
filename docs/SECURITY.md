@@ -153,9 +153,12 @@ below remain; passing the current tests is not proof of complete mutation covera
   `pyenv install`, Homebrew and similar steps print a plan under
   `--dry-run`; installing software is not a file transaction. Installer
   directories use the reversible `install_dir_stage`/`install_dir_restore`.
-- **Generated Dockerfiles are template-tested only.** CI asserts their
-  content (multi-stage, non-root, HEALTHCHECK) but does not run
-  `docker build` (P2-7).
+- **Generated Dockerfiles have a scoped build/runtime gate.** In addition to
+  template assertions, `docker-build-check` builds five synthetic applications,
+  requires healthy containers with non-root runtime UIDs, and is required by
+  release attestation. Runtime containers have no external network or host
+  mounts. This validates shipped default templates, not arbitrary application
+  layouts, every version tag, or reproducible upstream image contents (P2-7).
 - **Backup validation needs a SHA-256 tool.** With neither `sha256sum` nor
   `shasum` on the host, `validate_backup` compares sizes only and logs a
   warning (AX-23). A tool that exists but fails or prints a non-digest is

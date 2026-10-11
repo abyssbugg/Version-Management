@@ -141,6 +141,20 @@ grep -c "rollback" ~/.config/version-manager/audit.log
   `tests/test_runner.sh`, which emits the canonical manifest), and
   `pre-commit run --all-files`.
 - Platform note for tests: bash >= 4.0 required (ENGINEERING_RULES §3.1).
+- Real coverage: `make coverage-kcov` requires kcov and enforces the committed
+  union floor. On Darwin, only the tracer child gets a soft file-descriptor
+  limit capped at 1,024 (kcov derives its trace descriptor from that limit).
+  Ordinary tests and the caller's limits are unchanged; no platform is skipped.
+- Generated images: `DOCKER_CONTEXT=<explicit-context> make docker-build-check`
+  builds all five default Dockerfiles using only synthetic fixture contexts,
+  then requires healthy containers and non-root runtime UIDs. Buildkite runs
+  this as `docker-build-check`; release attestation requires it. No caller
+  source, HOME, or host path is mounted; runtime network access is disabled.
+  Each Docker operation is bounded; cleanup checks this invocation's exact
+  resource names and owner labels and never prunes shared images or containers.
+  Java's fixture uses a clearly marked synthetic `javac`/`jar` wrapper, not a
+  Maven-distribution test. This smoke check proves the generator/runtime path,
+  not compatibility with every application or reproducibility of upstream tags.
 
 ## Release path
 

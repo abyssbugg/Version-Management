@@ -176,6 +176,10 @@ test_template_java() {
     (cd "$dir" && generate_dockerfile_java "17.0.12" >/dev/null 2>&1)
     echo "--- Dockerfile.java (P2-7) ---"
     _assert_properties "$dir/Dockerfile.java" "appuser" "8080"
+    _check "Java shipped pin uses published Temurin build-qualified JDK" \
+        grep -q '^FROM eclipse-temurin:17.0.12_7-jdk AS builder$' "$dir/Dockerfile.java"
+    _check "Java shipped pin uses matching JRE build" \
+        grep -q '^FROM eclipse-temurin:17.0.12_7-jre AS runtime$' "$dir/Dockerfile.java"
 }
 
 # Default-version path: no argument, no version pin files present — the
