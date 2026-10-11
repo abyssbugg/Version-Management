@@ -83,6 +83,37 @@ _log_fail()   { echo -e "  ${RED}✗ $*${NC}"; }
 _log_skip()   { echo -e "  ${YELLOW}⊘ $*${NC}"; }
 _log_info()   { echo -e "  ${CYAN}ℹ $*${NC}"; }
 
+# Interrupted runner (test hygiene, 2026-10-11): each test file runs in its own
+# session, so Ctrl-C, TERM or HUP aimed at the runner never reaches it. Stop
+# the file's process group and remove its sandbox and output file instead of
+# orphaning all three. $1 = test pid, which leads its own process group (""
+# before the test starts), $2 = sandbox, $3 = output file.
+_abort_test_file() {
+    local pgid="$1" grace=0
+    if [[ -n "$pgid" ]]; then
+        kill -TERM -- "-$pgid" 2>/dev/null || true
+        while kill -0 -- "-$pgid" 2>/dev/null && (( grace < 20 )); do
+            sleep 0.1
+            grace=$((grace + 1))
+        done
+        kill -KILL -- "-$pgid" 2>/dev/null || true
+        wait "$pgid" 2>/dev/null || true
+    fi
+    [[ -z "$3" ]] || rm -f -- "$3"
+    [[ "$2" != */vms-test-home.* ]] || rm -rf -- "$2"
+}
+
+# Parallel-mode counterpart: TERM each per-file subshell and wait for them.
+_forward_abort() {
+    local child
+    for child in "$@"; do
+        kill -TERM "$child" 2>/dev/null || true
+    done
+    for child in "$@"; do
+        wait "$child" 2>/dev/null || true
+    done
+}
+
 # Run a single test file and record pass/fail in a result file.
 # Bounded two ways (directive finding B1.8): output is redirected to a temp
 # file so the runner waits only on the DIRECT child (a command substitution
@@ -102,14 +133,17 @@ _run_test_file() {
 
     local exit_code=0
     local output
-    local sandbox
+    local sandbox="" out_file="" pid=""
+    trap '_abort_test_file "$pid" "$sandbox" "$out_file"; exit 130' INT
+    trap '_abort_test_file "$pid" "$sandbox" "$out_file"; exit 143' TERM
+    trap '_abort_test_file "$pid" "$sandbox" "$out_file"; exit 129' HUP
     sandbox=$(mktemp -d "${TMPDIR:-/tmp}/vms-test-home.XXXXXX")
     mkdir -p "$sandbox/.config" "$sandbox/.cache"
     touch "$sandbox/.zshrc"
 
-    local out_file timed_out=0
+    local timed_out=0
     local limit_ms=$(( (${VMS_TEST_FILE_TIMEOUT:-300}) * 1000 ))
-    local waited_ms=0 pid
+    local waited_ms=0
     out_file=$(mktemp "${TMPDIR:-/tmp}/vms-test-out.XXXXXX")
     local -a cmd=(bash "./$test_name")
     if [[ "$KCOV_MODE" == "true" ]]; then
@@ -164,6 +198,7 @@ _run_test_file() {
     if [[ "$sandbox" == */vms-test-home.* ]]; then
         rm -rf "$sandbox"
     fi
+    trap - INT TERM HUP
 
     if [[ $exit_code -eq 0 ]]; then
         echo "PASS" > "$result_file"
@@ -279,6 +314,12 @@ main() {
         declare -A pid_file
         declare -A pid_result
 
+        # Interrupted parallel run: forward TERM to every file's subshell (its
+        # own trap stops the test group and removes the sandbox), then wait.
+        trap '_forward_abort ${pids[@]+"${pids[@]}"}; exit 130' INT
+        trap '_forward_abort ${pids[@]+"${pids[@]}"}; exit 143' TERM
+        trap '_forward_abort ${pids[@]+"${pids[@]}"}; exit 129' HUP
+
         for test_file in "${test_files[@]}"; do
             result_file="$RESULTS_DIR/$(basename "$test_file").result"
             _run_test_file "$test_file" "$result_file" &
@@ -292,6 +333,7 @@ main() {
             wait "$pid" || true
             _report_test_file "${pid_file[$pid]}" "${pid_result[$pid]}"
         done
+        trap - INT TERM HUP
     else
         for test_file in "${test_files[@]}"; do
             result_file="$RESULTS_DIR/$(basename "$test_file").result"
