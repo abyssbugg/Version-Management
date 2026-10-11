@@ -166,9 +166,18 @@ work, not a rewrite or an assertion that every future writer is protected.
   Local lint/syntax, 54 unit + 26 integration files, full pre-commit and gitleaks
   pass. CodeRabbit's two findings addressed with regressions. This does not
   close the delivery-proof item below or the general mutation-coverage boundary.
-- [ ] **Delivery proof remains separate:** current-branch hosted Linux/macOS and
-  coverage results, first live WSL2 run, and tagged signed-release verification.
-  Existing Buildkite #74 evidence belongs to `5ffb380`, not these changes.
+- [x] **A3 hosted proof:** Buildkite #75 passed all seven original gates on
+  `c7c6af9` (Linux/macOS, real coverage 41.55% >= 37%).
+- [x] **Native macOS coverage:** child-only descriptor limit fixes kcov startup;
+  54/54 files and 41.91% real union coverage, unchanged 37% floor (`ae30c80`).
+- [x] **Generated-image gate:** explicit-context build/runtime validation added
+  as the eighth required release gate (`ceac3fd`); actual builds exposed and
+  repaired Go filename compilation (`6cd12bf`) and nonexistent Java default tag
+  (`3fabfb1`). Final exact-commit hosted completion is recorded independently.
+- [ ] **Owner-blocked release proof:** first live WSL2 run and tagged keyless
+  signed-release verification. Fresh WSL run `38162711853` was refused by the
+  GitHub billing lock before execution. No code workaround can provide that
+  missing platform/OIDC evidence. No tag was created.
 
 ## Reconciliation Note (2026-10-11, WSL2 lane)
 
