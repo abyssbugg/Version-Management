@@ -106,6 +106,22 @@ test_registry_completeness() {
     fi
     _chk_contains "zsh" "$(shellxp_tool_marker zsh-autosuggestions)" "clone tool has a marker file"
     _chk_contains "rg" "$(shellxp_tool_binaries ripgrep)" "ripgrep detects its rg binary"
+
+    # SC-1: every clone tool is pinned to a reviewed full commit SHA (never a
+    # branch), and the pins are the reviewed upstream release commits.
+    local pin
+    for tool in zsh-autosuggestions zsh-syntax-highlighting; do
+        pin=$(shellxp_clone_commit "$tool" 2>/dev/null)
+        if [[ "$pin" =~ ^[0-9a-f]{40}$ ]]; then
+            _chk "pinned" "pinned" "clone tool '$tool' is pinned to a full commit SHA"
+        else
+            _chk "pinned" "unpinned:$pin" "clone tool '$tool' is pinned to a full commit SHA"
+        fi
+    done
+    _chk "e52ee8ca55bcc56a17c828767a3f98f22a68d4eb" "$(shellxp_clone_commit zsh-autosuggestions 2>/dev/null)" \
+        "zsh-autosuggestions pin is the v0.7.1 release commit"
+    _chk "db085e4661f6aafd24e5acb5b2e17e4dd5dddf3e" "$(shellxp_clone_commit zsh-syntax-highlighting 2>/dev/null)" \
+        "zsh-syntax-highlighting pin is the 0.8.0 release commit"
 }
 
 # ── 2. Plan-by-default: plan printed, ZERO writes ──────────────────────────────
@@ -130,6 +146,7 @@ test_plan_by_default_zero_writes() {
     _chk "0" "$rc" "--dry-run exits zero"
     _chk_contains "[dry-run]" "$out" "--dry-run prints a [dry-run] plan"
     _chk_contains "git clone" "$out" "clone plan describes the git-clone method"
+    _chk_contains "commit: e52ee8ca55bcc56a17c828767a3f98f22a68d4eb" "$out" "clone plan names the pinned commit (SC-1)"
     if [[ -d "$SBX/.oh-my-zsh" ]]; then
         _chk "no-writes" "wrote" "clone dry-run must not create the plugin root"
     else

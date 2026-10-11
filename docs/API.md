@@ -629,7 +629,8 @@ plans; every change is transactional.
 |----------|-------------|-------|
 | `shellxp_list_tools` | List the tool registry | `shellxp_list_tools` |
 | `shellxp_status` | Print which tools are present | `shellxp_status` |
-| `shellxp_install` | Install a tool: plan by default, `--confirm` to apply, `--dry-run` | `shellxp_install fzf --confirm` |
+| `shellxp_install` | Install a tool: plan by default, `--confirm` to apply, `--dry-run`. Clone tools check out the pinned release commit (SC-1) and are refused inside a caller-owned transaction (F7) | `shellxp_install fzf --confirm` |
+| `shellxp_clone_commit` | Print the pinned commit for a clone tool (`SHELLXP_CLONE_COMMIT_<TOOL>` override: full 40-hex SHA only) | `shellxp_clone_commit zsh-autosuggestions` |
 | `shellxp_plugins_list` | Print the zsh `plugins=()` entries | `shellxp_plugins_list` |
 | `shellxp_plugins_add` | Add an entry to `plugins=()` (managed, transactional) | `shellxp_plugins_add zsh-autosuggestions --confirm` |
 | `shellxp_plugins_remove` | Remove an entry from `plugins=()` | `shellxp_plugins_remove zsh-autosuggestions --confirm` |

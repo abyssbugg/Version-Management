@@ -106,10 +106,15 @@ hash-verified rollback, `sudo`/`apt` gated exactly like fix-terminal-issues'
 plugin installs that never pipe-to-shell and never auto-activate — activation is
 the explicit managed-array editor (`shellxp_plugins_add`/`remove`/`list`, with
 zsh-syntax-highlighting enforced last per upstream's requirement). Clone-based
-plugin installs currently pin to the upstream default branch; pinning them to a
-reviewed commit SHA is a coordinator TODO (B1.8 discipline) — until pinned, treat
-every clone as upstream-unreviewed content. Tests exercise clones against local
-`file://` fixture repositories only; network installs are out of scope for CI.
+plugin installs check out a reviewed, pinned release commit (SC-1:
+zsh-autosuggestions v0.7.1 `e52ee8c…`, zsh-syntax-highlighting 0.8.0 `db085e4…`);
+the installed HEAD must equal the pin, and a source without it fails closed.
+Bumping a pin means reviewing the upstream diff first. A clone install always
+runs in its own transaction and is refused inside a caller-owned one (F7), because
+the file-level rollback cannot remove a directory. Tests exercise clones against
+local `file://` fixture repositories only (`SHELLXP_CLONE_URL_<TOOL>` plus
+`SHELLXP_CLONE_COMMIT_<TOOL>`, a full 40-hex SHA); network installs are out of
+scope for CI.
 
 ### `plugin_version()`
 

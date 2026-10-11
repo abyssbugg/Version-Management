@@ -30,13 +30,17 @@
 #     entry. The file-level primitive's rollback cannot rm -rf a directory,
 #     so on post-clone verification failure the rollback runs first (loud,
 #     journaled) and shell-experience then removes the directory it created
-#     as an explicit, journaled compensation step.
-#   - Clone-based plugin installs clone the upstream DEFAULT BRANCH. Pinning
-#     to a reviewed commit SHA is a coordinator TODO (B1.8 discipline): until
-#     pinned, treat every clone as upstream-unreviewed content. Tests never
-#     touch the network — the clone URL may be overridden per tool via
-#     SHELLXP_CLONE_URL_<TOOL_UPPER> (file:// or https:// only) for local
-#     fixtures/mirrors.
+#     as an explicit, journaled compensation step. For the same reason a
+#     clone install always runs in its OWN transaction: inside a caller-owned
+#     transaction it is refused (F7) — the caller's rollback could not remove
+#     the directory.
+#   - Clone installs check out a reviewed, pinned commit (SC-1, ENGINEERING_
+#     RULES 7.1): the registry pins each tool to its upstream release commit
+#     and the installed HEAD must equal the pin exactly — never the default
+#     branch tip. Tests never touch the network — the clone URL may be
+#     overridden per tool via SHELLXP_CLONE_URL_<TOOL_UPPER> (file:// or
+#     https:// only) for local fixtures/mirrors, and the pin via
+#     SHELLXP_CLONE_COMMIT_<TOOL_UPPER> (a full 40-hex commit SHA only).
 #   - zsh-autosuggestions/zsh-syntax-highlighting are NEVER added to
 #     plugins=() by the installer; activation is the separate, explicit
 #     shellxp_plugins_add step below. zsh-syntax-highlighting must be LAST
@@ -126,6 +130,39 @@ shellxp_tool_binaries() {
         zsh-autosuggestions|zsh-syntax-highlighting) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# SC-1: reviewed upstream release commits (resolved with `git ls-remote` and
+# checked to contain the marker file). Bump only after reviewing the diff.
+#   zsh-autosuggestions     v0.7.1 -> e52ee8ca55bcc56a17c828767a3f98f22a68d4eb
+#   zsh-syntax-highlighting 0.8.0  -> db085e4661f6aafd24e5acb5b2e17e4dd5dddf3e
+_shellxp_clone_pin() {
+    case "$1" in
+        zsh-autosuggestions)     echo "e52ee8ca55bcc56a17c828767a3f98f22a68d4eb" ;;
+        zsh-syntax-highlighting) echo "db085e4661f6aafd24e5acb5b2e17e4dd5dddf3e" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Effective pinned commit: SHELLXP_CLONE_COMMIT_<TOOL_UPPER> override (a
+# full 40-hex SHA only — a branch or tag name is not a pin), else the
+# reviewed registry pin.
+shellxp_clone_commit() {
+    local tool="$1" commit
+    local env_key="SHELLXP_CLONE_COMMIT_$(printf '%s' "$tool" | tr 'a-z-' 'A-Z_')"
+    commit="${!env_key:-}"
+    if [[ -n "$commit" ]]; then
+        if [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            printf '%s\n' "$commit"
+            return 0
+        fi
+        log_error "shellxp: commit override for '$tool' must be a full 40-hex commit SHA: $commit"
+        return 1
+    fi
+    _shellxp_clone_pin "$tool" || {
+        log_error "shellxp: no pinned commit registered for '$tool'"
+        return 1
+    }
 }
 
 shellxp_tool_marker() {
@@ -247,6 +284,7 @@ _shellxp_print_install_plan() {
         clone)
             printf '  method: git clone (never curl|bash)\n'
             printf '  url: %s\n' "$(shellxp_clone_url "$tool")"
+            printf '  commit: %s (pinned; HEAD must equal it)\n' "$(shellxp_clone_commit "$tool")"
             printf '  target: %s/%s\n' "$(shellxp_plugins_root)" "$tool"
             printf '  activation: NOT auto-added to plugins=(); run shellxp_plugins_add %s\n' "$tool"
             ;;
@@ -307,13 +345,23 @@ shellxp_install() {
         return 0
     fi
 
+    local method="${spec%%:*}" arg="${spec#*:}"
+
+    # F7 (re-audit 2026-10-10): the transaction primitive is file-level — a
+    # caller's rollback cannot remove a cloned directory (it failed rc=1 and
+    # left the clone behind). Clones therefore run only in their own
+    # transaction. A caller's dry-run transaction only plans, so it is fine.
+    if [[ "$method" == "clone" ]] && transaction_is_active && [[ "${_TRANSACTION_ACTIVE:-}" != "dryrun" ]]; then
+        log_error "shellxp: refusing to clone '$tool' inside the caller's transaction '$(transaction_get_name)' — its rollback cannot remove a directory; run shellxp_install $tool outside a transaction"
+        return 1
+    fi
+
     local owned=0
     if ! transaction_is_active; then
         transaction_start "shellxp_install_$tool" || return 1
         owned=1
     fi
 
-    local method="${spec%%:*}" arg="${spec#*:}"
     local rc=0
     case "$method" in
         clone) _shellxp_apply_clone "$tool" || rc=1 ;;
@@ -375,19 +423,21 @@ _shellxp_apply_apt() {
 }
 
 # git-clone install (zsh-autosuggestions / zsh-syntax-highlighting).
-# Requires an ACTIVE TRANSACTION. Clones to a staging dir on the same
-# filesystem, verifies the staged clone, registers the target as NEW with
-# the transaction, then atomically renames it into place.
+# Requires an ACTIVE TRANSACTION owned by shellxp_install (F7). Clones to a
+# staging dir on the same filesystem, checks out the pinned commit (SC-1),
+# verifies the staged clone, registers the target as NEW with the
+# transaction, then atomically renames it into place.
 _shellxp_apply_clone() {
     local tool="$1"
-    local url marker root target
+    local url commit marker root target
     url=$(shellxp_clone_url "$tool") || return 1
+    commit=$(shellxp_clone_commit "$tool") || return 1
     marker=$(shellxp_tool_marker "$tool") || return 1
     root=$(shellxp_plugins_root)
     target="$root/$tool"
 
     if [[ "${_TRANSACTION_ACTIVE:-}" == "dryrun" ]]; then
-        log_info "[dry-run] shellxp: would git clone $url -> $target (no plugins=() edit)"
+        log_info "[dry-run] shellxp: would git clone $url @ $commit -> $target (no plugins=() edit)"
         return 0
     fi
 
@@ -418,21 +468,31 @@ _shellxp_apply_clone() {
         return 1
     }
 
-    if ! git clone "$url" "$stage/$tool"; then
+    if ! git clone --quiet --no-checkout -- "$url" "$stage/$tool"; then
         rm -rf "$stage"
         if [[ "$created_root" == "1" ]]; then rmdir "$root" 2>/dev/null || true; fi
         log_error "shellxp: git clone failed: $url"
         return 1
     fi
 
-    if [[ ! -f "$stage/$tool/$marker" ]] || ! git -C "$stage/$tool" rev-parse HEAD >/dev/null 2>&1; then
+    # SC-1: check out exactly the reviewed commit (validated 40-hex above, so
+    # it cannot be read as an option). A source without it fails closed.
+    if ! git -C "$stage/$tool" cat-file -e "$commit^{commit}" 2>/dev/null \
+        || ! git -C "$stage/$tool" checkout --quiet --detach "$commit"; then
         rm -rf "$stage"
         if [[ "$created_root" == "1" ]]; then rmdir "$root" 2>/dev/null || true; fi
-        log_error "shellxp: staged clone verification failed (marker/HEAD): $tool"
+        log_error "shellxp: pinned commit $commit not available from $url — refusing to install an unreviewed revision of $tool"
         return 1
     fi
+
     local staged_head
-    staged_head=$(git -C "$stage/$tool" rev-parse HEAD)
+    staged_head=$(git -C "$stage/$tool" rev-parse HEAD 2>/dev/null) || staged_head=""
+    if [[ ! -f "$stage/$tool/$marker" || "$staged_head" != "$commit" ]]; then
+        rm -rf "$stage"
+        if [[ "$created_root" == "1" ]]; then rmdir "$root" 2>/dev/null || true; fi
+        log_error "shellxp: staged clone verification failed (marker, or HEAD != pinned $commit): $tool"
+        return 1
+    fi
 
     # Register the target BEFORE mutation (new-file semantics: rollback removes it).
     if ! transaction_add_file "$target"; then
@@ -461,7 +521,7 @@ _shellxp_apply_clone() {
         return 1
     fi
 
-    _txn_journal "shellxp_clone" "tool=$tool url=$url target=$target head=${staged_head:0:12} result=cloned exit_code=0"
+    _txn_journal "shellxp_clone" "tool=$tool url=$url target=$target head=${staged_head:0:12} pinned=yes result=cloned exit_code=0"
     log_info "shellxp: cloned $tool -> $target (head ${staged_head:0:12}); NOT added to plugins=() — run shellxp_plugins_add $tool to activate"
     return 0
 }
