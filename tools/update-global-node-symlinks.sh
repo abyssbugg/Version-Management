@@ -72,15 +72,15 @@ show_symlink_plan() {
 }
 
 backup_existing_symlinks() {
-    local backup_dir="${TMPDIR:-/tmp}/node-symlinks-backup-$(date +%Y%m%d%H%M%S)"
+    local backup_dir
     local backed_up=0
 
     # Explicit check, not set -e: this function is invoked via command
     # substitution, and set -e is suppressed inside those subshells — a bare
     # failing mkdir here would be silently swallowed (reproduced in the M4
     # matrix, case c1).
-    if ! mkdir -p "$backup_dir"; then
-        log_error "Cannot create backup directory: $backup_dir"
+    if ! backup_dir=$(mktemp -d "${TMPDIR:-/tmp}/node-symlinks-backup.XXXXXX"); then
+        log_error "Cannot create Node symlink backup directory"
         return 1
     fi
 
@@ -187,19 +187,25 @@ rollback_node_symlink_targets() {
         case "$prev" in
             __ABSENT__)
                 log_info "Rollback: removing $dest (absent before this run)"
-                sudo rm -f "$dest" || log_error "Rollback: could not remove $dest"
+                _symlink_sudo rm -f "$dest" || log_error "Rollback: could not remove $dest"
                 ;;
             __REGULAR_FILE__)
                 if [[ -n "$backup_dir" && -e "$backup_dir/$cmd" ]]; then
                     log_info "Rollback: restoring regular file $dest from backup"
-                    sudo cp "$backup_dir/$cmd" "$dest" || log_error "Rollback: could not restore $dest"
+                    # Remove the replacement link before copying: otherwise cp
+                    # follows it and overwrites the selected runtime binary.
+                    if _symlink_sudo rm -f "$dest"; then
+                        _symlink_sudo cp "$backup_dir/$cmd" "$dest" || log_error "Rollback: could not restore $dest"
+                    else
+                        log_error "Rollback: could not remove replacement $dest"
+                    fi
                 else
                     log_error "Rollback: no backup available for regular file $dest — manual restore required"
                 fi
                 ;;
             *)
                 log_info "Rollback: relinking $dest -> $prev"
-                sudo ln -sf "$prev" "$dest" || log_error "Rollback: could not relink $dest"
+                _symlink_sudo ln -sf "$prev" "$dest" || log_error "Rollback: could not relink $dest"
                 ;;
         esac
     done
@@ -221,11 +227,23 @@ _symlink_apply_failed() {
 # Main Function
 # ============================================================================
 
+_symlink_sudo() {
+    if [[ "${NODE_LINK_NONINTERACTIVE:-0}" == 1 ]]; then sudo -n "$@"; else sudo "$@"; fi
+}
+
 update_global_node_symlinks() {
-    verify_nvm_installation
+    if [[ -n "${NODE_LINK_BIN:-}" ]]; then
+        [[ "$NODE_LINK_BIN" == /* && -d "$NODE_LINK_BIN" ]] || { log_error "Invalid Node binary directory"; return 1; }
+    else
+        verify_nvm_installation || return 1
+    fi
 
     local current_version
-    current_version=$(nvm current 2>/dev/null || echo "N/A")
+    if [[ -n "${NODE_LINK_BIN:-}" ]]; then
+        current_version="selected"
+    else
+        current_version=$(nvm current 2>/dev/null || echo "N/A")
+    fi
 
     if [[ "$current_version" == "system" || "$current_version" == "N/A" || "$current_version" == "none" ]]; then
         log_error "No NVM-managed Node.js version is active"
@@ -236,9 +254,14 @@ update_global_node_symlinks() {
     # Remove 'v' prefix if present
     current_version="${current_version#v}"
 
-    local node_path="$NVM_DIR/versions/node/v$current_version/bin/node"
-    local npm_path="$NVM_DIR/versions/node/v$current_version/bin/npm"
-    local npx_path="$NVM_DIR/versions/node/v$current_version/bin/npx"
+    local selected_bin="${NODE_LINK_BIN:-${NVM_DIR:-}/versions/node/v$current_version/bin}"
+    local node_path="$selected_bin/node"
+    local npm_path="$selected_bin/npm"
+    local npx_path="$selected_bin/npx"
+    local source_path
+    for source_path in "$node_path" "$npm_path" "$npx_path"; do
+        [[ -f "$source_path" && -r "$source_path" ]] || { log_error "Missing Node binary: $source_path"; return 1; }
+    done
 
     # Verify paths exist
     if [[ ! -f "$node_path" ]]; then
@@ -315,7 +338,7 @@ update_global_node_symlinks() {
             if symlink_dest_matches /usr/local/bin/node "$node_path"; then
                 log_info "already identical: /usr/local/bin/node -> $node_path"
                 skipped=$(( skipped + 1 ))
-            elif sudo ln -sf "$node_path" /usr/local/bin/node; then
+            elif _symlink_sudo ln -sf "$node_path" /usr/local/bin/node; then
                 log_success "Created: /usr/local/bin/node -> $node_path"
                 mutated=$(( mutated + 1 ))
             else
@@ -327,7 +350,7 @@ update_global_node_symlinks() {
             if symlink_dest_matches /usr/local/bin/npm "$npm_path"; then
                 log_info "already identical: /usr/local/bin/npm -> $npm_path"
                 skipped=$(( skipped + 1 ))
-            elif sudo ln -sf "$npm_path" /usr/local/bin/npm; then
+            elif _symlink_sudo ln -sf "$npm_path" /usr/local/bin/npm; then
                 log_success "Created: /usr/local/bin/npm -> $npm_path"
                 mutated=$(( mutated + 1 ))
             else
@@ -339,7 +362,7 @@ update_global_node_symlinks() {
             if symlink_dest_matches /usr/local/bin/npx "$npx_path"; then
                 log_info "already identical: /usr/local/bin/npx -> $npx_path"
                 skipped=$(( skipped + 1 ))
-            elif sudo ln -sf "$npx_path" /usr/local/bin/npx; then
+            elif _symlink_sudo ln -sf "$npx_path" /usr/local/bin/npx; then
                 log_success "Created: /usr/local/bin/npx -> $npx_path"
                 mutated=$(( mutated + 1 ))
             else
@@ -514,6 +537,15 @@ main() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --non-interactive)
+                NODE_LINK_NONINTERACTIVE=1
+                shift
+                ;;
+            --node-bin)
+                [[ $# -ge 2 ]] || { log_error "--node-bin requires a directory"; return 1; }
+                NODE_LINK_BIN="$2"
+                shift 2
+                ;;
             -n|--dry-run)
                 DRY_RUN=true
                 shift
