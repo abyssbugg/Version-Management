@@ -226,6 +226,15 @@ mutation_block_write() {
     begin=$(mutation_begin_marker "$name")
     end=$(mutation_end_marker "$name")
 
+    # F5 (re-audit 2026-10-10): a dry-run is a pure preview — decide it BEFORE
+    # the temp file is created, so a preview writes nothing next to the
+    # target and still works on a read-only directory.
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] mutation_block_write would update: $file ($name)"
+        _txn_journal "mutation_write" "mode=dry_run target=$file block=$name result=planned exit_code=0"
+        return 0
+    fi
+
     # Compose the new file. An existing <name> block is replaced IN PLACE
     # (AX-8): moving it to the end of the file on every content change would
     # reorder the user's rc — a later user line that depends on the block
@@ -266,13 +275,6 @@ mutation_block_write() {
             awk '{ print }' "$content_file"
             printf '%s\n' "$end"
         } >> "$tmp" || { rm -f "$tmp"; log_error "mutation: cannot compose block: $file"; return 1; }
-    fi
-
-    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
-        rm -f "$tmp"
-        log_info "[dry-run] mutation_block_write would update: $file ($name)"
-        _txn_journal "mutation_write" "mode=dry_run target=$file block=$name result=planned exit_code=0"
-        return 0
     fi
 
     # Preserve the resolved content-file mode, not a symlink's unrelated mode.
@@ -372,6 +374,12 @@ mutation_block_remove() {
     begin=$(mutation_begin_marker "$name")
     end=$(mutation_end_marker "$name")
 
+    # F5: preview before any temp file exists (see mutation_block_write).
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] mutation_block_remove would remove: $file ($name)"
+        return 0
+    fi
+
     local tmp
     tmp=$(mktemp "$(dirname "$write_target")/.vms-mutation.XXXXXX") || return 1
     awk -v b="$begin" -v e="$end" '
@@ -380,12 +388,6 @@ mutation_block_remove() {
         inblock { next }
         { print }
     ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
-
-    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
-        rm -f "$tmp"
-        log_info "[dry-run] mutation_block_remove would remove: $file ($name)"
-        return 0
-    fi
 
     if ! _mutation_preserve_mode "$write_target" "$tmp"; then
         rm -f "$tmp"

@@ -248,6 +248,37 @@ check env_dry_publish "$HOME/new-dir/gen.txt" "$content"
 check test ! -e "$HOME/new-dir"
 TRANSACTION_DRY_RUN=1 transaction_rollback
 
+# F5 (re-audit 2026-10-10): a dry-run of the block editor is a pure preview.
+# It used to mktemp the composed file in the target directory first, so a
+# preview on a read-only directory failed (rc=1) and every preview wrote a
+# temp file next to the user's rc. Spy on mktemp (portable even as root) and
+# also use a read-only directory.
+env_dry_write() { TRANSACTION_DRY_RUN=1 mutation_block_write "$@"; }
+env_dry_remove() { TRANSACTION_DRY_RUN=1 mutation_block_remove "$@"; }
+start_case dry_run_no_temp
+transaction_rollback
+ro="$HOME/ro"
+mkdir -p "$ro"
+printf '# user\n# BEGIN version-management-setup:keep\nk\n# END version-management-setup:keep\n' >"$ro/rc"
+printf 'P\n' >"$content"
+before=$(_txn_sha256 "$ro/rc")
+command chmod 555 "$ro"
+mktemp_log="$SB/mktemp-calls"
+: >"$mktemp_log"
+mktemp() {
+    case "$*" in *.vms-mutation.*) printf '%s\n' "$*" >>"$mktemp_log" ;; esac
+    command mktemp "$@"
+}
+TRANSACTION_DRY_RUN=1 transaction_start mut_dry
+check env_dry_write "$ro/rc" plan "$content"
+check env_dry_write "$ro/rc" keep "$content"
+check env_dry_remove "$ro/rc" keep
+TRANSACTION_DRY_RUN=1 transaction_rollback
+unset -f mktemp
+command chmod 755 "$ro"
+check test ! -s "$mktemp_log"
+check test "$(ls -A "$ro")" = rc
+check test "$before" = "$(_txn_sha256 "$ro/rc")"
 check test ! -d "$SB/source-home/.config-backups"
 printf 'Mutation editor: %s failure(s)\n' "$failures"
 [[ "$failures" == 0 ]]
