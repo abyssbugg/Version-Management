@@ -121,14 +121,19 @@ sandboxed `$HOME`.
 
 ## Known gaps (honest state)
 
-Reviewed 2026-10-10 against `main`. Each gap is deliberate or awaits an
-owner action; none is an unfixed defect.
+Reviewed 2026-10-10 against `main`, and again after the 2026-10-10
+re-audit fixes (MASTER_AUDIT "Re-audit findings"). Each gap is deliberate
+or awaits an owner action; none is an unfixed defect.
 
 - **Release signing is not yet proven live.** Keyless cosign signing,
   SBOMs and checksums are implemented in `release.yml` (P1-6), but OIDC
   issuance, the Rekor entry and the certificate identity are first
   exercised by the first tagged release
-  ([RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), ROADMAP 5.1).
+  ([RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), ROADMAP 5.1). GitHub
+  Actions is currently blocked by an account billing lock, so no release
+  can run until the owner clears it. The attestation guard admits a tag
+  only when its commit differs from the attested commit in marker files
+  alone (F4).
 - **WSL2 has no live CI runner.** It runs through the Linux code paths and
   its detection is pinned through a test seam; native Windows is not
   supported ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).
@@ -145,4 +150,16 @@ owner action; none is an unfixed defect.
   `docker build` (P2-7).
 - **Backup validation needs a SHA-256 tool.** With neither `sha256sum` nor
   `shasum` on the host, `validate_backup` compares sizes only and logs a
-  warning (AX-23).
+  warning (AX-23). A tool that exists but fails or prints a non-digest is
+  an error, never a size-only pass, and a transaction refuses to register a
+  file without a digest (F1).
+- **Lock ownership is PID-based.** A stale lock is reclaimed only when every
+  owner marker names a dead PID (F3). If a dead owner's PID has been reused
+  by another process, the stale lock looks held until that process exits —
+  a denial, never a second owner. The microsecond window between the
+  liveness probe and the marker `rmdir` cannot be closed with a PID
+  identity.
+- **Shell-plugin clones are pinned to reviewed commits.** Bumping the
+  zsh-autosuggestions / zsh-syntax-highlighting pins in
+  `lib/shell-experience.sh` requires reviewing the upstream diff first
+  (SC-1).

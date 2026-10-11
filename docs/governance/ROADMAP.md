@@ -133,3 +133,21 @@ P2-1 is recorded as resolved by policy (ENGINEERING_RULES §3, enforced by
 known-gaps list are current (`86792f8`); kcov `coverage/` is ignored
 (`8f83c42`). The only open item is 5.1 live signing proof, which closes
 with the first tagged release (an owner action).
+
+## Reconciliation Note (2026-10-10, re-audit)
+
+Two external re-audits of `4b289fb` reopened ground marked done above; all
+confirmed findings are fixed on `fix/reaudit-2026-10-10` with RED→GREEN
+regressions (MASTER_AUDIT "Re-audit findings"): F1/F2 backup hashing and
+restore points (`12d5841`), F3/RA-1 lock reclaim (`f9ae430`, so 2.3's lock
+is re-fixed), RA-2 health-check eval (`a25058f`), F6 plugin interface
+leakage (`24e0af5`), F5 block-editor dry-run (`25d6588`, `25d2e14`), F7 and
+SC-1 shell-experience clones (`8bcb7f2`, `06b748c`), F4 release attestation
+(`d385a8a`), RA-5 pre-commit pins (`bbdc3a7`), RA-6/RA-4 test harness
+(`d721706`), RA-3 zsh hook (`42e04b7`). 4.5 gains a union line-coverage
+floor (`2ea3ba2`); 5.2 gains resolved licenses for the two components
+ATTRIBUTION.md could not verify (`1cbd53b`). The unpublished `v3.0.0` tag was
+deleted and will be recut on the fixed commit. 5.1 stays `[~]`: the live
+signing proof needs a tagged release, which is blocked by the GitHub Actions
+billing lock (an owner action). A live WSL2 runner remains out of reach (no
+WSL host).

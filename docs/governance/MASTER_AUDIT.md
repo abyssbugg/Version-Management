@@ -40,7 +40,7 @@ The project is **functionally strong but pre-enterprise-hardening** (GPT-5.5's c
 
 | ID | Finding | Verdict | Evidence | Decision |
 |----|---------|---------|----------|----------|
-| P1-1 | Lock acquisition is check-then-write (TOCTOU race) | **FIXED** (`026cdd3`, 2026-07-04) | `lib/lock.sh`: atomic mkdir + stale-reclaim + ownership-checked release; adopted by version-manager, setup-theme, setup-versions | Concurrency-tested, 10 contenders, zero overlap |
+| P1-1 | Lock acquisition is check-then-write (TOCTOU race) | **FIXED** (`026cdd3`, 2026-07-04); **re-fixed** `f9ae430` (2026-10-10, re-audit F3/RA-1) | `lib/lock.sh`: atomic mkdir + ownership-checked release; adopted by version-manager, setup-theme, setup-versions. The 2026-07-04 status overstated it: stale reclaim renamed a lock aside, so a reclaimer could displace a recycled live lock and a stalled claimer could co-own a newer one. Reclaim is now in-place `rmdir` of dead-owner markers only, and a claim holds only as sole owner | Concurrency-tested, 10 contenders, zero overlap; plus the three re-audit races. Residual: PID reuse between `kill -0` and `rmdir` |
 | P1-2 | `cache_namespace_clear` runs `rm -rf "${CACHE_DIR:?}/${namespace:?}"` with namespace validated only as non-empty; `cache_clear_all` removes `$CACHE_DIR` wholesale | **FIXED** (`50216cf`, 2026-07-04) | `_cache_validate_namespace` enforces `^[A-Za-z0-9_-]+$`; CACHE_DIR sanity check before full clear | Canary-verified: invalid namespaces delete nothing |
 | P1-3 | `fix-nvm-issues.sh` raw appends, NVM_SILENT drift and missing transactions | **FIXED** (`58b967d`, `3af0549`) | `lib/mutation.sh:mutation_nvm_block`, `scripts/fix-nvm-issues.sh`; `tests/integration/test_fix_nvm_managed.sh` | Canonical managed block and transaction-backed replacement landed in M4 |
 | P1-4 | `validate_safe_path` warned on `..` and returned success | **FIXED** (`c158de3`) | `lib/validation.sh:validate_safe_path`; `tests/unit/test_path_validation.sh` | Fail-closed lexical validation and canonical containment, tracked also as A4/B1.3 |
@@ -406,7 +406,10 @@ branch handoff; hosted CI is the next proof.
   `_txn_sha256` and warns when the host has no SHA-256 tool at all (size-only
   kept). `font_validate_checksum` "assumed valid" with no tool; it now fails
   closed like the download path (AX-19). Regressions in `test_backup.sh` and
-  `test_fonts.sh`.
+  `test_fonts.sh`. *Correction (re-audit F1, 2026-10-10):* the FIXED status
+  covered a missing tool only — a tool that existed but failed or printed a
+  non-digest still registered an empty hash and fell open. Closed in
+  `12d5841` (see "Re-audit findings").
 - **Test harness: pyenv shim hang (FIXED `4ebbd21`).** A direct run of
   `test_status_json.sh` resolved `python3` through a pyenv shim and hung
   (rc 124, also with the unmodified tool); the test now uses the interpreter
@@ -515,6 +518,41 @@ session before exec, retaining owned process-group cleanup without inheriting
 the hosted controlling terminal; production interactive shell behavior stays
 unchanged. The auto-activation test's own mode assertions now use Python stat
 rather than repeating the defective BSD/GNU probe fallback.
+
+### Re-audit findings (2026-10-10, `fix/reaudit-2026-10-10`)
+
+Two external re-audits of `4b289fb` (findings F1–F7 and RA-1..RA-6) were
+verified with sandboxed probes against that commit before any change; one
+further supply-chain finding (SC-1) surfaced during verification. The
+unpublished `v3.0.0` tag on `4b289fb` was deleted (its release run never
+started: GitHub billing lock). Every fix has a RED run on `4b289fb` and a
+GREEN run on the fix commit.
+
+| ID | Finding (verified on `4b289fb`) | Status | Fix / evidence |
+|----|----------------------------------|--------|----------------|
+| F1 | A hash tool that failed or printed a non-digest registered an empty hash; the record misparsed and rollback could not restore (rc=1) | **FIXED** `12d5841` | `_txn_sha256` validates a 64-hex digest (0 ok / 1 tool failure / 2 no tool); registration refuses without a digest; `validate_backup` falls back to size only when no tool exists; byte-compare helpers fail closed |
+| F2 | Replacing a restore point deleted the previous generation before the new one was in place | **FIXED** `12d5841` | Previous generation renamed aside, staging published, previous removed only on success; interrupted swaps recovered at the start of create/restore |
+| F3 | Stale-lock reclaim (rename-aside) could displace a recycled live lock; a stalled claimer could co-own a newer lock | **FIXED** `f9ae430` | In-place reclaim by `rmdir` of dead-owner markers; claims require sole ownership; never `rm -rf` |
+| F4 | Release attest-guard accepted any ancestor marker, so one marker attested every later commit | **FIXED** `d385a8a` | Guard moved to `scripts/release-attest-guard.sh`; marker accepted only when `<sha>..<tag>` changes nothing but `.release-attested-*` files; 17-assertion git-fixture test |
+| F5 | Block-editor dry-run created a temp file next to the target before deciding it was a preview | **FIXED** `25d6588`, `25d2e14` | Dry-run decided before `mktemp`; the preview still fails loudly on an unwritable directory (adverse-conditions contract) without creating anything |
+| F6 | A plugin without `plugin_info`/`plugin_init` inherited the previously loaded plugin's; unload ran the last plugin's cleanup | **FIXED** `24e0af5` | Interface names unset before each load; name validated; unload calls `<name>_cleanup` |
+| F7 | A clone install inside a caller's transaction left the directory behind and made the caller's rollback fail | **FIXED** `8bcb7f2`, `06b748c` | Clone refused inside a caller-owned (non-dry-run) transaction |
+| RA-1 | Whole-second timeout checked after a successful reclaim returned failure | **FIXED** `f9ae430` | Retry immediately after a reclaim |
+| RA-2 | `tools/health-check.sh` ran checks through `eval`, including a string built from the repository's `.nvmrc` (code execution) | **FIXED** `a25058f` | Argv checks and named functions; no eval |
+| RA-3 | Generated zsh hook renamed `nvm` by eval of its serialization | **FIXED** `42e04b7` | `functions[_nvm_original]=$functions[nvm]`; behavior pinned in real zsh. The re-audit's "unbalanced brace" sub-claim was not reproduced |
+| RA-4 | Unused `mock_command`/`restore_command` used eval and a shared `/tmp/mocks` | **FIXED** `d721706` | Removed |
+| RA-5 | Pre-commit hook repos pinned by tag only | **FIXED** `bbdc3a7` | Commit SHAs with `# frozen:` comments, same versions; hygiene guard |
+| RA-6 | A test started by hand (and the per-file Makefile targets) ran against the real HOME | **FIXED** `d721706` | `tests/helpers.sh` refuses the account's real home at source time; the runner opts out with a non-inheritable variable; Makefile targets go through the runner |
+| SC-1 | Shell-experience plugin clones took the upstream default-branch tip | **FIXED** `8bcb7f2` | Pinned to reviewed release commits (zsh-autosuggestions v0.7.1, zsh-syntax-highlighting 0.8.0); installed HEAD must equal the pin |
+
+Limitations the re-audit raised, closed in the same pass: the kcov gate now
+enforces a union line-coverage floor (`2ea3ba2`, baseline 38.38% on #63,
+floor 37.0); the two FontPatcher components with unverified licenses are
+resolved against upstream and their license files vendored (`1cbd53b`).
+Not closable here: a live WSL2 runner (no WSL host is available; WSL stays
+supported through the Linux code paths with seam tests only). Status
+corrections: P1-1 and AX-23 above were overstated and are annotated; P3-4
+and P1-5 were re-checked and stand.
 
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked

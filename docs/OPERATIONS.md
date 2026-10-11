@@ -182,5 +182,12 @@ grep -c "rollback" ~/.config/version-manager/audit.log
 - A mutation half-applied: check `metadata.json` status of the newest
   transaction directory and the audit journal; re-run the script
   (mutations are idempotent) or use the emergency-recovery menu.
-- Lock contention: `lib/lock.sh` uses atomic `mkdir` acquisition with
-  stale-reclaim; a crashed run leaves no permanent lock.
+- Lock contention: `lib/lock.sh` uses atomic `mkdir` acquisition. A lock
+  whose owner markers all belong to dead processes is reclaimed in place
+  (each dead `owner.<pid>` marker and then the empty directory removed with
+  `rmdir`, never moved or `rm -rf`d), and a claim only holds while its marker
+  is the sole owner (F3). A crashed run therefore leaves no permanent lock;
+  a lock directory with no markers is reclaimed once it is older than 5 s.
+  Ownership is PID-based: a dead owner's PID reused by another process
+  keeps that stale lock looking held until the process exits (see
+  [SECURITY.md](SECURITY.md#known-gaps-honest-state)).
