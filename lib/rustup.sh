@@ -11,6 +11,7 @@ _VMS_RUSTUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_RUSTUP_DIR}/env.sh"
 source "${_VMS_RUSTUP_DIR}/cache.sh"
 source "${_VMS_RUSTUP_DIR}/logger.sh"
+source "${_VMS_RUSTUP_DIR}/local-version.sh"
 
 # Rust version management configuration
 RUSTUP_CACHE_PREFIX="rustup"
@@ -244,40 +245,19 @@ rustup_set_global() {
 # Args: version - Rust version to set for current project
 # Returns: 0 on success, 1 on failure
 rustup_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Rust version not specified"
-        return 1
+    local version="${1:-}"
+    _rustup_validate_version "$version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish rust-toolchain "$version"
+        return $?
     fi
-
-    if ! _rustup_validate_version "$version"; then
-        return 1
-    fi
-
-    if ! rustup_detect; then
-        log_error "rustup not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    rustup_detect || return 1
     if ! rustup_validate_version "$version"; then
-        log_warn "Rust $version not found, attempting to install..."
-        if ! rustup_install_version "$version"; then
-            return 1
-        fi
+        rustup_install_version "$version" || return 1
     fi
-
-    log_info "Setting local Rust version to $version"
-
-    # Create rust-toolchain file
-    if echo "$version" > rust-toolchain; then
-        log_success "Local Rust version set to $version"
-        return 0
-    else
-        log_error "Failed to create rust-toolchain file"
-        return 1
-    fi
+    local_version_publish rust-toolchain "$version" || return 1
+    log_success "Local Rust version set to $version"
 }
 
 # Get current Rust version

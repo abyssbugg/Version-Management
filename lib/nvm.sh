@@ -15,6 +15,7 @@ source "${_VMS_NVM_DIR}/logger.sh"
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
 source "${_VMS_NVM_DIR}/backup.sh"
+source "${_VMS_NVM_DIR}/local-version.sh"
 
 # Node.js version management configuration
 NVM_CACHE_PREFIX="nvm"
@@ -276,48 +277,20 @@ nvm_set_global() {
 # Args: version - Node.js version to set as local
 # Returns: 0 on success, 1 on failure
 nvm_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Node.js version not specified"
-        return 1
+    local version="${1:-}" clean_version
+    clean_version=${version#v}
+    _nvm_validate_version "$clean_version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .nvmrc "$clean_version"
+        return $?
     fi
-
-    # Remove 'v' prefix if present for validation
-    local clean_version=${version#v}
-    if ! _nvm_validate_version "$clean_version"; then
-        return 1
-    fi
-
-    if ! nvm_detect; then
-        log_error "nvm not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    nvm_detect || return 1
     if ! nvm_validate_version "$clean_version"; then
-        log_warn "Node.js $version not found, attempting to install..."
-        if ! nvm_install_version "$clean_version"; then
-            return 1
-        fi
+        nvm_install_version "$clean_version" || return 1
     fi
-
-    log_info "Setting local Node.js version to $version"
-
-    # Create .nvmrc file
-    if echo "$clean_version" > .nvmrc; then
-        # Switch to the version
-        if nvm use "$clean_version" >/dev/null 2>&1; then
-            log_success "Local Node.js version set to $version"
-            return 0
-        else
-            log_error "Failed to switch to Node.js $version"
-            return 1
-        fi
-    else
-        log_error "Failed to create .nvmrc file"
-        return 1
-    fi
+    local_version_publish .nvmrc "$clean_version" nvm use "$clean_version" || return 1
+    log_success "Local Node.js version set to $version"
 }
 
 # Get current Node.js version
