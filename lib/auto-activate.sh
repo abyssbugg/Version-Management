@@ -431,51 +431,53 @@ aa_php() {
 }
 
 # --- Node.js global symlink sync (capability: symlink_sync — PRIVILEGED) ---
-# After an nvm (or fnm) version switch, optionally update /usr/local/bin/{node,npm,npx}
-# symlinks so desktop apps (Electron, VS Code extensions, etc.) see the new version.
-# Two independent gates (B1.2):
-#   1. DEV_AUTO_SYNC_NODE_SYMLINKS=true (user opt-in + persistent), AND
-#   2. the CURRENT project is trusted for symlink_sync (auto_trust registry).
-# When both gates pass, delegates to the hardcoded subprocess updater
-# (tools/update-global-node-symlinks.sh) with --confirm flag (no password prompt).
-# The subprocess is fully responsible for dry-run, backup, mutation, and rollback.
-# Never sources CLI into zsh namespace — uses subprocess invocation only.
+# After an nvm (or fnm) version switch, optionally update
+# /usr/local/bin/{node,npm,npx} symlinks so desktop apps (Electron, VS Code
+# extensions, etc.) see the new version. Two independent gates (B1.2):
+#   1. DEV_AUTO_SYNC_NODE_SYMLINKS=true (user opt-in), AND
+#   2. the CURRENT project is trusted for symlink_sync.
+# Never prompts for a password; the sudo -n fallback is attempted only when
+# both gates pass.
 _nvm_sync_symlinks() {
     local dir="${1:-$PWD}"
-    
-    # Gate 1: environment opt-in (must be set to "true")
     [[ "${DEV_AUTO_SYNC_NODE_SYMLINKS:-false}" == "true" ]] || return 0
-    
-    # Gate 2: trust registry check (explicit symlink_sync capability required)
     if ! auto_is_trusted "$dir" symlink_sync; then
         log_debug "auto-activate: symlink sync skipped (project not trusted for symlink_sync)"
         return 0
     fi
-    
-    # Both gates passed: delegate to the hardcoded subprocess updater.
-    # The subprocess (tools/update-global-node-symlinks.sh) is responsible for:
-    #   - validating NVM/FNM installation and active version
-    #   - dry-run verification before any write
-    #   - backup transaction (M2 primitive)
-    #   - privileged mutation (ln/sudo with failure propagation)
-    #   - all three verification steps (pre-launch, post-apply, post-verify)
-    #   - rollback on any failure (no || true suppression)
-    # This hook does NOT attempt direct ln/sudo — all mutation is transaction-routed.
-    
-    local updater_script
-    # Reconstruct the updater path from this library's location.
-    # At source time in the rc hook, BASH_SOURCE[0] points to the emitted hook location.
-    updater_script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/tools/update-global-node-symlinks.sh"
-    
-    if [[ ! -f "$updater_script" ]]; then
-        log_error "auto-activate: symlink updater not found: $updater_script"
-        return 1
+
+    local nvm_bin=""
+
+    # Determine the active Node bin directory
+    if [[ -n "${NVM_DIR:-}" ]]; then
+        local cur
+        cur="$(nvm current 2>/dev/null)" || return 0
+        [[ "$cur" == "system" || "$cur" == "none" || -z "$cur" ]] && return 0
+        nvm_bin="$NVM_DIR/versions/node/${cur}/bin"
+    elif command -v fnm >/dev/null 2>&1; then
+        local fnm_cur
+        fnm_cur="$(fnm current 2>/dev/null)" || return 0
+        [[ "$fnm_cur" == "none" || -z "$fnm_cur" ]] && return 0
+        # fnm stores versions under its own directory
+        local fnm_dir="${FNM_DIR:-$HOME/.local/share/fnm}"
+        nvm_bin="$fnm_dir/node-versions/v${fnm_cur#v}/installation/bin"
     fi
-    
-    # Invoke the subprocess with --confirm (noninteractive, no password prompt).
-    # The subprocess runs in a nested transaction (caller state unaffected).
-    # Exit code is propagated (failures are NOT suppressed).
-    "$updater_script" --confirm
+
+    [[ -d "$nvm_bin" ]] || return 0
+
+    # If /usr/local/bin/node already points to the right place, skip
+    local current_target
+    current_target="$(readlink /usr/local/bin/node 2>/dev/null)" || true
+    [[ "$current_target" == "$nvm_bin/node" ]] && return 0
+
+    # Attempt update — never prompt for password
+    local cmd
+    for cmd in node npm npx; do
+        [[ -f "$nvm_bin/$cmd" ]] || continue
+        ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
+            || sudo -n ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
+            || true
+    done
 }
 
 # --- Rust (informational only — rustup auto-handles rust-toolchain natively) ---
