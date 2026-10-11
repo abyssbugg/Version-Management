@@ -50,7 +50,10 @@ local_version_publish() {
     fi
     rm -f -- "$content"
     if [[ $rc -eq 0 && $# -gt 0 ]]; then
-        "$@" >/dev/null 2>&1 || rc=$?
+        "$@" >/dev/null 2>&1 || {
+            rc=$?
+            log_error "Local version callback '$1' failed (exit $rc); restoring file state"
+        }
     fi
     if [[ $rc -eq 0 ]]; then
         transaction_commit || rc=$?

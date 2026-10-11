@@ -75,7 +75,8 @@ check test "$(cat target)" = target-before
 # A failing manager can mutate an already-identical version file itself.
 mutating_callback() { printf 'broken\n' > "$1"; return 1; }
 printf '22.1.0\n' > target
-if local_version_publish .nvmrc 22.1.0 mutating_callback .nvmrc; then failures=$((failures + 1)); fi
+if local_version_publish .nvmrc 22.1.0 mutating_callback .nvmrc 2> "$HOME/callback-error"; then failures=$((failures + 1)); fi
+check grep -q "mutating_callback.*failed (exit 1)" "$HOME/callback-error"
 check test -L .nvmrc
 check test "$(cat target)" = 22.1.0
 printf 'Local version safety failures: %s\n' "$failures"
