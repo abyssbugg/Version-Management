@@ -541,7 +541,7 @@ GREEN run on the fix commit.
 | RA-2 | `tools/health-check.sh` ran checks through `eval`, including a string built from the repository's `.nvmrc` (code execution) | **FIXED** `a25058f` | Argv checks and named functions; no eval |
 | RA-3 | Generated zsh hook renamed `nvm` by eval of its serialization | **FIXED** `42e04b7` | `functions[_nvm_original]=$functions[nvm]`; behavior pinned in real zsh. The re-audit's "unbalanced brace" sub-claim was not reproduced |
 | RA-4 | Unused `mock_command`/`restore_command` used eval and a shared `/tmp/mocks` | **FIXED** `d721706` | Removed |
-| RA-5 | Pre-commit hook repos pinned by tag only | **FIXED** `bbdc3a7` | Commit SHAs with `# frozen:` comments, same versions; hygiene guard |
+| RA-5 | Pre-commit hook repos pinned by tag only | **FIXED** `bbdc3a7`, `735b16c` | Commit SHAs with `# frozen:` comments, same versions; hygiene guard (made mawk-safe in `735b16c` after Buildkite #64 showed Ubuntu's awk has no `{n}` intervals) |
 | RA-6 | A test started by hand (and the per-file Makefile targets) ran against the real HOME | **FIXED** `d721706` | `tests/helpers.sh` refuses the account's real home at source time; the runner opts out with a non-inheritable variable; Makefile targets go through the runner |
 | SC-1 | Shell-experience plugin clones took the upstream default-branch tip | **FIXED** `8bcb7f2` | Pinned to reviewed release commits (zsh-autosuggestions v0.7.1, zsh-syntax-highlighting 0.8.0); installed HEAD must equal the pin |
 
@@ -550,7 +550,15 @@ enforces a union line-coverage floor (`2ea3ba2`, baseline 38.38% on #63,
 floor 37.0); the two FontPatcher components with unverified licenses are
 resolved against upstream and their license files vendored (`1cbd53b`).
 Not closable here: a live WSL2 runner (no WSL host is available; WSL stays
-supported through the Linux code paths with seam tests only). Status
+supported through the Linux code paths with seam tests only). Test hygiene
+found on the way: `test_status_json` and `test_setup` leaked their sandbox
+directories into TMPDIR on every run (`98a7d49`).
+
+Hosted evidence: Buildkite #64 failed only on the RA-5 guard under mawk
+(Linux, kcov); #65 (`735b16c`) and #66 (`98a7d49`) passed every gate —
+Linux 73/73, macOS 73/73, kcov union coverage 2197/5583 = 39.35% (floor
+37.0). Local gate twice: lint (132 scripts), syntax (141 files), unit 49/49,
+integration 24/24, pre-commit all hooks. Status
 corrections: P1-1 and AX-23 above were overstated and are annotated; P3-4
 and P1-5 were re-checked and stand.
 
