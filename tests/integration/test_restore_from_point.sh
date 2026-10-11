@@ -322,10 +322,15 @@ test_negative_control_partial_apply() {
 
     printf 'alpha-v2\n' > "$proj/a.txt"
     rm -f "$proj/c.txt"
-    chmod 555 "$proj"     # c's restore fails; a's already succeeded
-
+    # Inject a target-copy failure, not a backup failure: backup failure now
+    # correctly refuses mutation before it starts, even in default mode.
+    cp() {
+        if [[ "${*: -1}" == "$proj/c.txt" ]]; then return 1; fi
+        command cp "$@"
+    }
     local rc=0
     restore_from_point "c2-nc" >/dev/null 2>&1 || rc=$?   # DEFAULT mode
+    unset -f cp
     _chk "control: default mode exits nonzero on failure" "nonzero" "$([[ $rc -ne 0 ]] && echo nonzero || echo zero)"
     _chk "control: a.txt STAYS restored (partial apply — the defect)" "alpha-v1" "$(cat "$proj/a.txt")"
     _chk "control: c.txt still absent (no total rollback)" 0 "$([[ ! -e "$proj/c.txt" ]] && echo 0 || echo 1)"
