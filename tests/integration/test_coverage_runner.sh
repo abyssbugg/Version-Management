@@ -70,6 +70,32 @@ if bash "$S/repo/tests/test_runner.sh" coverage > "$S/no-floor.log" 2>&1; then
  echo 'FAIL: a missing coverage floor passed'; exit 1
 fi
 mv "$S/floor.saved" "$S/repo/tests/coverage-floor"
+# Coverage caps only Darwin's child soft limit; ordinary tests, smaller
+# limits, the hard limit, and the invoking process must remain unchanged.
+cat > "$S/repo/tests/unit/test_sample.sh" <<'LIMIT_TEST'
+#!/usr/bin/env bash
+python3 -c 'import os,resource; open(os.environ["LIMIT_OUT"],"w").write(repr(resource.getrlimit(resource.RLIMIT_NOFILE)))'
+LIMIT_TEST
+python3 - "$S/repo" "$S" <<'LIMIT_PROBE'
+import ast, os, pathlib, resource, subprocess, sys
+repo, scratch = map(pathlib.Path, sys.argv[1:])
+original = resource.getrlimit(resource.RLIMIT_NOFILE)
+for requested in (512, 8192):
+    if original[1] != resource.RLIM_INFINITY and original[1] < requested:
+        continue
+    def limits():
+        resource.setrlimit(resource.RLIMIT_NOFILE, (requested, original[1]))
+    for mode in ('unit', 'coverage'):
+        out = scratch / ('limit-' + mode)
+        result = subprocess.run(['bash', str(repo/'tests/test_runner.sh'), mode],
+            env=dict(os.environ, LIMIT_OUT=str(out)), preexec_fn=limits,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert result.returncode == 0, result.stdout
+        actual = ast.literal_eval(out.read_text())
+        expected = min(requested, 1024) if mode == 'coverage' and sys.platform == 'darwin' else requested
+        assert actual == (expected, original[1]), (mode, requested, actual)
+        assert resource.getrlimit(resource.RLIMIT_NOFILE) == original
+LIMIT_PROBE
 # B1.8: timeout must stop descendants too; inherited tracer pipes otherwise hang.
 cat > "$S/repo/tests/unit/test_sample.sh" <<'TEST'
 #!/usr/bin/env bash
