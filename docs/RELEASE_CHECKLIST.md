@@ -63,10 +63,11 @@ echo "Release SHA: $SHA"
 ### 2. Assert the full gate set ran green on that SHA in Buildkite
 
 Web: open `https://buildkite.com/abyssbugg/version-management`, find the
-build for the commit, and confirm **all seven** steps green: ShellCheck Lint
+build for the commit, and confirm **all eight** steps green: ShellCheck Lint
 (`lint`), Syntax Validation (`syntax`), Pre-commit Hooks (`pre-commit`),
 Secret Scan (`secret-scan`), Tests Linux (`test-linux`), Tests macOS
-(`test-macos`), Coverage kcov (`coverage-kcov`). This is the same set the
+(`test-macos`), Coverage kcov (`coverage-kcov`), and generated-image build/runtime
+smoke (`docker-build-check`). This is the same set the
 `release-attest` step (b) requires.
 
 CLI (`bk build list --pipeline version-management`), verified one-liner:
@@ -75,7 +76,7 @@ CLI (`bk build list --pipeline version-management`), verified one-liner:
 bk build list --pipeline version-management | python3 -c '
 import json, sys
 sha = sys.argv[1]
-required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov"}
+required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov", "docker-build-check"}
 for b in json.load(sys.stdin):
     if b.get("commit") != sha or b.get("state") != "passed":
         continue

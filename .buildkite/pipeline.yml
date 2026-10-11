@@ -133,6 +133,23 @@ steps:
         agents:
           queue: "linux-small"
 
+  - label: ":docker: Generated images (build and runtime smoke)"
+    key: "docker-build-check"
+    depends_on: ["lint", "syntax"]
+    timeout_in_minutes: 40
+    command: |
+      set -euo pipefail
+      # Hosted Linux provides Docker. Keep execution on this ephemeral agent,
+      # never a configured remote builder or implicit developer context.
+      export DOCKER_CONTEXT=default
+      export DOCKER_BUILDKIT=0
+      mkdir -p test-results
+      make docker-build-check 2>&1 | tee test-results/docker-build-check.log
+    artifact_paths:
+      - "test-results/docker-build-check.log"
+    agents:
+      queue: "linux-small"
+
   - group: ":receipt: Release attestation (release-attest)"
     key: "release-attest-group"
     # Group-level `if:` is unsupported by this schema (build #34: group marked
@@ -171,7 +188,7 @@ steps:
           import json, os, sys
           builds = json.load(open("/tmp/bk-builds.json"))
           sha = os.environ["RELEASE_ATTEST_SHA"]
-          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov"}
+          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov", "docker-build-check"}
           for b in builds:
               if b.get("commit") != sha or b.get("state") != "passed":
                   continue
