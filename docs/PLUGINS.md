@@ -272,7 +272,7 @@ plugin_run my_tool version
 | `plugin_system_init` | Initialize the plugin system |
 | `plugin_load "path"` | Load a specific plugin |
 | `plugin_load_all` | Load all available plugins |
-| `plugin_unload "name"` | Unload a plugin |
+| `plugin_unload "name"` | Unload a plugin (calls its `<name>_cleanup`) |
 
 ### Discovery Functions
 
