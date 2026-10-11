@@ -14,6 +14,18 @@ docker_call() {
     python3 - "$seconds" "$DOCKER_CONTEXT" "$@" <<'PY'
 import os, signal, subprocess, sys
 p = subprocess.Popen(['docker', '--context', sys.argv[2], *sys.argv[3:]], start_new_session=True)
+def interrupted(signum, frame):
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+    except ProcessLookupError:
+        pass
+    raise SystemExit(128 + signum)
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, interrupted)
 try:
     raise SystemExit(p.wait(timeout=int(sys.argv[1])))
 except subprocess.TimeoutExpired:
@@ -32,7 +44,8 @@ containers=()
 cleanup() {
     local rc=$? item owner
     trap - EXIT INT TERM HUP
-    for item in "${containers[@]}"; do
+    for item in "${containers[@]-}"; do
+        [[ -n "$item" ]] || continue
         owner=$(docker_call 10 inspect --format '{{index .Config.Labels "org.version-management.check"}}' "$item" 2>/dev/null) || { rc=1; continue; }
         if [[ "$owner" == "$token" ]]; then
             docker_call 15 rm -f "$item" >/dev/null || rc=1
@@ -41,7 +54,8 @@ cleanup() {
             rc=1
         fi
     done
-    for item in "${images[@]}"; do
+    for item in "${images[@]-}"; do
+        [[ -n "$item" ]] || continue
         owner=$(docker_call 10 image inspect --format '{{index .Config.Labels "org.version-management.check"}}' "$item" 2>/dev/null) || { rc=1; continue; }
         if [[ "$owner" == "$token" ]]; then
             docker_call 15 image rm "$item" >/dev/null || rc=1

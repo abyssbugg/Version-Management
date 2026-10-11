@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-from flask import Flask, jsonify
+# Synthetic standard-library fixture: no downloaded Python dependencies.
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-app = Flask(__name__)
 
-@app.route('/healthz')
-def healthz():
-    return jsonify({'status': 'healthy'}), 200
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'{"status":"healthy"}\n'
+        self.send_response(200 if self.path == '/healthz' else 404)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-@app.errorhandler(404)
-def not_found(e):
-    return '', 404
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=False)
+HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()

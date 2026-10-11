@@ -777,7 +777,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
+# Dockerfile.go is not Go source; COPY . . otherwise makes go build parse it.
+RUN rm -f ./Dockerfile.go && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
 
 # ---- Stage 2: runtime (distro-slim, artifacts only) ----
 FROM debian:bookworm-slim AS runtime

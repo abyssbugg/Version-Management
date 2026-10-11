@@ -158,6 +158,8 @@ test_template_go() {
     (cd "$dir" && generate_dockerfile_go "1.23.4" >/dev/null 2>&1)
     echo "--- Dockerfile.go (P2-7) ---"
     _assert_properties "$dir/Dockerfile.go" "appuser" "8080"
+    _check "Go builder removes Dockerfile.go before compiling directory" \
+        grep -q '^RUN rm -f ./Dockerfile.go && CGO_ENABLED=0' "$dir/Dockerfile.go"
 }
 
 test_template_rust() {

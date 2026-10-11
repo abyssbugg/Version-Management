@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 
+<!--
   SYNTHETIC FIXTURE WRAPPER — for Docker build smoke tests only.
   This pom.xml does not invoke Maven; the build is driven via javac + jar only.
   See mvnw wrapper comments for details.

@@ -53,6 +53,16 @@ raise AssertionError(a)
 FAKE
 chmod +x "$S/bin/docker"
 failures=0
+# Failure before any image/container exists must still clean the sandbox,
+# including shells where nounset rejects expansion of an empty array.
+mkdir -p "$S/early/scripts" "$S/early-tmp"
+cp "$ROOT/scripts/check-docker-builds.sh" "$S/early/scripts/"
+for shell in "$(command -v bash)" /bin/bash; do
+    if TMPDIR="$S/early-tmp" "$shell" "$S/early/scripts/check-docker-builds.sh" >"$S/early.log" 2>&1; then
+        echo 'FAIL: accepted missing fixture directory'; exit 1
+    fi
+    [[ -z "$(find "$S/early-tmp" -mindepth 1 -print -quit)" ]] || { cat "$S/early.log"; echo 'FAIL: early failure leaked sandbox'; exit 1; }
+done
 if env -u DOCKER_CONTEXT bash "$ROOT/scripts/check-docker-builds.sh" >"$S/missing.log" 2>&1; then failures=$((failures+1)); fi
 for case in unavailable build root healthcheck run unhealthy uid; do
     if DOCKER_CASE="$case" bash "$ROOT/scripts/check-docker-builds.sh" >"$S/$case.log" 2>&1; then
