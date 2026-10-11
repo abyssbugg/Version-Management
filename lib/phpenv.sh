@@ -12,6 +12,7 @@ _VMS_PHPENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_PHPENV_DIR}/env.sh"
 source "${_VMS_PHPENV_DIR}/cache.sh"
 source "${_VMS_PHPENV_DIR}/logger.sh"
+source "${_VMS_PHPENV_DIR}/local-version.sh"
 # Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
@@ -263,47 +264,20 @@ phpenv_set_global() {
 # Args: version - PHP version to set as local
 # Returns: 0 on success, 1 on failure
 phpenv_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "PHP version not specified"
-        return 1
+    local version="${1:-}"
+    _phpenv_validate_version "$version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .php-version "$version"
+        return $?
     fi
-
-    if ! _phpenv_validate_version "$version"; then
-        return 1
-    fi
-
-    if ! phpenv_detect; then
-        log_error "phpenv not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    phpenv_detect || return 1
     if ! phpenv_validate_version "$version"; then
-        log_warn "PHP $version not found, attempting to install..."
-        if ! phpenv_install_version "$version"; then
-            return 1
-        fi
+        phpenv_install_version "$version" || return 1
     fi
-
-    log_info "Setting local PHP version to $version"
-
-    # Create .php-version file
-    if echo "$version" > .php-version; then
-        # Set phpenv local version
-        if phpenv local "$version" 2>/dev/null; then
-            phpenv rehash 2>/dev/null || true
-            log_success "Local PHP version set to $version"
-            return 0
-        else
-            log_error "Failed to set local PHP version with phpenv"
-            return 1
-        fi
-    else
-        log_error "Failed to create .php-version file"
-        return 1
-    fi
+    local_version_publish .php-version "$version" phpenv local "$version" || return 1
+    phpenv rehash 2>/dev/null || true
+    log_success "Local PHP version set to $version"
 }
 
 # Get current PHP version

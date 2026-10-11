@@ -11,6 +11,7 @@ _VMS_JENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_JENV_DIR}/env.sh"
 source "${_VMS_JENV_DIR}/cache.sh"
 source "${_VMS_JENV_DIR}/logger.sh"
+source "${_VMS_JENV_DIR}/local-version.sh"
 # Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
@@ -225,38 +226,17 @@ jenv_set_global() {
 # Args: version - Java version to set as local
 # Returns: 0 on success, 1 on failure
 jenv_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Java version not specified"
-        return 1
+    local version="${1:-}"
+    _jenv_validate_version "$version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .java-version "$version"
+        return $?
     fi
-
-    if ! _jenv_validate_version "$version"; then
-        return 1
-    fi
-
-    if ! jenv_detect; then
-        log_error "jenv not available"
-        return 1
-    fi
-
-    # Check if version is installed
-    if ! jenv_validate_version "$version"; then
-        log_warn "Java $version not found in jenv registry"
-        return 1
-    fi
-
-    log_info "Setting local Java version to $version"
-
-    # Set jenv local version
-    if jenv local "$version" 2>/dev/null; then
-        log_success "Local Java version set to $version"
-        return 0
-    else
-        log_error "Failed to set local Java version with jenv"
-        return 1
-    fi
+    jenv_detect || return 1
+    jenv_validate_version "$version" || return 1
+    local_version_publish .java-version "$version" jenv local "$version" || return 1
+    log_success "Local Java version set to $version"
 }
 
 # Get current Java version

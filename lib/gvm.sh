@@ -11,6 +11,7 @@ _VMS_GVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_GVM_DIR}/env.sh"
 source "${_VMS_GVM_DIR}/cache.sh"
 source "${_VMS_GVM_DIR}/logger.sh"
+source "${_VMS_GVM_DIR}/local-version.sh"
 # Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
@@ -226,46 +227,19 @@ gvm_set_global() {
 # Args: version - Go version to set as local
 # Returns: 0 on success, 1 on failure
 gvm_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Go version not specified"
-        return 1
+    local version="${1:-}"
+    _gvm_validate_version "$version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .go-version "$version"
+        return $?
     fi
-
-    if ! _gvm_validate_version "$version"; then
-        return 1
-    fi
-
-    if ! gvm_detect; then
-        log_error "goenv not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    gvm_detect || return 1
     if ! gvm_validate_version "$version"; then
-        log_warn "Go $version not found, attempting to install..."
-        if ! gvm_install_version "$version"; then
-            return 1
-        fi
+        gvm_install_version "$version" || return 1
     fi
-
-    log_info "Setting local Go version to $version"
-
-    # Create .go-version file
-    if echo "$version" > .go-version; then
-        # Set goenv local version
-        if goenv local "$version" 2>/dev/null; then
-            log_success "Local Go version set to $version"
-            return 0
-        else
-            log_error "Failed to set local Go version with goenv"
-            return 1
-        fi
-    else
-        log_error "Failed to create .go-version file"
-        return 1
-    fi
+    local_version_publish .go-version "$version" goenv local "$version" || return 1
+    log_success "Local Go version set to $version"
 }
 
 # Get current Go version

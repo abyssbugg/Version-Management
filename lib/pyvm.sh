@@ -11,6 +11,7 @@ _VMS_PYVM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_PYVM_DIR}/env.sh"
 source "${_VMS_PYVM_DIR}/cache.sh"
 source "${_VMS_PYVM_DIR}/logger.sh"
+source "${_VMS_PYVM_DIR}/local-version.sh"
 # Unconditional (B1.13-new): install_dir_stage/install_dir_restore are
 # export -f'd, so inherited copies would defeat a declare -f guard.
 # backup.sh is re-source-safe (preserves live transaction state).
@@ -262,46 +263,19 @@ pyvm_set_global() {
 # Args: version - Python version to set as local
 # Returns: 0 on success, 1 on failure
 pyvm_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Python version not specified"
-        return 1
+    local version="${1:-}"
+    _pyvm_validate_version "$version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .python-version "$version"
+        return $?
     fi
-
-    if ! _pyvm_validate_version "$version"; then
-        return 1
-    fi
-
-    if ! pyvm_detect; then
-        log_error "pyenv not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    pyvm_detect || return 1
     if ! pyvm_validate_version "$version"; then
-        log_warn "Python $version not found, attempting to install..."
-        if ! pyvm_install_version "$version"; then
-            return 1
-        fi
+        pyvm_install_version "$version" || return 1
     fi
-
-    log_info "Setting local Python version to $version"
-
-    # Create .python-version file
-    if echo "$version" > .python-version; then
-        # Set pyenv local version
-        if pyenv local "$version" 2>/dev/null; then
-            log_success "Local Python version set to $version"
-            return 0
-        else
-            log_error "Failed to set local Python version with pyenv"
-            return 1
-        fi
-    else
-        log_error "Failed to create .python-version file"
-        return 1
-    fi
+    local_version_publish .python-version "$version" pyenv local "$version" || return 1
+    log_success "Local Python version set to $version"
 }
 
 # Get current Python version

@@ -15,6 +15,7 @@ _VMS_FNM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_FNM_DIR}/env.sh"
 source "${_VMS_FNM_DIR}/cache.sh"
 source "${_VMS_FNM_DIR}/logger.sh"
+source "${_VMS_FNM_DIR}/local-version.sh"
 
 # FNM version management configuration
 FNM_CACHE_PREFIX="fnm"
@@ -134,6 +135,10 @@ fnm_install_version() {
         return 1
     fi
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        log_info "[dry-run] would install Node.js $version via fnm"
+        return 0
+    fi
     log_info "Installing Node.js $version via fnm..."
 
     # Check if already installed
@@ -197,46 +202,20 @@ fnm_set_global() {
 # Args: version - Node.js version to set as local
 # Returns: 0 on success, 1 on failure
 fnm_set_local() {
-    local version="$1"
-
-    if [ -z "$version" ]; then
-        log_error "Node.js version not specified"
-        return 1
+    local version="${1:-}" clean_version
+    clean_version=${version#v}
+    _fnm_validate_version "$clean_version" || return 1
+    local_version_preflight || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local_version_publish .node-version "$clean_version"
+        return $?
     fi
-
-    local clean_version=${version#v}
-    if ! _fnm_validate_version "$clean_version"; then
-        return 1
-    fi
-
-    if ! fnm_detect; then
-        log_error "fnm not available"
-        return 1
-    fi
-
-    # Check if version is installed
+    fnm_detect || return 1
     if ! fnm_validate_version "$clean_version"; then
-        log_warn "Node.js $version not found, attempting to install..."
-        if ! fnm_install_version "$clean_version"; then
-            return 1
-        fi
+        fnm_install_version "$clean_version" || return 1
     fi
-
-    log_info "Setting local Node.js version to $version (fnm)"
-
-    # Create .node-version file (fnm's preferred format)
-    if echo "$clean_version" > .node-version; then
-        if fnm use "$clean_version" >/dev/null 2>&1; then
-            log_success "Local Node.js version set to $version (fnm)"
-            return 0
-        else
-            log_error "Failed to switch to Node.js $version via fnm"
-            return 1
-        fi
-    else
-        log_error "Failed to create .node-version file"
-        return 1
-    fi
+    local_version_publish .node-version "$clean_version" fnm use "$clean_version" || return 1
+    log_success "Local Node.js version set to $version (fnm)"
 }
 
 # Get current Node.js version via fnm
