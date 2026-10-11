@@ -96,6 +96,9 @@ trap cleanup EXIT
 # pwd -P so assertions match the CLI's own project detection (macOS /private
 # prefix, TMPDIR double slashes).
 new_case() {
+    # Each case replaces SB; remove the previous case's sandbox first (the
+    # EXIT trap only sees the last one, so every earlier case leaked).
+    [[ -n "${SB:-}" && "$SB" == */vms-r1-status.* ]] && rm -rf "$SB"
     SB="$(mktemp -d "${TMPDIR:-/tmp}/vms-r1-status.XXXXXX")"
     HOME_DIR="$SB/home"
     MOCKBIN="$SB/bin"

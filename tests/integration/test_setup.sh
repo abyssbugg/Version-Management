@@ -12,6 +12,10 @@ setup_test
 trap teardown_test EXIT
 
 source "$ROOT_DIR/setup.sh"
+# setup.sh's setup_error_trap replaces the EXIT trap with run_cleanup, which
+# dropped teardown_test and leaked the sandbox HOME on every run. Register it
+# through setup.sh's own cleanup chain instead.
+register_cleanup teardown_test
 
 test_setup_defines_main() {
   if declare -f main >/dev/null 2>&1; then
