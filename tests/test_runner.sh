@@ -161,7 +161,20 @@ _run_test_file() {
             HOME="$sandbox" \
             XDG_CONFIG_HOME="$sandbox/.config" \
             XDG_CACHE_HOME="$sandbox/.cache" \
-            exec python3 -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "${cmd[@]}"
+            exec python3 - "${cmd[@]}" << 'PYSCRIPT'
+import os, sys, resource
+# Constrain RLIMIT_NOFILE on Darwin only (kcov bash-engine xtraceFd fix).
+# Preserve the hard limit; only set soft to 1024. Fail closed if setrlimit fails.
+if sys.platform == 'darwin':
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft > 1024:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (1024, hard))
+    except (OSError, ValueError):
+        sys.exit(126)
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
+PYSCRIPT
     ) </dev/null >"$out_file" 2>&1 &
     pid=$!
     (( ! monitor_was_set )) || set -m
