@@ -277,9 +277,20 @@ main() {
 
     # B2.6/P1-11: coverage mode is fail-closed — no silent plain-suite run
     # masquerading as a coverage run.
-    if [[ "$KCOV_MODE" == "true" ]] && ! command -v kcov >/dev/null 2>&1; then
-        echo "test_runner: coverage mode requested but kcov is not installed — install it (apt-get install kcov / brew install kcov) or use the coverage-kcov Buildkite job" >&2
-        exit 3
+    if [[ "$KCOV_MODE" == "true" ]]; then
+        # macOS limitation: kcov43+ bash-engine has a bug where it calculates
+        # xtraceFd = rlim_cur / 4, which on macOS yields an invalid FD (e.g. 262143).
+        # The dup2() call fails: "Failed to exchange stderr for pipe: Bad file descriptor".
+        # This is not a configuration issue—it's a platform incompatibility in kcov's
+        # bash-engine (affects kcov 43–44+). Linux Buildkite agents use kcov successfully.
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            echo "test_runner: coverage mode on macOS is not supported — kcov bash-engine is incompatible with macOS (known issue in upstream kcov). Use Linux for native coverage (kcov works on Buildkite Linux agents)." >&2
+            exit 3
+        fi
+        if ! command -v kcov >/dev/null 2>&1; then
+            echo "test_runner: coverage mode requested but kcov is not installed — install it (apt-get install kcov on Linux) or use the coverage-kcov Buildkite job" >&2
+            exit 3
+        fi
     fi
     if [[ "$KCOV_MODE" == "true" ]]; then
         mkdir -p "$KCOV_DIR"
