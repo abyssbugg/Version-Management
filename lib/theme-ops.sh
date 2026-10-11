@@ -11,12 +11,13 @@ THEME_OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${THEME_OPS_DIR}/env.sh"
 source "${THEME_OPS_DIR}/cache.sh"
 source "${THEME_OPS_DIR}/logger.sh"
+source "${THEME_OPS_DIR}/mutation.sh"
 
 # Theme management configuration
 THEME_CACHE_PREFIX="theme"
 THEME_CACHE_TTL=600  # 10 minutes cache for theme file checks
 P10K_CONFIG="$HOME/.p10k.zsh"
-THEME_BASE_DIR="$(dirname "$THEME_OPS_DIR")"  # Parent directory of lib/
+THEME_BASE_DIR="$(dirname "$THEME_OPS_DIR")/config"  # Shipped theme assets
 
 # Theme configuration using parallel arrays for Bash 3.x compatibility
 THEME_NAMES=("professional" "apple" "minimal" "rainbow")
@@ -148,9 +149,17 @@ theme_detect_current() {
 # Switch to specified theme
 # Args: theme_name - name of the theme to switch to
 # Returns: 0 on success, 1 on failure
+# A3-1: Uses transaction-aware mutation_file_publish for safe, idempotent theme switching
 theme_switch() {
-    local theme_name="$1"
+    local theme_name="${1:-}"
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local preview_file
+        preview_file=$(get_theme_file "$theme_name") || return 1
+        [[ -f "$THEME_BASE_DIR/$preview_file" ]] || return 1
+        LOG_FILE='' log_info "[dry-run] would switch theme to $theme_name"
+        return 0
+    fi
     if [ -z "$theme_name" ]; then
         log_error "Theme name not specified"
         return 1
@@ -167,28 +176,36 @@ theme_switch() {
     theme_file=$(get_theme_file "$theme_name") || return 1
     local theme_path="$THEME_BASE_DIR/$theme_file"
 
-    # Create backup before switching (handled by backup.sh)
-    if command -v create_backup >/dev/null 2>&1; then
-        create_backup "$P10K_CONFIG"
+    # A3-1: Standalone API — manages its own transaction if needed
+    local own=0
+    if ! transaction_is_active; then
+        transaction_start "theme_switch" || return 1
+        own=1
     fi
 
-    # Copy theme file to P10K config location
-    if cp "$theme_path" "$P10K_CONFIG" 2>/dev/null; then
-        log_success "Theme '$theme_name' applied successfully"
-        log_info "Restart your terminal or run 'source ~/.zshrc' to apply changes"
-
-        # Add specific instructions for certain themes
-        case "$theme_name" in
-            "professional"|"vscode")
-                log_info "Make sure you have a Nerd Font installed for best experience"
-                ;;
-        esac
-
-        return 0
-    else
-        log_error "Failed to apply theme '$theme_name'"
+    # The bundled source is already a content file; preview needs no staging.
+    if ! mutation_file_publish "$P10K_CONFIG" "$theme_path"; then
+        if [[ $own -eq 1 ]]; then
+            transaction_rollback || log_error "Theme rollback failed"
+        fi
         return 1
     fi
+    if [[ $own -eq 1 ]] && ! transaction_commit; then
+        transaction_rollback || log_error "Theme rollback failed"
+        return 1
+    fi
+
+    log_success "Theme '$theme_name' applied successfully"
+    log_info "Restart your terminal or run 'source ~/.zshrc' to apply changes"
+
+    # Add specific instructions for certain themes
+    case "$theme_name" in
+        "professional"|"vscode")
+            log_info "Make sure you have a Nerd Font installed for best experience"
+            ;;
+    esac
+
+    return 0
 }
 
 # Generate theme preview

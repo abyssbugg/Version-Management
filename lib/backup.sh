@@ -946,8 +946,45 @@ transaction_get_name() {
 # Validate restore point name to prevent path traversal / unsafe deletions.
 _validate_restore_point_name() {
     local name="$1"
-    [[ -n "$name" ]] || return 1
+    [[ -n "$name" && "$name" != . && "$name" != .. ]] || return 1
     [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+# Legacy mapping paths must be representable as one pipe-delimited line.
+_restore_mapping_path_valid() {
+    [[ -n "$1" && "$1" != *'|'* && "$1" != *$'\n'* && "$1" != *$'\r'* && "$1" != *$'\t'* ]]
+}
+
+# Locate interrupted state without changing it. Ambiguous generations fail closed.
+_restore_point_read_dir() {
+    local name="$1" base="$2" h found=""
+    if [[ -d "$base/$name" ]]; then printf '%s\n' "$base/$name"; return 0; fi
+    for h in "$base/.$name@previous."*; do
+        [[ -d "$h/point" ]] || continue
+        [[ -z "$found" ]] || { log_error "Ambiguous interrupted restore point: $name"; return 1; }
+        found="$h/point"
+    done
+    [[ -n "$found" ]] || { log_error "Restore point not found: $name"; return 1; }
+    printf '%s\n' "$found"
+}
+
+# Check every record before recovery or any target write. Interrupted payloads
+# still name their final location; validate against the retained generation.
+_restore_point_validate_mappings() {
+    local dir="$1" final="$2" line original backup payload
+    [[ -f "$dir/mappings.txt" && -r "$dir/mappings.txt" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == *'|'* ]] || { log_error "Malformed restore mapping"; return 1; }
+        original=${line%%|*}; backup=${line#*|}
+        _restore_mapping_path_valid "$original" && _restore_mapping_path_valid "$backup" || {
+            log_error "Malformed restore mapping"; return 1;
+        }
+        payload="$backup"
+        if [[ "$dir" != "$final" && "$backup" == "$final/"* ]]; then
+            payload="$dir/${backup#"$final/"}"
+        fi
+        [[ -f "$payload" && -r "$payload" ]] || { log_error "Missing restore payload: $payload"; return 1; }
+    done < "$dir/mappings.txt"
 }
 
 # Create a named restore point
@@ -966,6 +1003,16 @@ create_restore_point() {
     backup_dir=$(_backup_default_dir) || return 1
     restore_dir="$backup_dir/restore_points/$name"
 
+    # The legacy line/pipe mapping has no escaping. Reject unsupported names
+    # before creating any staging directory or replacing an existing point.
+    local file
+    for file in "$restore_dir" "${files[@]}"; do
+        _restore_mapping_path_valid "$file" || { log_error "Unsupported restore-point path"; return 1; }
+    done
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        LOG_FILE='' log_info "[dry-run] would create restore point: $name"
+        return 0
+    fi
     log_info "Creating restore point: $name"
 
     # Build the complete restore point in a staging dir, then swap it into
@@ -979,6 +1026,7 @@ create_restore_point() {
         log_error "Cannot create restore-point staging dir"; return 1
     }
 
+    : > "$staging/mappings.txt" || { rm -rf "$staging"; return 1; }
     local file_count=0 idx=0 backup_name
     for file in "${files[@]}"; do
         if [[ -f "$file" ]]; then
@@ -1092,8 +1140,8 @@ _restore_point_recover_interrupted() {
 #     transaction_rollback) — and this function exits nonzero. Symlinked
 #     originals are refused (cp would write through the link to an
 #     unregistered target, which the rollback cannot guarantee).
-#   TRANSACTION_DRY_RUN=1 (with the mode on): plan-only — reports the file
-#     count, performs zero writes.
+#   TRANSACTION_DRY_RUN=1 (either mode): validates the retained generation
+#     without recovering it, then prints a plan and performs zero writes.
 #
 # Usage: restore_from_point "before_theme_change"
 #        RESTORE_ALL_OR_NOTHING=1 restore_from_point "before_theme_change"
@@ -1109,16 +1157,14 @@ restore_from_point() {
     backup_dir=$(_backup_default_dir) || return 1
     restore_dir="$backup_dir/restore_points/$name"
 
+    local readable_dir
+    readable_dir=$(_restore_point_read_dir "$name" "$backup_dir/restore_points") || return 1
+    _restore_point_validate_mappings "$readable_dir" "$restore_dir" || return 1
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        LOG_FILE='' log_info "[dry-run] would restore point '$name' from $readable_dir"
+        return 0
+    fi
     _restore_point_recover_interrupted "$name" "$backup_dir/restore_points" || return 1
-    if [[ ! -d "$restore_dir" ]]; then
-        log_error "Restore point not found: $name"
-        return 1
-    fi
-
-    if [[ ! -f "$restore_dir/mappings.txt" ]]; then
-        log_error "Restore point corrupted: missing mappings"
-        return 1
-    fi
 
     log_info "Restoring from: $name"
 
@@ -1130,11 +1176,24 @@ restore_from_point() {
     local restore_count=0
     local restore_errors=0
 
-    while IFS='|' read -r original backup; do
+    while IFS='|' read -r original backup || [[ -n "$original$backup" ]]; do
         if [[ -f "$backup" ]]; then
             # Create backup of current file before restoring
             if [[ -f "$original" ]]; then
-                cp "$original" "${original}.pre-restore"
+                local sidecar
+                # Publish a fresh sidecar rather than copying over an old,
+                # possibly read-only backup or following a sidecar symlink.
+                if ! sidecar=$(mktemp "${original}.pre-restore.XXXXXX"); then
+                    log_error "Cannot stage pre-restore state: $original"
+                    restore_errors=$((restore_errors + 1))
+                    continue
+                fi
+                if ! cp -p "$original" "$sidecar" || ! mv -f "$sidecar" "${original}.pre-restore"; then
+                    rm -f -- "$sidecar"
+                    log_error "Cannot preserve pre-restore state: $original"
+                    restore_errors=$((restore_errors + 1))
+                    continue
+                fi
             fi
 
             if cp "$backup" "$original"; then
@@ -1168,16 +1227,17 @@ _restore_from_point_atomic() {
     local txn_name="restore-${name//./_}"
     txn_name="${txn_name:0:63}"
 
-    # Collect the restorable mappings first. Both the dry-run plan and the
-    # real transaction read the same file; missing backups are skipped in
-    # both modes (a point file that lost its backup cannot be restored).
+    # Validate before registering or writing any destination, including direct
+    # internal callers. A missing payload is corruption, not a successful skip.
+    _restore_point_validate_mappings "$restore_dir" "$restore_dir" || return 1
+    # Collect all mappings after the complete preflight.
     local -a originals=() backups=()
     local original backup
-    while IFS='|' read -r original backup; do
+    while IFS='|' read -r original backup || [[ -n "$original$backup" ]]; do
         [[ -z "${original:-}" && -z "${backup:-}" ]] && continue
         if [[ ! -f "$backup" ]]; then
-            log_warn "Skipping missing backup file: $backup"
-            continue
+            log_error "Missing backup file: $backup"
+            return 1
         fi
         # Fail closed BEFORE any write: a symlinked original would make
         # cp write through the link into an unregistered target — rollback

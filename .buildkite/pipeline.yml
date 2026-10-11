@@ -133,18 +133,43 @@ steps:
         agents:
           queue: "linux-small"
 
+  - label: ":docker: Generated images (build and runtime smoke)"
+    key: "docker-build-check"
+    depends_on: ["lint", "syntax"]
+    timeout_in_minutes: 40
+    command: |
+      set -euo pipefail
+      # Hosted Linux provides Docker. Keep execution on this ephemeral agent,
+      # never a configured remote builder or implicit developer context.
+      export DOCKER_CONTEXT=default
+      export DOCKER_BUILDKIT=0
+      mkdir -p test-results
+      make docker-build-check 2>&1 | tee test-results/docker-build-check.log
+    artifact_paths:
+      - "test-results/docker-build-check.log"
+    agents:
+      queue: "linux-small"
+
   - group: ":receipt: Release attestation (release-attest)"
     key: "release-attest-group"
-    # Group-level `if:` is unsupported by this schema (build #34: group marked
-    # "broken" with no log) — the condition lives on the STEP below.
+    # A conditional job in this group renders broken on non-release builds.
+    # Keep the job runnable and report an explicit non-attestation instead.
     steps:
       - label: ":receipt: Verify release attestation"
         key: "release-attest"
-        if: build.env("RELEASE_ATTEST_SHA") != null
         command: |
           set -euo pipefail
           fail() { echo "+++ ATTESTATION FAILED: $1"; exit 1; }
 
+          if ! printenv RELEASE_ATTEST_SHA >/dev/null; then
+            if printenv RELEASE_ATTEST_TAG >/dev/null; then
+              fail "RELEASE_ATTEST_TAG requires RELEASE_ATTEST_SHA"
+            fi
+            mkdir -p release-attestation
+            printf 'status=not_requested\n' > release-attestation/report.txt
+            echo "Release attestation not requested; this is NOT release proof."
+            exit 0
+          fi
           SHA="${RELEASE_ATTEST_SHA:-}"
           TAG="${RELEASE_ATTEST_TAG:-}"
 
@@ -171,7 +196,7 @@ steps:
           import json, os, sys
           builds = json.load(open("/tmp/bk-builds.json"))
           sha = os.environ["RELEASE_ATTEST_SHA"]
-          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov"}
+          required = {"lint", "syntax", "pre-commit", "secret-scan", "test-linux", "test-macos", "coverage-kcov", "docker-build-check"}
           for b in builds:
               if b.get("commit") != sha or b.get("state") != "passed":
                   continue

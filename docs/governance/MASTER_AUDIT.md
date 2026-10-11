@@ -602,6 +602,107 @@ worktree: lint (132 scripts), syntax (141 files), unit 49/49, integration
 scripts, syntax 142 files, integration 25/25, and Buildkite #72 (`4e15ee7`)
 passed every gate with Linux 74/74 and macOS 74/74.
 
+## A3 follow-up audit (2026-10-11)
+
+Baseline: `5ffb380`. Six additional defects were reproduced after the previous
+closure claims. Repairs are integrated on `fix/a3-integration`, not published
+or release-attested. Full integration gates are tracked separately below.
+
+| ID | Confirmed defect | Repair and targeted evidence |
+|----|------------------|------------------------------|
+| A3-1 | Theme writers ignored transaction preview and backup failures; symlink targets were not protected | `e380f22`: shared whole-file publisher, owned/caller transaction handling, failed-registration refusal and symlink rollback. Integration follow-up removes preview cache/lock/log writes and resolves bundled themes from `config/`. `test_theme_safety.sh`. |
+| A3-2 | Trusted Node hook performed raw writes, checked only node, and swallowed update failure | `9b797a2`: retain trust/opt-in, delegate to guarded updater with explicit selected bin directory and non-interactive sudo, propagate failure, validate all three sources. Integration adds shared lock, collision-resistant compensation backups and copy-through-link rollback repair. `test_nodelinks_subprocess_a3_2.sh`, `test_node_sync_safety.sh`, existing trust suite. |
+| A3-3 | Public local-version setters bypassed file transactions; fnm installation ignored preview | `a084fd8`: shared `local-version.sh` used by seven managers; preview before side effects, argv callback in caller shell, restore file/link/target/mode on failure, reject caller-owned apply transaction (no savepoints). Identical-content callbacks still register pre-state. `test_local_versions_managed.sh`. |
+| A3-4 | Interrupted restore-point recovery renamed directories during preview | `2a53f05`: discover and validate retained generation without recovery during preview; recover only in apply. Both restore modes covered by `test_restore_point_safety.sh`. |
+| A3-5 | Pipe/newline filenames corrupted mapping records and missing payloads could report success | `2a53f05`: reject unsupported pipe/newline/CR/tab paths before staging; prevalidate complete mappings/payloads; process unterminated final records. Existing default partial-apply behavior remains, but failed sidecar backup now refuses that write. Repeat sidecars publish atomically. |
+| A3-6 | Version contents could inject Dockerfile instructions | `c6c0e4c`: validate a single permitted image-tag token before staging all five language templates; hostile multiline/whitespace/comment inputs leave outputs unchanged. `test_docker_input_safety.sh`. |
+
+Architecture decisions: retain shell-native primitives and pipe-format restore
+compatibility rather than migrate stored records; unsupported names fail closed.
+Local version APIs own their rollback boundary, preserving successful in-shell
+activation but not compensating runtime installation or arbitrary manager state.
+Node synchronization uses the existing updater in a separate process, never an
+unsafe raw-write fallback. These restrictions are documented in `docs/API.md`.
+
+Validation (2026-10-11): `make lint` passed (140 scripts), `make syntax-check`
+passed, `make test-unit` passed 54/54 and `make test-integration` passed 26/26,
+zero failures/skips/errors. Full `pre-commit run --all-files` passed after the
+new module's executable mode was corrected. Gitleaks scanned the repair commit
+range with no findings; changed documentation file links resolve. All five
+worktrees were merged and removed, with merged lane branches deleted normally.
+No host workstation installation or personal launcher was changed.
+
+CodeRabbit completed review of 27 changed files. Its major finding (unchecked
+theme transaction lifecycle when errexit is suppressed) was reproduced with four
+failed assertions and fixed in `dca3981`; the regression passes. Its minor
+callback-diagnostic finding was addressed in `506ee30`, with a passing regression
+and applicable hooks. Integration follow-ups are in `9e35599`. Qodo failed twice
+server-side; no successful Qodo result is claimed. Earlier delegated claims were
+rejected against actual control flow and tests (interrupted recovery order,
+symlink-target registration, transaction ownership, and last-command exit status).
+
+**Outstanding verification:** no current-branch hosted Linux/macOS or coverage
+result, live WSL2 execution, container-build proof, or signed-release result is
+claimed. Local `bash tests/test_runner.sh coverage` failed before execution:
+`Failed to exchange stderr for pipe: Bad file descriptor`, followed by
+`kcov: error: Can't start/attach to ...` (all 54 subprocesses exited 255; runner
+exited 1). Coverage was not weakened or reported as passing. Local Docker probing
+also found no daemon at `/var/run/docker.sock`. Prior Buildkite #74 evidence
+belongs to baseline `5ffb380`, not this integration branch. Billing/release
+configuration and remote refs were not changed.
+
+## Delivery follow-up (2026-10-11)
+
+The preceding outstanding-verification paragraph records the A3 handoff, not
+current coverage capability. Buildkite #75 passed all seven original gates for
+`c7c6af9` (Linux/macOS 80 tests, hosted coverage 41.55% against 37%).
+
+- **P1-11 native coverage repaired** (`ae30c80`, merged via `1bef1e6`): kcov43
+  derives its trace FD from `RLIMIT_NOFILE / 4`; Darwin's inherited 1,048,575
+  soft limit produced an invalid descriptor. A minimal probe failed with 255
+  before the change and succeeded with a child-only 1,024 limit. The runner now
+  caps only Darwin coverage children, preserving lower limits, hard limits,
+  ordinary tests, and caller state. Behavioral tests pin those boundaries.
+  A complete native run passed 54/54 files, 108 real reports, union
+  **2459/5867 = 41.91%** with the unchanged 37% floor. The earlier delegated
+  disable/skip patch was rejected and reverted, not used as a resolution.
+- **P2-7 generated-image validation implemented** (`5b121b7`, `ceac3fd`):
+  `make docker-build-check` requires an explicit Docker context, sends only
+  synthetic fixture apps, checks image USER/HEALTHCHECK and actual non-root
+  healthy runtime, disables runtime networking/capabilities, and removes only
+  this invocation's exact named/labelled resources. Behavioral tests inject
+  missing backend, build/run/health/UID failures and foreign-cleanup refusal.
+  All eight release gates now include the real hosted Docker job.
+- **Real builds exposed two template defects:** `Dockerfile.go` was copied into
+  the Go package and parsed as source (Buildkite #76/#77); `6cd12bf` removes that
+  copied non-source file before compilation. The Java default `17.0.12-jdk`
+  did not exist (Buildkite #78); `3fabfb1` maps that shipped pin to published
+  `17.0.12_7-jdk`/`-jre`, preserving the patch version (registry HEAD 200 for both,
+  404 for the original JDK tag). Both have regression assertions.
+- **Review:** CodeRabbit completed with three minor comments representing two
+  issues. Empty-array cleanup under older Bash is guarded and tested; unused
+  vulnerable Gunicorn/Flask fixture dependencies were removed in favor of a
+  standard-library HTTP server. The synthetic Java wrapper is explicitly not
+  a Maven-distribution integration test. Initial delegate outputs were rejected
+  for unsafe shared-label cleanup, fabricated completion, and scope violations;
+  only corrected implementations were integrated.
+- **Release status honesty:** the dormant attestation job now emits
+  `status=not_requested` on ordinary builds instead of rendering broken. That
+  report is explicitly NOT release proof. Explicit empty/malformed SHA,
+  tag-without-SHA, or missing token still fail; the actual pipeline command is
+  exercised by `test_release_attest_dispatch.sh` without network calls.
+- **Remaining account blocker:** fresh WSL run `38162711853` was refused before
+  any step: "The job was not started because your account is locked due to a
+  billing issue." No accessible self-hosted runner exists. Live WSL2 and GitHub
+  keyless release signing require the owner to clear that lock. No tag, release,
+  signing key, billing setting, or alternate-account workaround was created.
+
+Both delivery worktrees were merged and removed. A dedicated `vms-delivery`
+Colima VM was used without host-directory mounts or changing the active Docker
+context, then stopped; its disk/cache was preserved, not deleted. Personal
+launchers and the default Colima profile were not changed. Exact final hosted
+results are reported separately; a running build is never called a pass.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its

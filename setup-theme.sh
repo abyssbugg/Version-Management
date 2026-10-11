@@ -9,8 +9,9 @@ set -euo pipefail
 # Source library utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/logger.sh"
-source "${SCRIPT_DIR}/lib/theme-ops.sh"
 source "${SCRIPT_DIR}/lib/backup.sh"
+source "${SCRIPT_DIR}/lib/mutation.sh"
+source "${SCRIPT_DIR}/lib/theme-ops.sh"
 source "${SCRIPT_DIR}/lib/lock.sh"
 
 # Default theme
@@ -69,6 +70,7 @@ validate_dependencies() {
 }
 
 # Install theme configuration
+# A3-1: Uses transaction-aware mutation_file_publish for safe file writing
 install_theme_config() {
     local theme="$1"
     local config_file="${SCRIPT_DIR}/config/${theme}-dev-p10k.zsh"
@@ -82,25 +84,22 @@ install_theme_config() {
         return 1
     fi
 
-    # Backup existing configuration
-    if [[ -f "$target_file" ]]; then
-        log_info " Backing up existing PowerLevel10k configuration..."
-        if ! create_backup "$target_file"; then
-            log_error "Failed to backup existing configuration"
-            return 1
-        fi
+    # Check that transaction is active (transaction_start must be called by main)
+    if [[ -z "${_TRANSACTION_ACTIVE:-}" ]]; then
+        log_error "install_theme_config requires an active transaction"
+        return 1
     fi
 
-    # Copy new configuration
+    # Use mutation_file_publish for transaction-aware, safe file writing
+    # This handles: symlink resolution, mode preservation, dry-run respect, idempotency
     log_info "📋 Installing new PowerLevel10k configuration..."
-    if cp "$config_file" "$target_file"; then
+    if mutation_file_publish "$target_file" "$config_file"; then
         log_success "Theme configuration installed: $target_file"
+        return 0
     else
         log_error "Failed to install theme configuration"
         return 1
     fi
-
-    return 0
 }
 
 # Verify zsh configuration
@@ -160,6 +159,11 @@ main() {
             ;;
     esac
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        [[ -f "$SCRIPT_DIR/config/${theme}-dev-p10k.zsh" ]] || return 1
+        LOG_FILE='' log_info "[dry-run] would install $theme theme at $HOME/.p10k.zsh"
+        return 0
+    fi
     lock_with_trap "workstation-mutation" 30 || exit 1
 
     log_info " Installing $theme theme..."
@@ -182,8 +186,14 @@ main() {
     fi
 
     # Install theme configuration (with transaction)
-    transaction_start "theme_install_${theme}"
-    transaction_add_file "$HOME/.p10k.zsh"
+    if ! transaction_start "theme_install_${theme}"; then
+        log_error "Cannot start theme installation transaction"
+        return 1
+    fi
+    if ! transaction_add_file "$HOME/.p10k.zsh"; then
+        transaction_rollback || log_error "Theme rollback failed"
+        return 1
+    fi
 
     if ! install_theme_config "$theme"; then
         log_error "Theme installation failed"
@@ -191,7 +201,10 @@ main() {
         exit 1
     fi
 
-    transaction_commit
+    if ! transaction_commit; then
+        transaction_rollback || log_error "Theme rollback failed"
+        return 1
+    fi
 
     # Verify zsh configuration
     if ! verify_zsh_config; then

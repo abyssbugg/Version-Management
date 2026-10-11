@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# SYNTHETIC FIXTURE WRAPPER — for Docker build smoke tests only.
+# This script compiles and packages the fixture without invoking Maven.
+# It implements only the "package" goal used in the Dockerfile.
+
+set -euo pipefail
+
+if [[ "$*" != '-q -DskipTests package' ]]; then
+    echo "Fixture wrapper: only 'package' goal supported (received: ${1:-<no args>})" >&2
+    exit 1
+fi
+
+# Compile
+mkdir -p target/classes
+javac -d target/classes -encoding UTF-8 \
+    src/main/java/com/fixture/App.java
+
+# Create JAR
+jar cfe target/app.jar com.fixture.App -C target/classes .
+
+echo "Fixture package: target/app.jar created"

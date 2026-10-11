@@ -152,6 +152,33 @@ signing proof needs a tagged release, which is blocked by the GitHub Actions
 billing lock (an owner action). A live WSL2 runner remains out of reach (no
 WSL host).
 
+## A3 safety follow-up (2026-10-11)
+
+The later A3 audit reopens the universal claim in 3.4: older public entrypoints
+were missed by the original adoption survey. This is additional Phase 3 safety
+work, not a rewrite or an assertion that every future writer is protected.
+
+- [x] **A3-1..A3-6 local remediation** Theme publishers (`e380f22`), trusted Node
+  sync (`9b797a2`), public local-version mutations (`a084fd8`), restore
+  preview/mappings (`2a53f05`), Docker version validation (`c6c0e4c`): all five
+  lanes merged on `fix/a3-integration`, worktrees/merged branches removed.
+  Integration corrections `9e35599`, review fixes `dca3981`/`506ee30`.
+  Local lint/syntax, 54 unit + 26 integration files, full pre-commit and gitleaks
+  pass. CodeRabbit's two findings addressed with regressions. This does not
+  close the delivery-proof item below or the general mutation-coverage boundary.
+- [x] **A3 hosted proof:** Buildkite #75 passed all seven original gates on
+  `c7c6af9` (Linux/macOS, real coverage 41.55% >= 37%).
+- [x] **Native macOS coverage:** child-only descriptor limit fixes kcov startup;
+  54/54 files and 41.91% real union coverage, unchanged 37% floor (`ae30c80`).
+- [x] **Generated-image gate:** explicit-context build/runtime validation added
+  as the eighth required release gate (`ceac3fd`); actual builds exposed and
+  repaired Go filename compilation (`6cd12bf`) and nonexistent Java default tag
+  (`3fabfb1`). Final exact-commit hosted completion is recorded independently.
+- [ ] **Owner-blocked release proof:** first live WSL2 run and tagged keyless
+  signed-release verification. Fresh WSL run `38162711853` was refused by the
+  GitHub billing lock before execution. No code workaround can provide that
+  missing platform/OIDC evidence. No tag was created.
+
 ## Reconciliation Note (2026-10-11, WSL2 lane)
 
 The re-audit branch was merged to `main` (`c78c6a8`) and deleted. Building

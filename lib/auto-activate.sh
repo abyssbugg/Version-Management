@@ -56,6 +56,7 @@
 
 _VMS_AUTO_ACTIVATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_VMS_AUTO_ACTIVATE_DIR}/logger.sh"
+_VMS_NODE_LINK_UPDATER="${_VMS_AUTO_ACTIVATE_DIR}/../tools/update-global-node-symlinks.sh"
 
 # Transactions (M2 primitives) back every rc mutation. Sourced
 # UNCONDITIONALLY (B1.13-new): backup.sh export -f's its transaction
@@ -465,19 +466,11 @@ _nvm_sync_symlinks() {
 
     [[ -d "$nvm_bin" ]] || return 0
 
-    # If /usr/local/bin/node already points to the right place, skip
-    local current_target
-    current_target="$(readlink /usr/local/bin/node 2>/dev/null)" || true
-    [[ "$current_target" == "$nvm_bin/node" ]] && return 0
-
-    # Attempt update — never prompt for password
-    local cmd
-    for cmd in node npm npx; do
-        [[ -f "$nvm_bin/$cmd" ]] || continue
-        ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
-            || sudo -n ln -sf "$nvm_bin/$cmd" /usr/local/bin/"$cmd" 2>/dev/null \
-            || true
-    done
+    [[ "${TRANSACTION_DRY_RUN:-0}" != 1 ]] || return 0
+    [[ -f "${_VMS_NODE_LINK_UPDATER:-}" ]] || { log_error "Node link updater unavailable; reinstall the managed hook"; return 1; }
+    # A separate process owns its transaction and never changes caller state.
+    # Passing the active bin directory also preserves fnm support.
+    bash "$_VMS_NODE_LINK_UPDATER" --confirm --non-interactive --node-bin "$nvm_bin"
 }
 
 # --- Rust (informational only — rustup auto-handles rust-toolchain natively) ---
@@ -540,7 +533,6 @@ auto_activate_on_cd() {
     aa_rust                   # no-op (rustup native)
     aa_asdf "$dir"            # reshim only
     _nvm_sync_symlinks "$dir" # gated: symlink_sync (+ DEV_AUTO_SYNC_NODE_SYMLINKS)
-    return 0
 }
 
 # ============================================================================
@@ -573,6 +565,7 @@ typeset -f log_error >/dev/null 2>&1 || log_error() { printf '[ERROR] %s\n' "$*"
 typeset -f log_success >/dev/null 2>&1 || log_success() { printf '[OK] %s\n' "$*"; }
 typeset -f log_debug >/dev/null 2>&1 || log_debug() { :; }
 ZSHOOK
+        printf '_VMS_NODE_LINK_UPDATER=%q\n' "$_VMS_NODE_LINK_UPDATER"
         # Self-contained runtime: trust registry + handlers, emitted verbatim
         # from this library (single source of truth — see TRUST MODEL above).
         typeset -f _aa_trust_registry _aa_canonical_dir _aa_sha256_str auto_is_trusted \

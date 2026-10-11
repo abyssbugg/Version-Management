@@ -126,6 +126,11 @@ syntax-check:
 	@echo "=== Checking Syntax (fail-closed bash -n + zsh -n) ==="
 	@bash scripts/syntax-check.sh
 
+# Opt-in: explicit daemon selection; sends only synthetic fixture contexts.
+.PHONY: docker-build-check
+docker-build-check:
+	@bash scripts/check-docker-builds.sh
+
 # ============================================================================
 # Utility Targets
 # ============================================================================
@@ -181,6 +186,7 @@ help:
 	@echo "  syntax-check      - Check syntax of all scripts"
 	@echo "  coverage          - Pseudo-coverage report (intent tracking, not line coverage)"
 	@echo "  coverage-kcov     - Real line coverage via kcov over the unit suite (fails closed without kcov)"
+	@echo "  docker-build-check - Build/run all generated images (requires explicit DOCKER_CONTEXT)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean             - Remove this project's temp files (scoped, B2.2)"

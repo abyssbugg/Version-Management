@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "${BASH_SOURCE[0]%/*}/../helpers.sh"
+ROOT="${VMS_TEST_SOURCE_ROOT:-$(cd "${BASH_SOURCE[0]%/*}/../.." && pwd)}"
+source "$ROOT/lib/mutation.sh"
+source "$ROOT/lib/theme-ops.sh"
+failures=0
+check() { if ! "$@"; then printf 'FAIL: %s\n' "$*" >&2; failures=$((failures + 1)); fi; }
+P10K_CONFIG="$HOME/.p10k.zsh"
+printf 'old\n' > "$P10K_CONFIG"
+snapshot() { find "$HOME" -print | LC_ALL=C sort; }
+preview_before=$(snapshot)
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 theme_switch professional || failures=$((failures + 1))
+check test "$(snapshot)" = "$preview_before"
+check test "$(cat "$P10K_CONFIG")" = old
+if (transaction_add_file() { return 1; }; theme_switch professional); then failures=$((failures + 1)); fi
+check test "$(cat "$P10K_CONFIG")" = old
+theme_switch professional || failures=$((failures + 1))
+check cmp -s "$ROOT/config/professional-dev-p10k.zsh" "$P10K_CONFIG"
+check test -z "$(_txn_sha256 "$P10K_CONFIG" | tr -d '0-9a-f')"
+chmod 600 "$P10K_CONFIG"
+mode_before=$(ls -l "$P10K_CONFIG" | awk '{print $1}')
+theme_switch professional || failures=$((failures + 1))
+check test "$(ls -l "$P10K_CONFIG" | awk '{print $1}')" = "$mode_before"
+rm "$P10K_CONFIG"
+printf 'target-before\n' > "$HOME/theme-target"
+ln -s "$HOME/theme-target" "$P10K_CONFIG"
+transaction_start theme_outer
+outer=$_TRANSACTION_ACTIVE
+theme_switch professional || failures=$((failures + 1))
+check test "$_TRANSACTION_ACTIVE" = "$outer"
+check test -L "$P10K_CONFIG"
+transaction_rollback || failures=$((failures + 1))
+check test "$(cat "$HOME/theme-target")" = target-before
+# Provide dependency fixtures; no shell integration is loaded or installed.
+mkdir -p "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
+printf '\n' > "$HOME/.zshrc"
+# The executable entrypoint must honor transaction-level preview too.
+preview_before=$(snapshot)
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 bash "$ROOT/setup-theme.sh" professional || failures=$((failures + 1))
+check test "$(snapshot)" = "$preview_before"
+check test "$(cat "$HOME/theme-target")" = target-before
+# main can be called from a conditional where errexit is suppressed. Failure
+# to start/register must explicitly stop before installing any theme bytes.
+for failure in start register; do
+    if (
+        source "$ROOT/setup-theme.sh"
+        lock_with_trap() { :; }
+        validate_dependencies() { :; }
+        create_restore_point() { :; }
+        transaction_start() { [[ "$failure" != start ]]; }
+        transaction_add_file() { [[ "$failure" != register ]]; }
+        transaction_rollback() { :; }
+        transaction_commit() { :; }
+        install_theme_config() { printf 'unsafe\n' > "$HOME/unexpected-theme-write"; }
+        verify_zsh_config() { :; }
+        show_post_install_instructions() { :; }
+        main professional
+    ); then failures=$((failures + 1)); fi
+    check test ! -e "$HOME/unexpected-theme-write"
+    rm -f "$HOME/unexpected-theme-write"
+done
+printf 'Theme safety failures: %s\n' "$failures"
+exit "$failures"

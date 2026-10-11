@@ -208,6 +208,20 @@ _va_publish() {
     return "$rc"
 }
 
+# _validate_docker_version_tag <tag>: reject multiline/instruction-bearing version
+# strings and enforce single-line Docker tag grammar [A-Za-z0-9_][A-Za-z0-9_.-]{0,127}.
+# Returns 0 if valid; logs error and returns 1 if invalid.
+_validate_docker_version_tag() {
+    local tag="${1:-}"
+    # One Docker tag, never a Dockerfile instruction or an image reference.
+    if ! [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+        log_error "Docker version tag does not match grammar [A-Za-z0-9_][A-Za-z0-9_.-]{0,127}: rejected"
+        return 1
+    fi
+
+    return 0
+}
+
 # _va_generate <transaction-name> <generator-fn>...: run the generators as one
 # transaction; on any failure roll every written file back and remove the
 # directories this run created (only if they are empty again).
@@ -586,6 +600,8 @@ generate_dockerfile_node() {
     local dockerfile="Dockerfile.node"
     local node_version="${1:-$(cat .nvmrc 2>/dev/null || echo '20.19.2')}"
 
+    _validate_docker_version_tag "$node_version" || return 1
+
     local staged
     staged=$(_va_stage) || return 1
     cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
@@ -628,6 +644,8 @@ EOF
 generate_dockerfile_python() {
     local dockerfile="Dockerfile.python"
     local python_version="${1:-$(cat .python-version 2>/dev/null || echo '3.12.11')}"
+
+    _validate_docker_version_tag "$python_version" || return 1
 
     local staged
     staged=$(_va_stage) || return 1
@@ -743,6 +761,8 @@ generate_dockerfile_go() {
     local dockerfile="Dockerfile.go"
     local go_version="${1:-$(cat .go-version 2>/dev/null || echo '1.23.4')}"
 
+    _validate_docker_version_tag "$go_version" || return 1
+
     local staged
     staged=$(_va_stage) || return 1
     cat > "$staged" << EOF || { rm -f -- "$staged"; return 1; }
@@ -757,7 +777,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
+# Dockerfile.go is not Go source; COPY . . otherwise makes go build parse it.
+RUN rm -f ./Dockerfile.go && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
 
 # ---- Stage 2: runtime (distro-slim, artifacts only) ----
 FROM debian:bookworm-slim AS runtime
@@ -782,6 +803,8 @@ EOF
 generate_dockerfile_rust() {
     local dockerfile="Dockerfile.rust"
     local rust_version="${1:-$(cat rust-toolchain 2>/dev/null || echo '1.81.0')}"
+
+    _validate_docker_version_tag "$rust_version" || return 1
 
     local staged
     staged=$(_va_stage) || return 1
@@ -822,6 +845,11 @@ EOF
 generate_dockerfile_java() {
     local dockerfile="Dockerfile.java"
     local java_version="${1:-$(cat .java-version 2>/dev/null || echo '17.0.12')}"
+
+    _validate_docker_version_tag "$java_version" || return 1
+    # Temurin's published tag for the shipped 17.0.12 pin includes build 7.
+    # Keep the requested patch version, rather than silently floating to 17.
+    [[ "$java_version" != 17.0.12 ]] || java_version=17.0.12_7
 
     local staged
     staged=$(_va_stage) || return 1
