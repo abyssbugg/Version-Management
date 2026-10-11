@@ -249,19 +249,22 @@ check test ! -e "$HOME/new-dir"
 TRANSACTION_DRY_RUN=1 transaction_rollback
 
 # F5 (re-audit 2026-10-10): a dry-run of the block editor is a pure preview.
-# It used to mktemp the composed file in the target directory first, so a
-# preview on a read-only directory failed (rc=1) and every preview wrote a
-# temp file next to the user's rc. Spy on mktemp (portable even as root) and
-# also use a read-only directory.
+# It used to mktemp the composed file in the target directory first, so every
+# preview wrote a temp file next to the user's rc. The preview still predicts
+# the apply's outcome: an unwritable directory fails it loudly (the apply
+# would fail there too — adverse-conditions contract), still without writes.
+# A mktemp spy observes creation portably.
 env_dry_write() { TRANSACTION_DRY_RUN=1 mutation_block_write "$@"; }
 env_dry_remove() { TRANSACTION_DRY_RUN=1 mutation_block_remove "$@"; }
 start_case dry_run_no_temp
 transaction_rollback
+rw="$HOME/rw"
 ro="$HOME/ro"
-mkdir -p "$ro"
-printf '# user\n# BEGIN version-management-setup:keep\nk\n# END version-management-setup:keep\n' >"$ro/rc"
+mkdir -p "$rw" "$ro"
+printf '# user\n# BEGIN version-management-setup:keep\nk\n# END version-management-setup:keep\n' >"$rw/rc"
+cp "$rw/rc" "$ro/rc"
 printf 'P\n' >"$content"
-before=$(_txn_sha256 "$ro/rc")
+before=$(_txn_sha256 "$rw/rc")
 command chmod 555 "$ro"
 mktemp_log="$SB/mktemp-calls"
 : >"$mktemp_log"
@@ -270,14 +273,21 @@ mktemp() {
     command mktemp "$@"
 }
 TRANSACTION_DRY_RUN=1 transaction_start mut_dry
-check env_dry_write "$ro/rc" plan "$content"
-check env_dry_write "$ro/rc" keep "$content"
-check env_dry_remove "$ro/rc" keep
+check env_dry_write "$rw/rc" plan "$content"
+check env_dry_write "$rw/rc" keep "$content"
+check env_dry_remove "$rw/rc" keep
+if [[ "$(id -u)" != 0 ]]; then
+    # Root ignores directory permissions, so the prediction is root-exempt.
+    if env_dry_write "$ro/rc" plan "$content"; then check false; fi
+    if env_dry_remove "$ro/rc" keep; then check false; fi
+fi
 TRANSACTION_DRY_RUN=1 transaction_rollback
 unset -f mktemp
 command chmod 755 "$ro"
 check test ! -s "$mktemp_log"
+check test "$(ls -A "$rw")" = rc
 check test "$(ls -A "$ro")" = rc
+check test "$before" = "$(_txn_sha256 "$rw/rc")"
 check test "$before" = "$(_txn_sha256 "$ro/rc")"
 check test ! -d "$SB/source-home/.config-backups"
 printf 'Mutation editor: %s failure(s)\n' "$failures"

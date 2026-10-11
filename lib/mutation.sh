@@ -159,6 +159,13 @@ _mutation_preserve_mode() {
     chmod "$mode" "$tmp"
 }
 
+# The apply creates a same-directory temp file and renames it over the
+# target, which needs write and search permission on the directory. Used by
+# the dry-run previews to predict that outcome without creating anything.
+_mutation_dir_writable() {
+    [[ -d "$1" && -w "$1" && -x "$1" ]]
+}
+
 # Write (insert or replace) a managed block atomically and idempotently.
 # Usage: mutation_block_write <file> <name> <content-file>
 mutation_block_write() {
@@ -228,8 +235,15 @@ mutation_block_write() {
 
     # F5 (re-audit 2026-10-10): a dry-run is a pure preview — decide it BEFORE
     # the temp file is created, so a preview writes nothing next to the
-    # target and still works on a read-only directory.
+    # target. It still predicts the apply's outcome: the apply needs a temp
+    # file and a rename in $dir, so an unwritable $dir fails the preview
+    # loudly too (adverse-conditions contract), without touching anything.
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if ! _mutation_dir_writable "$dir"; then
+            log_error "[dry-run] mutation_block_write would FAIL: directory not writable: $dir ($file, $name)"
+            _txn_journal "mutation_write" "mode=dry_run target=$file block=$name result=would_fail exit_code=1"
+            return 1
+        fi
         log_info "[dry-run] mutation_block_write would update: $file ($name)"
         _txn_journal "mutation_write" "mode=dry_run target=$file block=$name result=planned exit_code=0"
         return 0
@@ -374,8 +388,13 @@ mutation_block_remove() {
     begin=$(mutation_begin_marker "$name")
     end=$(mutation_end_marker "$name")
 
-    # F5: preview before any temp file exists (see mutation_block_write).
+    # F5: preview before any temp file exists; same outcome prediction as
+    # mutation_block_write.
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if ! _mutation_dir_writable "$(dirname "$write_target")"; then
+            log_error "[dry-run] mutation_block_remove would FAIL: directory not writable: $(dirname "$write_target") ($file, $name)"
+            return 1
+        fi
         log_info "[dry-run] mutation_block_remove would remove: $file ($name)"
         return 0
     fi
