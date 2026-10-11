@@ -186,8 +186,14 @@ main() {
     fi
 
     # Install theme configuration (with transaction)
-    transaction_start "theme_install_${theme}"
-    transaction_add_file "$HOME/.p10k.zsh"
+    if ! transaction_start "theme_install_${theme}"; then
+        log_error "Cannot start theme installation transaction"
+        return 1
+    fi
+    if ! transaction_add_file "$HOME/.p10k.zsh"; then
+        transaction_rollback || log_error "Theme rollback failed"
+        return 1
+    fi
 
     if ! install_theme_config "$theme"; then
         log_error "Theme installation failed"
@@ -195,7 +201,10 @@ main() {
         exit 1
     fi
 
-    transaction_commit
+    if ! transaction_commit; then
+        transaction_rollback || log_error "Theme rollback failed"
+        return 1
+    fi
 
     # Verify zsh configuration
     if ! verify_zsh_config; then

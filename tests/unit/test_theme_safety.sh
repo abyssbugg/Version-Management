@@ -40,5 +40,25 @@ preview_before=$(snapshot)
 LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 bash "$ROOT/setup-theme.sh" professional || failures=$((failures + 1))
 check test "$(snapshot)" = "$preview_before"
 check test "$(cat "$HOME/theme-target")" = target-before
+# main can be called from a conditional where errexit is suppressed. Failure
+# to start/register must explicitly stop before installing any theme bytes.
+for failure in start register; do
+    if (
+        source "$ROOT/setup-theme.sh"
+        lock_with_trap() { :; }
+        validate_dependencies() { :; }
+        create_restore_point() { :; }
+        transaction_start() { [[ "$failure" != start ]]; }
+        transaction_add_file() { [[ "$failure" != register ]]; }
+        transaction_rollback() { :; }
+        transaction_commit() { :; }
+        install_theme_config() { printf 'unsafe\n' > "$HOME/unexpected-theme-write"; }
+        verify_zsh_config() { :; }
+        show_post_install_instructions() { :; }
+        main professional
+    ); then failures=$((failures + 1)); fi
+    check test ! -e "$HOME/unexpected-theme-write"
+    rm -f "$HOME/unexpected-theme-write"
+done
 printf 'Theme safety failures: %s\n' "$failures"
 exit "$failures"
