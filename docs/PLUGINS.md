@@ -152,14 +152,24 @@ plugin_use() {
 
 ### `plugin_cleanup()`
 
-Called when the plugin is unloaded.
+Cleanup hook. `plugin_unload "name"` calls the plugin's **namespaced**
+`<name>_cleanup` (the generic `plugin_cleanup` belongs to whichever plugin was
+loaded last), so define the namespaced function and alias the generic name to it,
+as the template does:
 
 ```bash
-plugin_cleanup() {
+my_tool_cleanup() {
     # Cleanup resources
     return 0
 }
+plugin_cleanup() { my_tool_cleanup; }
 ```
+
+The interface names (`plugin_info`, `plugin_init`, `plugin_detect`, …) are
+global. `plugin_load` unsets them before sourcing each file, so a plugin must
+define its own `plugin_info` — it can never inherit the previous plugin's
+metadata or initializer (F6). The file name (minus `.sh`) must be a valid
+identifier.
 
 ### `plugin_update()`
 

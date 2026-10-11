@@ -281,7 +281,7 @@ Atomic mkdir-based locks for workstation-mutating entry points.
 
 | Function | Description | Usage |
 |----------|-------------|-------|
-| `lock_acquire` | Acquire an atomic mkdir lock; name must match `^[A-Za-z0-9_-]+$`; stale locks from dead processes are auto-reclaimed | `lock_acquire "setup" 30` |
+| `lock_acquire` | Acquire an atomic mkdir lock; name must match `^[A-Za-z0-9_-]+$`; a lock whose owner markers all belong to dead processes is reclaimed in place by `rmdir` (never moved or `rm -rf`d), and a claim holds only while its marker is the sole owner (F3) | `lock_acquire "setup" 30` |
 | `lock_release` | Release a lock only when owned by the current process pid | `lock_release "setup"` |
 | `lock_with_trap` | Acquire a lock and chain release onto the EXIT trap; **must be the last EXIT-trap registration in the script** | `lock_with_trap "setup" 30` |
 
@@ -607,7 +607,8 @@ are transactional. The per-plugin interface (`plugin_info`, `plugin_init`,
 | Function | Description | Usage |
 |----------|-------------|-------|
 | `plugin_system_init` | Create the plugin directories and load enabled plugins | `plugin_system_init` |
-| `plugin_load` | Load one plugin file after validation | `plugin_load "/path/to/plugin.sh"` |
+| `plugin_load` | Load one plugin file after validation; clears the global interface names first so a plugin never inherits the previous plugin's `plugin_info`/`plugin_init` (F6) | `plugin_load "/path/to/plugin.sh"` |
+| `plugin_unload` | Unload a plugin, calling its namespaced `<name>_cleanup` (F6) | `plugin_unload asdf` |
 | `plugin_load_all` | Load every enabled plugin | `plugin_load_all` |
 | `plugin_list_available` | List available plugins | `plugin_list_available` |
 | `plugin_run` | Run a plugin function (both names grammar-checked) | `plugin_run asdf install` |
@@ -643,7 +644,7 @@ in this repository only; scripts outside it must use the public API.
 | Function | Owner | Shared with | Purpose |
 |----------|-------|-------------|---------|
 | `_txn_journal` | `lib/backup.sh` | `mutation.sh`, `shell-experience.sh`, VS Code/icon/slick-terminal writers | Append one audit-journal record (format above) |
-| `_txn_sha256` | `lib/backup.sh` | `mutation.sh`, VS Code/icon/slick-terminal writers, node symlink tool | SHA-256 of a file (`sha256sum` or `shasum -a 256`) |
+| `_txn_sha256` | `lib/backup.sh` | `mutation.sh`, VS Code/icon/slick-terminal writers, node symlink tool | SHA-256 of a file (`sha256sum` or `shasum -a 256`); returns 0 with a validated 64-hex digest, 1 if the tool fails or prints a non-digest, 2 if no tool exists — callers fail closed on 1 (F1) |
 | `_mutation_preserve_mode` | `lib/mutation.sh` | `shell-experience.sh`, rc writers in `version-manager.sh`, `setup-versions.sh`, `fix-nvm-issues.sh` | Copy a file's mode onto its replacement before the rename |
 | `_vms_privileged_steps` | `lib/env.sh` | `phpenv.sh`, `pyvm.sh`, `version-manager.sh` | Plan, confirm (`vms_confirm_privileged`), then run privileged argv commands |
 | `_path_realpath` | `lib/validation.sh` | `plugins.sh` | Resolve symlinks fully; fails closed |

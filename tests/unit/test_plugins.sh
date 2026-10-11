@@ -53,9 +53,51 @@ test_list_plugins_runs() {
     fi
 }
 
+# F6 (re-audit 2026-10-10): the standard interface names are global, so a
+# plugin that defines none of them inherited the PREVIOUSLY loaded plugin's
+# plugin_info/plugin_init (wrong metadata, wrong initializer ran), and
+# plugin_unload called whichever plugin_cleanup was loaded last.
+test_second_plugin_cannot_inherit_first_plugins_interface() {
+    track_coverage "plugin_load"
+    track_coverage "plugin_unload"
+
+    local d rc_second meta log
+    d=$(mktemp -d "${TMPDIR:-/tmp}/vms-plugin-order.XXXXXX")
+    log="$d/log"
+    cat > "$d/first.sh" <<EOF
+first_info() { echo "first v1"; }
+first_init() { echo first_init >> "$log"; }
+first_cleanup() { echo first_cleanup >> "$log"; }
+plugin_info() { first_info; }
+plugin_init() { first_init; }
+plugin_cleanup() { first_cleanup; }
+EOF
+    cat > "$d/second.sh" <<'EOF'
+second_detect() { :; }
+EOF
+    cat > "$d/third.sh" <<EOF
+third_info() { echo "third v1"; }
+third_cleanup() { echo third_cleanup >> "$log"; }
+plugin_info() { third_info; }
+plugin_cleanup() { third_cleanup; }
+EOF
+    plugin_load "$d/first.sh" >/dev/null 2>&1 || true
+    plugin_load "$d/second.sh" >/dev/null 2>&1 && rc_second=0 || rc_second=$?
+    meta="${PLUGIN_METADATA[second]:-<none>}"
+    plugin_load "$d/third.sh" >/dev/null 2>&1 || true
+    plugin_unload first >/dev/null 2>&1 || true
+    plugin_unload third >/dev/null 2>&1 || true
+
+    assert_equals "1" "$rc_second" "A plugin without plugin_info is rejected even after another plugin loaded" || failures=$((failures + 1))
+    assert_equals "<none>" "$meta" "The rejected plugin gets no borrowed metadata" || failures=$((failures + 1))
+    assert_equals $'first_init\nfirst_cleanup\nthird_cleanup' "$(cat "$log" 2>/dev/null)" "Each plugin's own init/cleanup runs exactly once" || failures=$((failures + 1))
+    rm -rf "$d"
+}
+
 coverage_expect 2
 test_nonexistent_plugin_not_installed
 test_list_plugins_runs
+test_second_plugin_cannot_inherit_first_plugins_interface
 
 generate_coverage_report
 exit "$failures"

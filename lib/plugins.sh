@@ -103,6 +103,10 @@ plugin_load() {
 
     local plugin_name
     plugin_name=$(basename "$plugin_path" .sh)
+    # B1.1: the name keys the registries and namespaced entrypoints.
+    if ! validate_identifier "$plugin_name"; then
+        return 1
+    fi
 
     # Check if already loaded
     if [[ -n "${LOADED_PLUGINS[$plugin_name]:-}" ]]; then
@@ -111,6 +115,13 @@ plugin_load() {
     fi
 
     log_debug "Loading plugin: $plugin_name"
+
+    # F6 (re-audit 2026-10-10): the standard interface names are global. Clear
+    # them first so only THIS file can satisfy them; otherwise a plugin that
+    # defines none of them inherited the previously loaded plugin's
+    # plugin_info/plugin_init (borrowed metadata, the wrong initializer ran).
+    unset -f plugin_info plugin_init plugin_detect plugin_install plugin_version \
+        plugin_list plugin_use plugin_cleanup plugin_update plugin_uninstall 2>/dev/null || true
 
     # Source the plugin
     # shellcheck source=/dev/null
@@ -182,9 +193,10 @@ plugin_unload() {
         return 0
     fi
 
-    # Call cleanup if available
-    if declare -f plugin_cleanup >/dev/null 2>&1; then
-        plugin_cleanup
+    # Call THIS plugin's namespaced cleanup (F6): the generic plugin_cleanup
+    # belongs to whichever plugin was loaded last.
+    if declare -f "${plugin_name}_cleanup" >/dev/null 2>&1; then
+        "${plugin_name}_cleanup"
     fi
 
     # Remove from registry
