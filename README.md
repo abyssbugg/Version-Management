@@ -318,7 +318,7 @@ The automation suite provides full cross-platform support:
 ### Windows (WSL2 only)
 
 - Runs inside a WSL2 Linux distribution through the Linux code paths (`get_os` reports `wsl`)
-- Fonts are installed on the Windows side; see [WSL2 limitations](docs/PLATFORM_COMPATIBILITY.md#wsl2-windows-subsystem-for-linux)
+- Fonts must be installed on the Windows side by hand; see [WSL2 limitations](docs/PLATFORM_COMPATIBILITY.md#wsl2-windows-subsystem-for-linux)
 - Native Windows shells (PowerShell, cmd, Git-Bash/MSYS, Cygwin) are not supported
 
 ## 🔧 Troubleshooting

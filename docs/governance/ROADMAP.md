@@ -57,7 +57,7 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (commit ref require
 
 ## Phase 4 — Consolidation & Test Maturity (P1-9, P1-11, P2-*)
 
-- [x] **4.1** Canonical platform detection in `lib/env.sh`; `get_os`/`get_shell` elsewhere become wrappers; contract test pins WSL semantics (decide: `wsl` vs `linux` — currently drifted). *(P1-9)* — **DONE (M5)**: `668f7a1` canonical API + WSL contract test; `b7d1007` root-script wrappers; SCRIPT_DIR hygiene (`668f7a1` A5-new); wrapper-parity RED 4 → GREEN 47/47.
+- [x] **4.1** Canonical platform detection in `lib/env.sh`; `get_os`/`get_shell` elsewhere become wrappers; contract test pins WSL semantics (decide: `wsl` vs `linux` — currently drifted). *(P1-9)* — **DONE (M5)**: `668f7a1` canonical API + WSL contract test; `b7d1007` root-script wrappers; SCRIPT_DIR hygiene (`668f7a1` A5-new); wrapper-parity RED 4 → GREEN 47/47. **Re-fixed 2026-10-11** `a49b8c2`: WSL2 kernels were detected as `linux` (WSL-1) and two installers skipped WSL build deps (WSL-2); manual live WSL2 lane `82840d9` (WSL-3), not yet run.
 - [x] **4.2** Deduplicate `command_exists`/colors/`log` shims between `version-manager.sh` and `version-advanced.sh`. *(P2 tier)* — **DONE (2026-10-08)**: `command_exists` and the `log()` level wrapper were byte-identical in both entry scripts; consolidated into `lib/env.sh` (both already source it after `lib/logger.sh`), guarded with `declare -f … ||` so a caller override still wins, and exported. Local copies removed from both scripts; neither uses them before the `lib/env.sh` source. Colors already came from `lib/logger.sh` (no local color blocks). Verified: single canonical definition, both scripts resolve and exercise both functions correctly, full gate green.
 - [x] **4.3** Validation sweep: user-supplied params validated at all public entry points (start: `install_node_version`). *(P2-4)* — **DONE (2026-10-08)**: Node guard landed in `0648f2d`; Python/Ruby/PHP public installer guards added (`validate_python_version`/`validate_ruby_version`/`validate_php_version`, each applied in `version-manager.sh` before any side effect). `tests/unit/test_validation.sh` pins accept-legit + reject-injection for the new validators; `tests/integration/test_version_manager.sh` pins the rejection path. The four public language installers are now guarded.
 - [x] **4.4** `setup.sh`: source `lib/error-handling.sh`, register ERR trap. Remove `sync` stub. Delete `tests/unit/test_restore.txt` + gitignore scratch. Log rotation in `lib/logger.sh`. Configurable `NVM_VERSION` single pin. *(P2-2/3/5/6/12)* — **DONE (M5)**: `7df7744` (ERR trap, sync removed, test_restore.txt deleted, rotation, single pin, package-lock decision).
@@ -151,3 +151,15 @@ deleted and will be recut on the fixed commit. 5.1 stays `[~]`: the live
 signing proof needs a tagged release, which is blocked by the GitHub Actions
 billing lock (an owner action). A live WSL2 runner remains out of reach (no
 WSL host).
+
+## Reconciliation Note (2026-10-11, WSL2 lane)
+
+The re-audit branch was merged to `main` (`c78c6a8`) and deleted. Building
+the live WSL2 lane reopened 4.1: the WSL seam test used a fabricated kernel
+banner, which hid WSL-1 (every WSL2 host reported `linux`) and WSL-2 (the
+pyenv/phpenv installers skipped WSL build dependencies); both are fixed in
+`a49b8c2` with authentic banners. The lane itself (`82840d9`,
+`.github/workflows/wsl.yml`, manual dispatch on a GitHub Windows runner,
+WSL-3) cannot run until the GitHub Actions billing lock is cleared — the
+same owner action that keeps 5.1 at `[~]` (a manual Test dispatch on
+2026-10-11 was refused with "account is locked due to a billing issue").

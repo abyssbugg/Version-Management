@@ -134,9 +134,13 @@ or awaits an owner action; none is an unfixed defect.
   can run until the owner clears it. The attestation guard admits a tag
   only when its commit differs from the attested commit in marker files
   alone (F4).
-- **WSL2 has no live CI runner.** It runs through the Linux code paths and
-  its detection is pinned through a test seam; native Windows is not
-  supported ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).
+- **WSL2 has run only through a seam and a container proxy.** It runs
+  through the Linux code paths; detection is pinned with authentic kernel
+  banners (WSL-1), and the lane's steps pass in an unprivileged Ubuntu 24.04
+  container. The live lane `.github/workflows/wsl.yml` (manual dispatch,
+  WSL-3) has not run yet because GitHub Actions is billing-locked.
+  Native Windows is not supported
+  ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).
 - **Mutation coverage is a static survey.** Every user-file writer found by
   a sweep of the shipped code goes through the transaction framework
   ([MUTATION_REGISTRY.md](governance/MUTATION_REGISTRY.md)); nothing stops
