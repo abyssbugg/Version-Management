@@ -591,8 +591,10 @@ _dev_chpwd_hook   # run for current directory on shell start-up
 # attempt the /usr/local/bin sync — which is itself gated on the CURRENT
 # project's symlink_sync trust (see _nvm_sync_symlinks).
 if typeset -f nvm >/dev/null 2>&1; then
-    _nvm_real=$(functions nvm)
-    eval "_nvm_original() { ${_nvm_real#nvm*\{}"
+    # RA-3 (re-audit 2026-10-10): copy the already-loaded nvm function under
+    # a new name through zsh's $functions parameter (zsh/parameter, loaded on
+    # first use) — no eval of its serialized text, no header stripping.
+    functions[_nvm_original]=$functions[nvm]
     nvm() {
         local _nvm_prev_ver
         _nvm_prev_ver="$(_nvm_original current 2>/dev/null || echo "none")"
