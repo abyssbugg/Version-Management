@@ -148,7 +148,8 @@ grep -c "rollback" ~/.config/version-manager/audit.log
    release job fails on a `package.json` ↔ git-tag version mismatch. An
    `attest-guard` job runs before everything and fails the release closed
    unless the release SHA is attested: a tag-push release must carry a
-   committed `.release-attested-<sha>` marker in the tag's tree, or a
+   committed `.release-attested-<sha>` marker in the tag's tree whose
+   commit differs from the tag commit only in marker files (F4), or a
    manual dispatch must supply an `attested_sha` input equal to the
    release tag's commit. Procedure:
    [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).

@@ -10,7 +10,8 @@
 #   - a manual dispatch supplies `attested_sha` equal to the release tag's
 #     commit, or
 #   - a tag push carries a committed `.release-attested-<sha>` marker in
-#     its tree (content == name, sha an ancestor of the tag commit).
+#     its tree (content == name, sha an ancestor of the tag commit, and the
+#     commits since <sha> change only `.release-attested-*` files — F4).
 #
 # Release-commit binding (REL-PROV): attest-guard also emits `release_sha`
 # (the release tag's commit). Every other job that checks out code checks
@@ -65,8 +66,10 @@ jobs:
   #   1. workflow_dispatch: the `attested_sha` input is REQUIRED and must
   #      equal the commit of tag v<version> (strict equality).
   #   2. tag push: the tag's tree must contain a marker
-  #      `.release-attested-<sha>` whose content equals <sha> and whose
-  #      sha is an ancestor of the tag commit. (The marker names the
+  #      `.release-attested-<sha>` whose content equals <sha>, whose sha is
+  #      an ancestor of the tag commit, and whose commit differs from the tag
+  #      commit only in `.release-attested-*` files (F4: an old marker must
+  #      not attest later code). (The marker names the
   #      attested parent commit — a self-referential marker for the tag
   #      commit itself is impossible, since committing the file changes
   #      the SHA it would name. See docs/RELEASE_CHECKLIST.md.)
@@ -87,71 +90,14 @@ jobs:
 
       - name: Enforce release attestation
         id: guard
+        # Logic lives in scripts/release-attest-guard.sh so it is unit-tested
+        # against git fixtures (tests/unit/test_release_attest_guard.sh, F4).
         env:
           GH_EVENT_NAME: ${{ github.event_name }}
           GH_INPUT_VERSION: ${{ github.event.inputs.version }}
           GH_INPUT_ATTESTED_SHA: ${{ github.event.inputs.attested_sha }}
           GH_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$1"; exit 1; }
-          RELEASE_SHA=""
-
-          if [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
-            # Path 1: explicit attestation input, strict equality with the
-            # release tag's commit. Absent input fails closed.
-            if [ -z "$GH_INPUT_ATTESTED_SHA" ]; then
-              fail "attested_sha input is required for a manual release dispatch (docs/RELEASE_CHECKLIST.md: record the Buildkite-green SHA and pass it here)."
-            fi
-            printf '%s' "$GH_INPUT_ATTESTED_SHA" \
-              | grep -Eq '^[0-9a-f]{40}$' \
-              || fail "attested_sha must be a full 40-hex commit SHA (got: '$GH_INPUT_ATTESTED_SHA')."
-            git rev-parse --verify --quiet "v${GH_INPUT_VERSION}^{commit}" >/dev/null \
-              || fail "Tag v${GH_INPUT_VERSION} does not exist; tag the attested commit first (docs/RELEASE_CHECKLIST.md)."
-            TAG_SHA="$(git rev-parse "v${GH_INPUT_VERSION}^{commit}")"
-            if [ "$TAG_SHA" != "$GH_INPUT_ATTESTED_SHA" ]; then
-              fail "Attestation mismatch: tag v${GH_INPUT_VERSION} points at ${TAG_SHA} but attested_sha is ${GH_INPUT_ATTESTED_SHA}. Release refused."
-            fi
-            ATTESTED="$GH_INPUT_ATTESTED_SHA"
-            # REL-PROV: the release commit is the tag commit (== attested).
-            # github.ref here is the dispatching BRANCH and must not be
-            # what downstream jobs build.
-            RELEASE_SHA="$TAG_SHA"
-          else
-            # Path 2: tag push — attestation marker must exist in the tag's
-            # tree, name itself consistently, and sit in the tag's history.
-            RELEASE_SHA="$(git rev-parse "${GH_REF}^{commit}")"
-            # The marker scan below reads the working tree, so it must be
-            # the tag's tree (fails closed if the tag moved after the push).
-            [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] \
-              || fail "Checkout HEAD $(git rev-parse HEAD) is not the commit of ${GH_REF} (${RELEASE_SHA}). Release refused."
-            ATTESTED=""
-            for f in .release-attested-*; do
-              [ -f "$f" ] || continue
-              name="${f#.release-attested-}"
-              printf '%s' "$name" | grep -Eq '^[0-9a-f]{40}$' || continue
-              content="$(tr -d '[:space:]' < "$f")"
-              if [ "$name" = "$content" ]; then
-                if git merge-base --is-ancestor "$name" HEAD 2>/dev/null; then
-                  ATTESTED="$name"
-                  break
-                fi
-              fi
-            done
-            if [ -z "$ATTESTED" ]; then
-              fail "No attestation marker: tag ${GH_REF} (commit ${RELEASE_SHA}) contains no .release-attested-<sha> marker naming an ancestor commit. Release refused — follow docs/RELEASE_CHECKLIST.md."
-            fi
-          fi
-
-          echo "attested_sha=$ATTESTED" >> "$GITHUB_OUTPUT"
-          echo "Release attested for SHA: $ATTESTED"
-
-          # REL-PROV: emit the release commit for every downstream checkout.
-          # Fail closed on anything that is not a full 40-hex commit SHA.
-          printf '%s' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
-            || fail "release_sha is empty or not a full 40-hex commit SHA (got: '$RELEASE_SHA'). Release refused."
-          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "Release commit (built, tested, signed, published): $RELEASE_SHA"
+        run: ./scripts/release-attest-guard.sh
 
   # ========================================
   # Validate Release

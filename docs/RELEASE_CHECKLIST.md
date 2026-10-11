@@ -28,7 +28,8 @@ builds or publishes an artifact unless `attest-guard` passed.
 commit) and `release_sha` (the commit that is built and shipped):
 
 - **Tag push:** `release_sha` is the tag's peeled commit; `attested_sha` is
-  the ancestor named by the `.release-attested-<sha>` marker.
+  the ancestor named by the `.release-attested-<sha>` marker, which must
+  differ from `release_sha` only in marker files.
 - **workflow_dispatch:** `release_sha` is the commit of tag `v<version>`,
   which `attest-guard` has already required to equal `attested_sha`.
 
@@ -113,9 +114,13 @@ git tag "v$VERSION"   # at the marker commit (HEAD of main)
 git push origin "v$VERSION"
 ```
 
-The tag push fires `release.yml`; the `attest-guard` job accepts only if
-the tag's tree contains a `.release-attested-<sha>` marker whose content
-equals `<sha>` and whose sha is an ancestor of the tag commit. Confirm the
+The tag push fires `release.yml`; the `attest-guard` job
+(`scripts/release-attest-guard.sh`) accepts only if the tag's tree contains a
+`.release-attested-<sha>` marker whose content equals `<sha>`, whose sha is an
+ancestor of the tag commit, **and** whose commit differs from the tag commit
+only in `.release-attested-*` files (F4). Any code change after the attested
+commit invalidates its marker: tag the marker commit itself, and re-attest
+after any further change. Confirm the
 run shows `Release attested for SHA: <sha>` and
 `Release commit (built, tested, signed, published): <tag commit>` before
 treating the release as published.
