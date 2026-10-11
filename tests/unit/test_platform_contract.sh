@@ -58,7 +58,10 @@ test_host_detect_os_matches_platform() {
         Darwin*) expected="macos" ;;
         Linux*)
             # Independent WSL reading — must match the lib's binding decision.
-            if [[ -f /proc/version ]] && grep -q Microsoft /proc/version 2>/dev/null; then
+            # It reads the kernel release (not /proc/version, the lib's
+            # input) case-insensitively: WSL2 releases say "microsoft",
+            # WSL1 releases say "Microsoft" (WSL-1).
+            if [[ -r /proc/sys/kernel/osrelease ]] && grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
                 expected="wsl"
             else
                 expected="linux"
@@ -117,6 +120,15 @@ test_utils_get_shell_matches_env_canonical() {
 # 4. WSL contract (binding decision, pinned via detection-input overrides)
 # =============================================================================
 
+# Authentic kernel banners (copied from microsoft/WSL issue reports #7702 and
+# #12408). WSL2 kernels stamp only lowercase "microsoft"; WSL1 stamps
+# "Microsoft". A detector that matches one case only misses the other (WSL-1).
+_BANNER_WSL1='Linux version 4.4.0-19041-Microsoft (Microsoft@Microsoft.com) (gcc version 5.4.0 (GCC) ) #3393-Microsoft Mon Aug 14 14:52:00 PST 2023'
+_BANNER_WSL2='Linux version 5.15.167.4-microsoft-standard-WSL2 (root@f9c826d3017f) (gcc (GCC) 11.2.0, GNU ld (GNU Binutils) 2.37) #1 SMP Tue Nov 5 00:21:55 UTC 2024'
+_BANNER_WSL2_OE='Linux version 5.15.90.1-microsoft-standard-WSL2 (oe-user@oe-host) (x86_64-msft-linux-gcc (GCC) 9.3.0, GNU ld (GNU Binutils) 2.34.0.20200220) #1 SMP Fri Jan 27 02:56:13 UTC 2023'
+_BANNER_WSL2_419='Linux version 4.19.84-microsoft-standard+ (uname@DESKTOP) (gcc version 7.4.0 (Ubuntu 7.4.0-1ubuntu1~18.04.1)) #1 SMP Sun Sep 27 13:27:24 CEST 2020'
+_BANNER_LINUX='Linux version 6.1.0-vanilla (mock@mock) #1 SMP'
+
 _test_wsl_semantic() {  # $1 = fixture content, $2 = expected value, $3 = label
     local fixture="$1" expected="$2" label="$3"
     local tmpbin fixture_path out
@@ -134,16 +146,16 @@ _test_wsl_semantic() {  # $1 = fixture content, $2 = expected value, $3 = label
 }
 
 test_wsl_reports_wsl_not_linux() {
-    # WSL1/WSL2 both stamp "Microsoft" into /proc/version.
-    _test_wsl_semantic \
-        "Linux version 5.15.90.1-microsoft-standard-WSL2 (mock@mock) #1 SMP Microsoft" \
-        "wsl" "WSL2 /proc/version"
+    # Real banners only: an earlier fixture appended a fabricated
+    # "Microsoft" token to a WSL2 banner, which hid WSL-1.
+    _test_wsl_semantic "$_BANNER_WSL2" "wsl" "WSL2 5.15.167 banner"
+    _test_wsl_semantic "$_BANNER_WSL2_OE" "wsl" "WSL2 5.15.90 banner"
+    _test_wsl_semantic "$_BANNER_WSL2_419" "wsl" "WSL2 4.19 banner"
+    _test_wsl_semantic "$_BANNER_WSL1" "wsl" "WSL1 banner"
 }
 
 test_plain_linux_still_linux() {
-    _test_wsl_semantic \
-        "Linux version 6.1.0-vanilla (mock@mock) #1 SMP" \
-        "linux" "non-WSL /proc/version"
+    _test_wsl_semantic "$_BANNER_LINUX" "linux" "non-WSL /proc/version"
 }
 
 # =============================================================================
@@ -240,7 +252,7 @@ _with_root_script() {
 _ROOT_SCRIPTS=("$ROOT_DIR/version-manager.sh" "$ROOT_DIR/version-advanced.sh")
 
 # WSL seam (same detection-input override as section 4): a PATH-shimmed
-# `uname` plus a VMS_PROC_VERSION fixture stamped "Microsoft". The canonical
+# `uname` plus an authentic WSL2 VMS_PROC_VERSION fixture. The canonical
 # answer is "wsl"; the pre-fix duplicate bodies answered "linux" — RED by
 # construction against the pre-fix state.
 test_root_scripts_get_os_wsl_seam() {
@@ -249,7 +261,7 @@ test_root_scripts_get_os_wsl_seam() {
     printf '#!/bin/sh\necho Linux\n' > "$tmpbin/uname"
     chmod +x "$tmpbin/uname"
     fixture="$tmpbin/proc_version"
-    printf 'Linux version 5.15.90.1-microsoft-standard-WSL2 (mock@mock) #1 SMP Microsoft\n' > "$fixture"
+    printf '%s\n' "$_BANNER_WSL2" > "$fixture"
     for script in "${_ROOT_SCRIPTS[@]}"; do
         out="$(_with_root_script "$script" "get_os" \
             PATH="$tmpbin:$PATH" VMS_PROC_VERSION="$fixture")"
@@ -268,7 +280,7 @@ test_root_scripts_get_os_linux_seam() {
     printf '#!/bin/sh\necho Linux\n' > "$tmpbin/uname"
     chmod +x "$tmpbin/uname"
     fixture="$tmpbin/proc_version"
-    printf 'Linux version 6.1.0-vanilla (mock@mock) #1 SMP\n' > "$fixture"
+    printf '%s\n' "$_BANNER_LINUX" > "$fixture"
     for script in "${_ROOT_SCRIPTS[@]}"; do
         out="$(_with_root_script "$script" "get_os" \
             PATH="$tmpbin:$PATH" VMS_PROC_VERSION="$fixture")"
@@ -300,6 +312,56 @@ test_root_scripts_host_get_os_parity() {
         out="$(_with_root_script "$script" "get_os")"
         assert "$canonical" "$out" \
             "P1-9: $(basename "$script") get_os == env.sh canonical on this host"
+    done
+}
+
+# =============================================================================
+# 8. WSL consumers keep the Linux branch (WSL-2). P1-9 made detect_os answer
+#    "wsl" where it used to answer "linux", but pyvm_install and
+#    phpenv_install kept bare "linux") case arms, so under WSL they silently
+#    skipped the apt build-dependency plan. Each installer runs in dry-run
+#    (nothing executes) inside a sandbox HOME with a minimal PATH: a uname
+#    shim, an apt-get stub (presence only) and git. The plain-Linux banner is
+#    the control that proves the probe sees the plan at all.
+# =============================================================================
+
+# Authentic kernel banners: see section 4 (_BANNER_*).
+
+_installer_dry_run() {  # $1 = lib file, $2 = install function, $3 = banner
+    local lib="$1" fn="$2" banner="$3" sbx bash_bin git_bin out
+    bash_bin="$(command -v bash)"
+    git_bin="$(command -v git)"
+    sbx="$(mktemp -d "${TMPDIR:-/tmp}/vms-wslcons.XXXXXX")"
+    mkdir -p "$sbx/bin" "$sbx/home"
+    printf '#!/bin/sh\necho Linux\n' > "$sbx/bin/uname"
+    printf '#!/bin/sh\nexit 0\n' > "$sbx/bin/apt-get"
+    chmod +x "$sbx/bin/uname" "$sbx/bin/apt-get"
+    ln -s "$git_bin" "$sbx/bin/git"
+    printf '%s\n' "$banner" > "$sbx/proc_version"
+    out="$(env HOME="$sbx/home" PATH="$sbx/bin:/usr/bin:/bin" \
+        VMS_PROC_VERSION="$sbx/proc_version" TRANSACTION_DRY_RUN=1 \
+        PYENV_ROOT="$sbx/home/.pyenv" PHPENV_ROOT="$sbx/home/.phpenv" \
+        "$bash_bin" -c "source '$lib' >/dev/null 2>&1; $fn" 2>&1)"
+    rm -rf -- "$sbx"
+    printf '%s' "$out"
+}
+
+test_wsl_installers_plan_linux_build_deps() {
+    local spec lib fn want label banner out
+    for spec in "pyvm.sh:pyvm_install:sudo apt-get install -y make build-essential" \
+                "phpenv.sh:phpenv_install:sudo apt-get install -y autoconf bison"; do
+        lib="${spec%%:*}"
+        fn="${spec#*:}"; fn="${fn%%:*}"
+        want="${spec#*:*:}"
+        for label in LINUX WSL1 WSL2; do
+            banner="_BANNER_$label"
+            out="$(_installer_dry_run "$LIB_DIR/$lib" "$fn" "${!banner}")"
+            if [[ "$out" == *"would run (privileged, requires confirmation): sudo apt-get update && $want"* ]]; then
+                assert "planned" "planned" "WSL-2: $fn plans apt build deps ($label banner)"
+            else
+                assert "planned" "missing" "WSL-2: $fn plans apt build deps ($label banner)"
+            fi
+        done
     done
 }
 
@@ -338,6 +400,7 @@ test_root_scripts_get_os_linux_seam
 test_root_scripts_get_shell_login_shell_parity
 test_root_scripts_host_get_os_parity
 test_get_shell_config_canonical
+test_wsl_installers_plan_linux_build_deps
 rm -rf "$_ROOT_SANDBOX_HOME"
 
 if [[ "$failures" -gt 0 ]]; then

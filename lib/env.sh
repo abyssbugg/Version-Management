@@ -117,13 +117,15 @@ get_shell() {
 #
 # Value set: macos | linux | wsl | windows | unknown
 
-# Private helper: is this kernel WSL? WSL1 and WSL2 both stamp "Microsoft"
-# into /proc/version. VMS_PROC_VERSION overrides the /proc/version path as a
-# detection input (test seam for the P1-9 contract test); production callers
-# never set it.
+# Private helper: is this kernel WSL? WSL1 stamps "Microsoft" into
+# /proc/version, WSL2 stamps lowercase "microsoft" (e.g.
+# "5.15.167.4-microsoft-standard-WSL2"), so the match is case-insensitive
+# (WSL-1: a case-sensitive match reported every WSL2 host as "linux").
+# VMS_PROC_VERSION overrides the /proc/version path as a detection input
+# (test seam for the P1-9 contract test); production callers never set it.
 _vms_is_wsl() {
     local proc_version="${VMS_PROC_VERSION:-/proc/version}"
-    if [[ -f "$proc_version" ]] && grep -q Microsoft "$proc_version" 2>/dev/null; then
+    if [[ -f "$proc_version" ]] && grep -qi microsoft "$proc_version" 2>/dev/null; then
         return 0
     fi
     return 1

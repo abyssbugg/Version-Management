@@ -86,7 +86,9 @@ pyvm_install() {
                 return 1
             fi
             ;;
-        "linux")
+        "linux"|"wsl")
+            # WSL takes the Linux branch (WSL-2): detect_os answered "linux"
+            # there before P1-9, and WSL distributions use the same apt/yum.
             # Build dependencies are privileged (rule 1.2): plan + explicit
             # confirmation. Declining still clones pyenv (user-space).
             if command -v apt-get >/dev/null 2>&1; then
