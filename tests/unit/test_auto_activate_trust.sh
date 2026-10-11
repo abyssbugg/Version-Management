@@ -437,19 +437,17 @@ test_symlink_sync_trusted() {
         && assert_equals "0" "$rc" "hook runs cleanly on trusted symlink_sync project" \
         || { assert_equals "0" "$rc" "hook must run cleanly (rc) on trusted sync project"; f=$((f+1)); }
 
-    # The direct ln attempt was recorded (with the expected target args).
-    # Note: the ln shim's argv EXCLUDES its own name (argv[0]), so the line
-    # starts at "-sf"; the sudo shim's argv includes "ln" as its operand.
-    local ln_needle sudo_needle
-    ln_needle="$(printf '%s\t%s\t%s' "-sf" "$nvm_bin/node" "/usr/local/bin/node")"
+    # The hook delegates to the transactional updater; no unguarded direct ln
+    # is allowed. The sudo shim records argv without executing privileged work.
+    local sudo_needle
     sudo_needle="$(printf '%s\t%s\t%s\t%s\t%s' "-n" "ln" "-sf" "$nvm_bin/node" "/usr/local/bin/node")"
-    if grep -qF -- "$ln_needle" "$LN_SHIM_LOG" 2>/dev/null; then
-        assert_equals "recorded" "recorded" "trusted sync: ln -sf argv recorded (target /usr/local/bin/node)"
+    if [[ -s "$LN_SHIM_LOG" ]]; then
+        assert_equals "" "$(cat "$LN_SHIM_LOG")" "trusted sync must not bypass the guarded updater"; f=$((f+1))
     else
-        assert_equals "recorded" "$(cat "$LN_SHIM_LOG" 2>/dev/null | tr '\n' ';')" "trusted sync must attempt ln -sf -> /usr/local/bin/node"; f=$((f+1))
+        assert_equals "empty" "empty" "trusted sync: no direct ln bypass"
     fi
 
-    # The sudo fallback was recorded, never elevated
+    # The guarded non-interactive invocation was recorded, never elevated
     if grep -qF -- "$sudo_needle" "$SUDO_SHIM_LOG" 2>/dev/null; then
         assert_equals "recorded" "recorded" "trusted sync: sudo -n ln -sf argv recorded by shim"
     else
