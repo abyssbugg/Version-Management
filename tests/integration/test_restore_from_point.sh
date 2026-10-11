@@ -333,16 +333,51 @@ test_negative_control_partial_apply() {
     chmod 755 "$proj"
 }
 
+# Test atomic restore with dry-run: plan without writes
+test_atomic_dry_run() {
+    local proj="$CASE_DIR/proj"
+    mkdir -p "$proj"
+    printf 'alpha-v1\n' > "$proj/a.txt"
+    printf 'beta-v1\n'  > "$proj/b.txt"
+
+    create_restore_point "c2-dryrun" "$proj/a.txt" "$proj/b.txt" >/dev/null 2>&1 \
+        || { _chk "create_restore_point rc" 0 1; return; }
+
+    # Post-point mutation: files drift
+    printf 'alpha-v2\n' > "$proj/a.txt"
+    printf 'beta-v2\n'  > "$proj/b.txt"
+
+    # Capture pre-dry-run state
+    local h_a_pre h_b_pre
+    h_a_pre=$(sha "$proj/a.txt")
+    h_b_pre=$(sha "$proj/b.txt")
+
+    # Dry-run: should plan but not write
+    local rc=0
+    RESTORE_ALL_OR_NOTHING=1 TRANSACTION_DRY_RUN=1 restore_from_point "c2-dryrun" >/dev/null 2>&1 || rc=$?
+    _chk "dry-run exits 0 (plan-only)" 0 "$rc"
+
+    # Files must be unchanged after dry-run
+    _chk "a.txt unchanged after dry-run" "$h_a_pre" "$(sha "$proj/a.txt")"
+    _chk "b.txt unchanged after dry-run" "$h_b_pre" "$(sha "$proj/b.txt")"
+
+    # No transaction metadata should be created during dry-run
+    local meta
+    meta=$(_newest_txn_metadata "restore-c2-dryrun")
+    _chk "no transaction created during dry-run" "" "$meta"
+}
+
 echo "=== restore_from_point all-or-nothing integration tests (P3-1) ==="
 run_case "atomic all-succeed commits whole point"      test_atomic_all_succeed
 run_case "atomic one-fail rolls back byte-identical"   test_atomic_one_fails_rollback
 run_case "default mode unchanged (partial + sidecars)" test_default_mode_unchanged
 run_case "atomic input validation"                     test_atomic_input_validation
+run_case "atomic dry-run: plan without filesystem writes" test_atomic_dry_run
 run_case "NEGATIVE CONTROL default-mode partial apply" test_negative_control_partial_apply
 
 echo ""
 echo "====== Restore-Point Summary ======"
-echo "cases: 5 (marked-skips: $SKIPPED_CASES, failed assertions: $TOTAL_FAILS)"
+echo "cases: 6 (marked-skips: $SKIPPED_CASES, failed assertions: $TOTAL_FAILS)"
 echo "==================================="
 
 exit "$TOTAL_FAILS"
