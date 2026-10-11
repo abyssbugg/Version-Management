@@ -12,10 +12,11 @@
 #     (asserted in CI by design and checked locally by running it twice).
 #   * per-component entries for the bundled FontPatcher glyph sets —
 #     licenses are mapped MECHANICALLY from the "Component license table"
-#     in FontPatcher/ATTRIBUTION.md (verbatim cells). The two components
-#     whose licenses ATTRIBUTION.md could not resolve are flagged exactly
-#     as ATTRIBUTION.md flags them ("Not stated in the bundled files") —
-#     never guessed. If the table cannot be parsed, the script FAILS
+#     in FontPatcher/ATTRIBUTION.md (verbatim cells). Any component whose
+#     license ATTRIBUTION.md could not resolve is flagged exactly as
+#     ATTRIBUTION.md flags it ("Not stated in the bundled files") — never
+#     guessed (none since the 2026-10-10 license verification). If the
+#     table cannot be parsed, the script FAILS
 #     CLOSED instead of emitting an SBOM without licenses.
 #   * shell-script inventory counts (git-tracked *.sh, LC_ALL=C-sorted)
 #   * third-party action dependency pins read from .github/workflows/*.yml
