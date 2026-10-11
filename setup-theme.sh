@@ -82,25 +82,22 @@ install_theme_config() {
         return 1
     fi
 
-    # Backup existing configuration
-    if [[ -f "$target_file" ]]; then
-        log_info " Backing up existing PowerLevel10k configuration..."
-        if ! create_backup "$target_file"; then
-            log_error "Failed to backup existing configuration"
-            return 1
-        fi
+    # Check that transaction is active (transaction_start must be called by main)
+    if [[ -z "${_TRANSACTION_ACTIVE:-}" ]]; then
+        log_error "install_theme_config requires an active transaction"
+        return 1
     fi
 
-    # Copy new configuration
+    # Use mutation_file_publish for transaction-aware, safe file writing
+    # This handles: symlink resolution, mode preservation, dry-run respect, idempotency
     log_info "📋 Installing new PowerLevel10k configuration..."
-    if cp "$config_file" "$target_file"; then
+    if mutation_file_publish "$target_file" "$config_file"; then
         log_success "Theme configuration installed: $target_file"
+        return 0
     else
         log_error "Failed to install theme configuration"
         return 1
     fi
-
-    return 0
 }
 
 # Verify zsh configuration
