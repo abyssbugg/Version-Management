@@ -206,9 +206,114 @@ test_lock_with_trap_subshell_does_not_inherit_parent_exit_trap() {
   teardown_lock_test
 }
 
+# F3 (re-audit 2026-10-10): a reclaimer that judged a lock stale must never
+# move or remove it once the path has been recycled by a live owner. The
+# old rename-to-grave design moved B's live lock aside; C then acquired the
+# empty path and the "restore" mv nested B's lock inside C's. The hooks run
+# before every filesystem mutation the reclaimer makes, emulating the worst
+# interleaving: B recycles the path first; C grabs it whenever it is absent.
+test_reclaim_never_displaces_recycled_live_lock() {
+  setup_lock_test
+  track_coverage "lock_acquire"
+
+  local L="$VMS_STATE_DIR/locks/race.lock.d" X B C step_file
+  mkdir -p "$VMS_STATE_DIR/locks"
+  sleep 0.01 & X=$!; wait "$X" || true
+  sleep 30 & B=$!
+  sleep 30 & C=$!
+  mkdir -p "$L/owner.$X"
+  step_file="$TEST_STATE_DIR/step"; echo 0 > "$step_file"
+
+  _race_hook() {
+    local step; step=$(<"$step_file")
+    if [[ "$step" == 0 ]]; then
+      command rm -rf "$L"; command mkdir "$L" "$L/owner.$B"
+    elif [[ ! -d "$L" ]]; then
+      command mkdir "$L" "$L/owner.$C"
+    fi
+    echo $((step + 1)) > "$step_file"
+  }
+  mv() { _race_hook; command mv "$@"; }
+  rmdir() { _race_hook; command rmdir "$@"; }
+  rm() { _race_hook; command rm "$@"; }
+  _lock_reclaim_if_stale "$L" >/dev/null 2>&1 || true
+  unset -f mv rmdir rm _race_hook
+
+  local owners extra
+  owners=$(cd "$L" 2>/dev/null && ls -d owner.* 2>/dev/null | tr '\n' ' ' || true)
+  extra=$(find "$L" -mindepth 1 -maxdepth 1 ! -name 'owner.*' 2>/dev/null | wc -l | tr -d ' ')
+  kill "$B" "$C" 2>/dev/null || true
+  wait "$B" "$C" 2>/dev/null || true
+  assert_equals "owner.$B " "$owners" "Recycled live lock stays at its path, owned only by its live owner"
+  assert_equals "0" "$extra" "No displaced lock is nested inside the lock dir"
+
+  teardown_lock_test
+}
+
+# F3: a stalled claimer whose owner mkdir lands in a NEWER lock (its own
+# empty claim was reclaimed and B acquired the path meanwhile) must not end
+# up co-owning B's lock. The hook injects that interleaving on our owner mkdir.
+test_stalled_claim_cannot_co_own_newer_lock() {
+  setup_lock_test
+  track_coverage "lock_acquire"
+
+  local L="$VMS_STATE_DIR/locks/stall.lock.d" B injected=0 status=0
+  sleep 30 & B=$!
+  mkdir() {
+    if [[ "$injected" == 0 && "${1:-}" == "$L/owner.$$" ]]; then
+      injected=1
+      command rm -rf "$L"; command mkdir "$L" "$L/owner.$B"
+    fi
+    command mkdir "$@"
+  }
+  lock_acquire "stall" 1 >/dev/null 2>&1 || status=$?
+  unset -f mkdir
+
+  local owners
+  owners=$(cd "$L" 2>/dev/null && ls -d owner.* 2>/dev/null | tr '\n' ' ' || true)
+  kill "$B" 2>/dev/null || true
+  wait "$B" 2>/dev/null || true
+  assert_exit_code 1 "$status" "Acquire does not succeed while the live owner holds the lock"
+  assert_equals "owner.$B " "$owners" "The live owner remains the only owner"
+
+  teardown_lock_test
+}
+
+# RA-1: lock_acquire must use a successfully reclaimed lock even when the
+# whole-second clock ticks over during the reclaim. The old loop checked the
+# timeout BEFORE retrying, so `lock_acquire stale 1` (test_stale_lock_reclaimed)
+# failed intermittently under load. The stub advances the clock one second per
+# read, making the tick-over deterministic.
+test_reclaimed_lock_used_despite_clock_tick() {
+  setup_lock_test
+  track_coverage "lock_acquire"
+
+  local d status=0
+  sleep 0.01 & d=$!; wait "$d" || true
+  mkdir -p "$VMS_STATE_DIR/locks/tick.lock.d/owner.$d"
+  echo 1000 > "$TEST_STATE_DIR/clock"
+  date() {
+    if [[ "${1:-}" == "+%s" ]]; then
+      local t; t=$(<"$TEST_STATE_DIR/clock"); echo $((t + 1)) > "$TEST_STATE_DIR/clock"; echo "$t"
+    else
+      command date "$@"
+    fi
+  }
+  lock_acquire "tick" 1 >/dev/null 2>&1 || status=$?
+  unset -f date
+
+  assert_exit_code 0 "$status" "Reclaimed stale lock is acquired even if the clock ticked over"
+  lock_release "tick" >/dev/null 2>&1 || true
+
+  teardown_lock_test
+}
+
 test_acquire_timeout_and_release
 test_concurrent_acquire_serializes_critical_section
 test_stale_lock_reclaimed
+test_reclaim_never_displaces_recycled_live_lock
+test_stalled_claim_cannot_co_own_newer_lock
+test_reclaimed_lock_used_despite_clock_tick
 test_invalid_name_rejected
 test_release_refuses_other_pid
 test_orphaned_claiming_is_reclaimed

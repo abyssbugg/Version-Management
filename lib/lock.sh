@@ -63,7 +63,7 @@ _lock_guarded_rm_lock_dir() {
     state_dir="$(_lock_state_dir)"
 
     case "$lock_dir" in
-        "$state_dir"/locks/*.lock.d|"$state_dir"/locks/*.lock.d.reclaim.*) ;;
+        "$state_dir"/locks/*.lock.d) ;;
         *)
             log_error "Refusing to remove unsafe lock path: $lock_dir"
             return 1
@@ -111,66 +111,74 @@ _lock_dir_older_than() {
     [[ "$dir_mtime" =~ ^[0-9]+$ ]] && (( now - dir_mtime > age ))
 }
 
-_lock_is_stale() {
-    local lock_dir="$1" owner
+# Stale-lock reclamation (F3, re-audit 2026-10-10). A lock directory is never
+# renamed or moved: the earlier rename-to-grave design could move a LIVE lock
+# aside (when the path was recycled between the staleness decision and the
+# rename), let a third process acquire the empty path meanwhile, and its
+# "restore" mv then nested the displaced lock inside the new one. Reclaiming
+# now uses only conditional single-syscall removals:
+#   - `rmdir <lock>/owner.<pid>` for each owner marker whose pid is dead; it
+#     fails if that marker is already gone (another reclaimer won);
+#   - `rmdir <lock>`, which succeeds only while the directory is EMPTY. A lock
+#     carrying a live owner marker can therefore never be removed. An empty
+#     directory is either the crash orphan that was judged or a claim in its
+#     mkdir->mkdir window; such a claimer's owner mkdir then fails, or lands in
+#     a newer lock and loses the sole-owner check below, so it retries.
+# Residual: pid reuse between the kill -0 probe and the rmdir of that pid's
+# marker (microseconds) is not detectable with a pid-based owner identity.
+_lock_reclaim_if_stale() {
+    local lock_dir="$1" marker pid any=0
 
-    if owner="$(_lock_owner_pid "$lock_dir")" && [[ "$owner" =~ ^[0-9]+$ ]]; then
-        kill -0 "$owner" 2>/dev/null && return 1
-        return 0    # numeric, dead owner: crash orphan (GLM review finding #1)
+    for marker in "$lock_dir"/owner.*; do
+        [[ -d "$marker" ]] || continue
+        any=1
+        pid="${marker##*/owner.}"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            return 1    # live owner: never touched
+        fi
+    done
+    if (( any == 0 )); then
+        # No owner marker: the microsecond claim window, or a crash orphan
+        # between the two mkdirs. Only age can decide.
+        _lock_dir_older_than "$lock_dir" 5 || return 1
     fi
 
-    # No owner marker: either the microsecond mkdir→mkdir claim window, or a
-    # crash orphan between those two syscalls. Only age can decide.
-    _lock_dir_older_than "$lock_dir" 5 && return 0
+    for marker in "$lock_dir"/owner.*; do
+        [[ -d "$marker" ]] || continue
+        pid="${marker##*/owner.}"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            return 1    # appeared since the first pass
+        fi
+        rmdir "$marker" 2>/dev/null || return 1
+    done
+    if rmdir "$lock_dir" 2>/dev/null; then
+        log_warn "Reclaimed stale lock: $lock_dir"
+        return 0
+    fi
     return 1
 }
 
-_lock_reclaim_if_stale() {
-    local lock_dir="$1"
-    local grave="$lock_dir.reclaim.$$"
-    local pid claimer
-
-    if ! _lock_is_stale "$lock_dir"; then
-        return 1
-    fi
-
-    # Atomic rename: exactly one contender wins the reclaim; losers see ENOENT
-    # and simply retry acquisition. Deleting in place would race a concurrent
-    # release+reacquire and destroy a LIVE lock (ABA hazard).
-    if ! mv "$lock_dir" "$grave" 2>/dev/null; then
-        return 1
-    fi
-
-    # Post-rename verify on the grave's owner marker:
-    #  - LIVE owner  -> the path was recycled by a full release+reacquire
-    #                   between our staleness decision and the rename; restore.
-    #  - dead owner  -> definitively stale; delete.
-    #  - no owner    -> either the stale orphan we judged, or a displaced
-    #                   in-flight claim; deleting is SAFE in both cases because
-    #                   an in-flight claimer's owner-mkdir fails (parent moved)
-    #                   and it simply retries. Ownership is never stolen.
-    local owner
-    if owner="$(_lock_owner_pid "$grave")" && [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
-        if ! mv "$grave" "$lock_dir" 2>/dev/null; then
-            log_error "Lock reclaim race displaced a live lock; manual cleanup may be needed: $grave"
-        fi
-        return 1
-    fi
-
-    log_warn "Reclaiming stale lock: $lock_dir"
-    if ! _lock_guarded_rm_lock_dir "$grave"; then
-        log_warn "Stale lock detected but removal failed (permissions?): $grave"
-        return 1
-    fi
+# True when this process's owner marker is the only one in the lock dir. Two
+# markers can coexist only if a stalled claimer's owner mkdir landed in a newer
+# lock; the claimer whose marker came later always sees the earlier one and
+# withdraws, so two processes can never both pass this check.
+_lock_sole_owner() {
+    local lock_dir="$1" marker
+    [[ -d "$lock_dir/owner.$$" ]] || return 1
+    for marker in "$lock_dir"/owner.*; do
+        [[ "$marker" == "$lock_dir/owner.$$" ]] && continue
+        [[ -d "$marker" ]] && return 1
+    done
+    return 0
 }
 
-# Remove the lock dir only if this process owns it. Prevents deleting another
-# process's fresh lock after ours was displaced by a racing reclaimer.
-_lock_cleanup_own_claim() {
+# Withdraw a claim that did not become sole ownership: remove only this
+# process's marker, then the lock dir only if it is now empty. Never rm -rf: the
+# directory may already hold another process's marker.
+_lock_withdraw_claim() {
     local lock_dir="$1"
-    if [[ -d "$lock_dir/owner.$$" ]]; then
-        _lock_guarded_rm_lock_dir "$lock_dir" || true
-    fi
+    rmdir "$lock_dir/owner.$$" 2>/dev/null || true
+    rmdir "$lock_dir" 2>/dev/null || true
 }
 
 lock_acquire() {
@@ -192,14 +200,17 @@ lock_acquire() {
 
     while true; do
         if mkdir "$lock_dir" 2>/dev/null; then
-            if _lock_mark_owner "$lock_dir"; then
+            if _lock_mark_owner "$lock_dir" && _lock_sole_owner "$lock_dir"; then
                 return 0
             fi
-            # Our dir was displaced mid-claim by a racing reclaimer (owner
-            # mkdir hit a moved parent). Clean up only if still ours; retry.
-            _lock_cleanup_own_claim "$lock_dir"
-        else
-            _lock_reclaim_if_stale "$lock_dir" || true
+            # Our claim was displaced (the owner mkdir hit a removed parent) or
+            # landed beside an earlier owner: withdraw only our part; retry.
+            _lock_withdraw_claim "$lock_dir"
+        elif _lock_reclaim_if_stale "$lock_dir"; then
+            # RA-1: the lock is free now; retry at once. Checking the
+            # whole-second timeout first could give up a few milliseconds
+            # after a successful reclaim when the clock ticked over.
+            continue
         fi
 
         now=$(date +%s)
