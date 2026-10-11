@@ -161,8 +161,10 @@ steps:
           set -euo pipefail
           fail() { echo "+++ ATTESTATION FAILED: $1"; exit 1; }
 
-          if [ "${RELEASE_ATTEST_SHA+x}" != x ]; then
-            [ "${RELEASE_ATTEST_TAG+x}" != x ] || fail "RELEASE_ATTEST_TAG requires RELEASE_ATTEST_SHA"
+          if ! printenv RELEASE_ATTEST_SHA >/dev/null; then
+            if printenv RELEASE_ATTEST_TAG >/dev/null; then
+              fail "RELEASE_ATTEST_TAG requires RELEASE_ATTEST_SHA"
+            fi
             mkdir -p release-attestation
             printf 'status=not_requested\n' > release-attestation/report.txt
             echo "Release attestation not requested; this is NOT release proof."
