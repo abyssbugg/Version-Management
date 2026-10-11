@@ -159,6 +159,11 @@ main() {
             ;;
     esac
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        [[ -f "$SCRIPT_DIR/config/${theme}-dev-p10k.zsh" ]] || return 1
+        LOG_FILE='' log_info "[dry-run] would install $theme theme at $HOME/.p10k.zsh"
+        return 0
+    fi
     lock_with_trap "workstation-mutation" 30 || exit 1
 
     log_info " Installing $theme theme..."

@@ -2,6 +2,9 @@
 set -euo pipefail
 source "${BASH_SOURCE[0]%/*}/../helpers.sh"
 ROOT="$(cd "${BASH_SOURCE[0]%/*}/../.." && pwd)"
+# Keep updater's secondary backups inside the per-test HOME for cleanup.
+mkdir -p "$HOME/tmp"
+export TMPDIR="$HOME/tmp"
 failures=0
 check() { if ! "$@"; then printf 'FAIL: %s\n' "$*" >&2; failures=$((failures + 1)); fi; }
 # Relocate only hardcoded system destinations in a test copy. Real transaction,
@@ -24,6 +27,12 @@ updater="$HOME/fixture/tools/updater.sh"
 : > "$HOME/sudo-calls"
 TRANSACTION_DRY_RUN=1 bash "$updater" --confirm --non-interactive --node-bin "$HOME/runtime"
 check test ! -s "$HOME/sudo-calls"
+# A held workstation lock rejects apply before backups or privileged writes.
+source "$ROOT/lib/lock.sh"
+lock_acquire workstation-mutation 0
+if bash "$updater" --confirm --non-interactive --node-bin "$HOME/runtime"; then failures=$((failures + 1)); fi
+check test ! -s "$HOME/sudo-calls"
+lock_release workstation-mutation
 if FAIL_NPM=1 bash "$updater" --confirm --non-interactive --node-bin "$HOME/runtime"; then failures=$((failures + 1)); fi
 for cmd in node npm npx; do
     check test "$(cat "$HOME/bin/$cmd")" = "old-$cmd"

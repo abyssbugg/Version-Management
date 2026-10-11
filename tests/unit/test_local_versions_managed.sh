@@ -47,7 +47,9 @@ jenv .java-version 17.0.1
 rustup rust-toolchain 1.81.0
 CASES
 calls=0; manager_rc=0
-TRANSACTION_DRY_RUN=1 fnm_install_version 22.1.0 || failures=$((failures + 1))
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 fnm_install_version 22.1.0 || failures=$((failures + 1))
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 nvm_set_local 22.1.0 || failures=$((failures + 1))
+check test ! -e "$HOME/preview-log"
 check test "$calls" -eq 0
 # Failed callbacks remove new files and restore symlink targets and modes.
 manager_rc=1

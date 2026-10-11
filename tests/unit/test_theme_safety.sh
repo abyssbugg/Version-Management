@@ -6,10 +6,12 @@ source "$ROOT/lib/mutation.sh"
 source "$ROOT/lib/theme-ops.sh"
 failures=0
 check() { if ! "$@"; then printf 'FAIL: %s\n' "$*" >&2; failures=$((failures + 1)); fi; }
-export THEME_BASE_DIR="$ROOT/config"
 P10K_CONFIG="$HOME/.p10k.zsh"
 printf 'old\n' > "$P10K_CONFIG"
-TRANSACTION_DRY_RUN=1 theme_switch professional || failures=$((failures + 1))
+snapshot() { find "$HOME" -print | LC_ALL=C sort; }
+preview_before=$(snapshot)
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 theme_switch professional || failures=$((failures + 1))
+check test "$(snapshot)" = "$preview_before"
 check test "$(cat "$P10K_CONFIG")" = old
 if (transaction_add_file() { return 1; }; theme_switch professional); then failures=$((failures + 1)); fi
 check test "$(cat "$P10K_CONFIG")" = old
@@ -34,7 +36,9 @@ check test "$(cat "$HOME/theme-target")" = target-before
 mkdir -p "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
 printf '\n' > "$HOME/.zshrc"
 # The executable entrypoint must honor transaction-level preview too.
-TRANSACTION_DRY_RUN=1 bash "$ROOT/setup-theme.sh" professional || failures=$((failures + 1))
+preview_before=$(snapshot)
+LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 bash "$ROOT/setup-theme.sh" professional || failures=$((failures + 1))
+check test "$(snapshot)" = "$preview_before"
 check test "$(cat "$HOME/theme-target")" = target-before
 printf 'Theme safety failures: %s\n' "$failures"
 exit "$failures"

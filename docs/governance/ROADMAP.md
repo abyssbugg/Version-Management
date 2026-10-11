@@ -152,6 +152,20 @@ signing proof needs a tagged release, which is blocked by the GitHub Actions
 billing lock (an owner action). A live WSL2 runner remains out of reach (no
 WSL host).
 
+## A3 safety follow-up (2026-10-11)
+
+The later A3 audit reopens the universal claim in 3.4: older public entrypoints
+were missed by the original adoption survey. This is additional Phase 3 safety
+work, not a rewrite or an assertion that every future writer is protected.
+
+- [~] **A3-1..A3-6** Theme publishers (`e380f22`), trusted Node sync (`9b797a2`),
+  public local-version mutations (`a084fd8`), restore preview/mappings
+  (`2a53f05`), Docker version validation (`c6c0e4c`): all five lanes merged on
+  `fix/a3-integration`; targeted tests pass. Full integrated verification pending.
+- [ ] **Delivery proof remains separate:** current-branch hosted Linux/macOS and
+  coverage results, first live WSL2 run, and tagged signed-release verification.
+  Existing Buildkite #74 evidence belongs to `5ffb380`, not these changes.
+
 ## Reconciliation Note (2026-10-11, WSL2 lane)
 
 The re-audit branch was merged to `main` (`c78c6a8`) and deleted. Building

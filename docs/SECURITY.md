@@ -121,9 +121,11 @@ sandboxed `$HOME`.
 
 ## Known gaps (honest state)
 
-Reviewed 2026-10-10 against `main`, and again after the 2026-10-10
-re-audit fixes (MASTER_AUDIT "Re-audit findings"). Each gap is deliberate
-or awaits an owner action; none is an unfixed defect.
+Reviewed again on 2026-10-11 during A3 integration. Earlier statements that
+no unfixed defects remained were too broad: the subsequent audit found six
+additional mutation/input-validation gaps. Their code repairs and verification
+status are tracked separately in MASTER_AUDIT (A3-1 through A3-6). The boundaries
+below remain; passing the current tests is not proof of complete mutation coverage.
 
 - **Release signing is not yet proven live.** Keyless cosign signing,
   SBOMs and checksums are implemented in `release.yml` (P1-6), but OIDC
@@ -141,10 +143,12 @@ or awaits an owner action; none is an unfixed defect.
   WSL-3) has not run yet because GitHub Actions is billing-locked.
   Native Windows is not supported
   ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).
-- **Mutation coverage is a static survey.** Every user-file writer found by
-  a sweep of the shipped code goes through the transaction framework
-  ([MUTATION_REGISTRY.md](governance/MUTATION_REGISTRY.md)); nothing stops
-  a future writer from bypassing it, so review must check new writers.
+- **Mutation coverage is a static survey, not an enforcement boundary.**
+  A3 found older theme, Node-hook and local-version entrypoints that bypassed
+  the stronger primitives. Their adopters and behavioral tests are recorded in
+  [MUTATION_REGISTRY.md](governance/MUTATION_REGISTRY.md). Review must still
+  check every new writer; this project does not claim an exhaustive automated
+  proof that all writes use transactions.
 - **Runtime installs are previewed, not rolled back.** `nvm install`,
   `pyenv install`, Homebrew and similar steps print a plan under
   `--dry-run`; installing software is not a file transaction. Installer

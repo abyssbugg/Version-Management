@@ -130,14 +130,13 @@ fnm_install_version() {
         return 1
     fi
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        LOG_FILE='' log_info "[dry-run] would install Node.js $version via fnm"
+        return 0
+    fi
     if ! fnm_detect; then
         log_error "fnm not available"
         return 1
-    fi
-
-    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
-        log_info "[dry-run] would install Node.js $version via fnm"
-        return 0
     fi
     log_info "Installing Node.js $version via fnm..."
 

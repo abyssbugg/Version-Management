@@ -17,7 +17,8 @@ mkdir "$holder"
 mv "$base/recovery" "$holder/point"
 printf 'current\n' > "$file"
 for mode in 0 1; do
-    TRANSACTION_DRY_RUN=1 RESTORE_ALL_OR_NOTHING="$mode" restore_from_point recovery || failures=$((failures + 1))
+    LOG_FILE="$HOME/preview-log/file" TRANSACTION_DRY_RUN=1 RESTORE_ALL_OR_NOTHING="$mode" restore_from_point recovery || failures=$((failures + 1))
+    check test ! -e "$HOME/preview-log"
     check test -d "$holder/point"
     check test ! -e "$base/recovery"
     check test "$(cat "$file")" = current
@@ -42,6 +43,15 @@ for mode in 0 1; do
     reject env_mode_restore "$mode"
     check test "$(cat "$file")" = current
     check test ! -e "$file.pre-restore"
+done
+# A final mapping record without a newline must not be silently skipped.
+create_restore_point final_line "$file"
+mapping=$(cat "$base/final_line/mappings.txt")
+printf '%s' "$mapping" > "$base/final_line/mappings.txt"
+for mode in 0 1; do
+    printf 'later\n' > "$file"
+    RESTORE_ALL_OR_NOTHING="$mode" restore_from_point final_line || failures=$((failures + 1))
+    check test "$(cat "$file")" = current
 done
 printf 'Restore safety failures: %s\n' "$failures"
 exit "$failures"

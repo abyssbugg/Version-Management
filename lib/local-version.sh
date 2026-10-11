@@ -20,7 +20,7 @@ local_version_publish() {
     [[ -n "$file" && -n "$version" ]] || return 1
     shift 2
     if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
-        log_info "[dry-run] would set $file to $version"
+        LOG_FILE='' log_info "[dry-run] would set $file to $version"
         return 0
     fi
     local_version_preflight || return 1

@@ -58,7 +58,8 @@ functions (the lazy-load `nvm`/`node` command shims in `performance.sh`).
 21. [fnm.sh](#fnmsh---fast-node-manager)
 22. [plugins.sh](#pluginssh---plugin-system)
 23. [shell-experience.sh](#shell-experiencesh---shell-experience-tools)
-24. [Framework-internal helpers](#framework-internal-helpers)
+24. [local-version.sh](#local-versionsh---transactional-project-versions)
+25. [Framework-internal helpers](#framework-internal-helpers)
 
 ---
 
@@ -637,6 +638,26 @@ plans; every change is transactional.
 | `shellxp_plugins_remove` | Remove an entry from `plugins=()` | `shellxp_plugins_remove zsh-autosuggestions --confirm` |
 
 ---
+
+## local-version.sh - Transactional Project Versions
+
+Shared by the seven manager libraries for their `*_set_local` APIs. Depends
+on `mutation.sh` and its backup/validation dependencies; no global strict mode.
+
+| Function | Description | Usage |
+|----------|-------------|-------|
+| `local_version_preflight` | Refuse an existing apply transaction before manager-side effects; preview is allowed | `local_version_preflight` |
+| `local_version_publish` | Back up and publish a version file, optionally invoke callback argv, then commit or restore pre-state | `local_version_publish .nvmrc 22.1.0 nvm use 22.1.0` |
+
+`TRANSACTION_DRY_RUN=1` returns before staging, registration, or callback
+execution. Apply owns its transaction: existing caller transactions are refused
+because the framework has no savepoints. The file and any resolved symlink target
+are registered even when desired bytes already match: callbacks may write them.
+A failed registration, publication, or callback returns nonzero; file contents,
+links and modes are restored (new files removed). Callbacks run in the caller
+shell so successful runtime activation persists. Installed runtimes and other
+manager-internal state are not rolled back. The caller must still handle a
+reported rollback failure and retain its recovery records.
 
 ## Framework-internal helpers
 

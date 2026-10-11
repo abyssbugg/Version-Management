@@ -14,6 +14,32 @@ files. Read-only scripts: `validate-setup.sh`, `lib/env.sh`, `lib/utils.sh`,
 `tools/check-dependencies.sh`, `tools/health-check.sh`,
 `tools/validate-quality.sh`.
 
+## A3 adoption update (2026-10-11)
+
+The historical census below was not exhaustive. Six subsequent audit findings
+are tracked in MASTER_AUDIT under A3-1..A3-6; earlier blanket closure statements
+must not be read as a guarantee about all mutation entrypoints.
+
+- Theme library and CLI (`e380f22` plus integration follow-up): whole-file
+  publication registers resolved symlink targets; preview returns before
+  cache, lock, log or temporary-file writes. Bundled assets resolve from `config/`.
+- Trusted Node sync (`9b797a2` plus integration follow-up): project trust and
+  explicit opt-in remain mandatory. The existing updater owns the subprocess
+  transaction; all three binaries are checked; non-interactive sudo, shared
+  workstation lock and collision-resistant compensation backups guard apply.
+- Seven public local-version APIs (`a084fd8`): `local-version.sh` owns the
+  transaction and registers file plus resolved target before callback execution,
+  including identical-content publication. Active caller transactions are
+  refused; runtime installation/manager-internal state are outside rollback.
+- Restore points (`2a53f05`): preview discovers interrupted state without
+  recovery; unsupported mapping filenames and malformed/missing payloads fail
+  before writes. Default partial restore remains distinct from atomic restore.
+- Docker generators (`c6c0e4c`): tag validation precedes staging. This prevents
+  instruction injection but is not evidence that generated images build.
+
+These entries describe specific tested adopters, not automatic enforcement of
+transaction adoption for future code. No personal launcher is part of this set.
+
 ## Critical adoption queue (mutates state with NO backup AND NO dry-run)
 
 (see census artifact)

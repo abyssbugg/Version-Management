@@ -602,6 +602,36 @@ worktree: lint (132 scripts), syntax (141 files), unit 49/49, integration
 scripts, syntax 142 files, integration 25/25, and Buildkite #72 (`4e15ee7`)
 passed every gate with Linux 74/74 and macOS 74/74.
 
+## A3 follow-up audit (2026-10-11)
+
+Baseline: `5ffb380`. Six additional defects were reproduced after the previous
+closure claims. Repairs are integrated on `fix/a3-integration`, not published
+or release-attested. Full integration gates are tracked separately below.
+
+| ID | Confirmed defect | Repair and targeted evidence |
+|----|------------------|------------------------------|
+| A3-1 | Theme writers ignored transaction preview and backup failures; symlink targets were not protected | `e380f22`: shared whole-file publisher, owned/caller transaction handling, failed-registration refusal and symlink rollback. Integration follow-up removes preview cache/lock/log writes and resolves bundled themes from `config/`. `test_theme_safety.sh`. |
+| A3-2 | Trusted Node hook performed raw writes, checked only node, and swallowed update failure | `9b797a2`: retain trust/opt-in, delegate to guarded updater with explicit selected bin directory and non-interactive sudo, propagate failure, validate all three sources. Integration adds shared lock, collision-resistant compensation backups and copy-through-link rollback repair. `test_nodelinks_subprocess_a3_2.sh`, `test_node_sync_safety.sh`, existing trust suite. |
+| A3-3 | Public local-version setters bypassed file transactions; fnm installation ignored preview | `a084fd8`: shared `local-version.sh` used by seven managers; preview before side effects, argv callback in caller shell, restore file/link/target/mode on failure, reject caller-owned apply transaction (no savepoints). Identical-content callbacks still register pre-state. `test_local_versions_managed.sh`. |
+| A3-4 | Interrupted restore-point recovery renamed directories during preview | `2a53f05`: discover and validate retained generation without recovery during preview; recover only in apply. Both restore modes covered by `test_restore_point_safety.sh`. |
+| A3-5 | Pipe/newline filenames corrupted mapping records and missing payloads could report success | `2a53f05`: reject unsupported pipe/newline/CR/tab paths before staging; prevalidate complete mappings/payloads; process unterminated final records. Existing default partial-apply behavior remains, but failed sidecar backup now refuses that write. Repeat sidecars publish atomically. |
+| A3-6 | Version contents could inject Dockerfile instructions | `c6c0e4c`: validate a single permitted image-tag token before staging all five language templates; hostile multiline/whitespace/comment inputs leave outputs unchanged. `test_docker_input_safety.sh`. |
+
+Architecture decisions: retain shell-native primitives and pipe-format restore
+compatibility rather than migrate stored records; unsupported names fail closed.
+Local version APIs own their rollback boundary, preserving successful in-shell
+activation but not compensating runtime installation or arbitrary manager state.
+Node synchronization uses the existing updater in a separate process, never an
+unsafe raw-write fallback. These restrictions are documented in `docs/API.md`.
+
+Validation status: targeted sandboxed regressions and lane lint/syntax passed;
+full integrated gates are in progress. No current-branch hosted result, live
+WSL execution, container-build proof or signed-release result is claimed.
+Qodo review operations failed server-side; automated review is not a clean bill
+of health. The first delegated review claims were rejected after checking actual
+control flow and regressions (recovery order, symlink-target registration,
+transaction ownership, and shell last-command status propagation).
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its

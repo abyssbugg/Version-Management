@@ -43,6 +43,7 @@ source "$SCRIPT_DIR/lib/backup.sh" || {
     log_error "Cannot load lib/backup.sh (transaction primitives)"
     exit 1
 }
+source "$SCRIPT_DIR/lib/lock.sh" || exit 1
 
 # ============================================================================
 # Safety Checks
@@ -91,15 +92,17 @@ backup_existing_symlinks() {
                 log_info "Backed up: /usr/local/bin/$cmd"
                 backed_up=$(( backed_up + 1 ))
             else
-                log_warn "Could not back up symlink: /usr/local/bin/$cmd (transaction pre-state remains authoritative)"
+                log_error "Cannot preserve privileged rollback source: /usr/local/bin/$cmd"
+                return 1
             fi
         elif [[ -f "/usr/local/bin/$cmd" ]]; then
             # Backup regular file
-            if cp "/usr/local/bin/$cmd" "$backup_dir/"; then
+            if cp -p "/usr/local/bin/$cmd" "$backup_dir/"; then
                 log_warn "Backed up (non-symlink): /usr/local/bin/$cmd"
                 backed_up=$(( backed_up + 1 ))
             else
-                log_warn "Could not back up file: /usr/local/bin/$cmd (transaction pre-state remains authoritative)"
+                log_error "Cannot preserve privileged rollback source: /usr/local/bin/$cmd"
+                return 1
             fi
         fi
     done
@@ -195,7 +198,7 @@ rollback_node_symlink_targets() {
                     # Remove the replacement link before copying: otherwise cp
                     # follows it and overwrites the selected runtime binary.
                     if _symlink_sudo rm -f "$dest"; then
-                        _symlink_sudo cp "$backup_dir/$cmd" "$dest" || log_error "Rollback: could not restore $dest"
+                        _symlink_sudo cp -p "$backup_dir/$cmd" "$dest" || log_error "Rollback: could not restore $dest"
                     else
                         log_error "Rollback: could not remove replacement $dest"
                     fi
@@ -232,6 +235,8 @@ _symlink_sudo() {
 }
 
 update_global_node_symlinks() {
+    local LOG_FILE="${LOG_FILE:-}"
+    if [[ "$DRY_RUN" == true || "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then LOG_FILE=''; fi
     if [[ -n "${NODE_LINK_BIN:-}" ]]; then
         [[ "$NODE_LINK_BIN" == /* && -d "$NODE_LINK_BIN" ]] || { log_error "Invalid Node binary directory"; return 1; }
     else
@@ -290,6 +295,9 @@ update_global_node_symlinks() {
     # transaction record is journaled and nothing else happens.
     local backup_path=""
     if [[ "${TRANSACTION_DRY_RUN:-0}" != "1" ]]; then
+        # Serialize cooperating writers before capturing any pre-state.
+        # The hook must never wait or prompt while changing directories.
+        lock_with_trap workstation-mutation 0 || return 1
         # Secondary backup kept for the human-facing restore hint below.
         # Explicit check, not set -e: a failing assignment from command
         # substitution must be surfaced here, not swallowed.
@@ -371,7 +379,9 @@ update_global_node_symlinks() {
         fi
     fi
 
-    transaction_commit
+    if ! transaction_commit; then
+        _symlink_apply_failed "$pre_node" "$pre_npm" "$pre_npx" "$backup_path" "commit"
+    fi
 
     echo
     if [[ $skipped -eq 3 ]]; then
@@ -463,6 +473,8 @@ Options:
     status          Show current symlink status
     -n, --dry-run   Print the plan without changing anything (default)
     --confirm       Apply the planned privileged changes
+    --non-interactive  Never prompt for sudo (trusted hook invocation)
+    --node-bin PATH Use this absolute Node bin directory (NVM or fnm)
     -h, --help      Show this help
 
 Examples:

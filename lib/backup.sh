@@ -1010,7 +1010,7 @@ create_restore_point() {
         _restore_mapping_path_valid "$file" || { log_error "Unsupported restore-point path"; return 1; }
     done
     if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
-        log_info "[dry-run] would create restore point: $name"
+        LOG_FILE='' log_info "[dry-run] would create restore point: $name"
         return 0
     fi
     log_info "Creating restore point: $name"
@@ -1140,8 +1140,8 @@ _restore_point_recover_interrupted() {
 #     transaction_rollback) — and this function exits nonzero. Symlinked
 #     originals are refused (cp would write through the link to an
 #     unregistered target, which the rollback cannot guarantee).
-#   TRANSACTION_DRY_RUN=1 (with the mode on): plan-only — reports the file
-#     count, performs zero writes.
+#   TRANSACTION_DRY_RUN=1 (either mode): validates the retained generation
+#     without recovering it, then prints a plan and performs zero writes.
 #
 # Usage: restore_from_point "before_theme_change"
 #        RESTORE_ALL_OR_NOTHING=1 restore_from_point "before_theme_change"
@@ -1161,7 +1161,7 @@ restore_from_point() {
     readable_dir=$(_restore_point_read_dir "$name" "$backup_dir/restore_points") || return 1
     _restore_point_validate_mappings "$readable_dir" "$restore_dir" || return 1
     if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
-        log_info "[dry-run] would restore point '$name' from $readable_dir"
+        LOG_FILE='' log_info "[dry-run] would restore point '$name' from $readable_dir"
         return 0
     fi
     _restore_point_recover_interrupted "$name" "$backup_dir/restore_points" || return 1

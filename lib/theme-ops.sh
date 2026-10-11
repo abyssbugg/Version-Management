@@ -17,7 +17,7 @@ source "${THEME_OPS_DIR}/mutation.sh"
 THEME_CACHE_PREFIX="theme"
 THEME_CACHE_TTL=600  # 10 minutes cache for theme file checks
 P10K_CONFIG="$HOME/.p10k.zsh"
-THEME_BASE_DIR="$(dirname "$THEME_OPS_DIR")"  # Parent directory of lib/
+THEME_BASE_DIR="$(dirname "$THEME_OPS_DIR")/config"  # Shipped theme assets
 
 # Theme configuration using parallel arrays for Bash 3.x compatibility
 THEME_NAMES=("professional" "apple" "minimal" "rainbow")
@@ -151,8 +151,15 @@ theme_detect_current() {
 # Returns: 0 on success, 1 on failure
 # A3-1: Uses transaction-aware mutation_file_publish for safe, idempotent theme switching
 theme_switch() {
-    local theme_name="$1"
+    local theme_name="${1:-}"
 
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == 1 ]]; then
+        local preview_file
+        preview_file=$(get_theme_file "$theme_name") || return 1
+        [[ -f "$THEME_BASE_DIR/$preview_file" ]] || return 1
+        LOG_FILE='' log_info "[dry-run] would switch theme to $theme_name"
+        return 0
+    fi
     if [ -z "$theme_name" ]; then
         log_error "Theme name not specified"
         return 1
