@@ -138,8 +138,8 @@ symlink_bytes_identical() {
         return 0
     fi
     local ha hb
-    ha=$(_txn_sha256 "$a")
-    hb=$(_txn_sha256 "$b")
+    ha=$(_txn_sha256 "$a") || return 1
+    hb=$(_txn_sha256 "$b") || return 1
     [[ -n "$ha" && "$ha" == "$hb" ]]
 }
 

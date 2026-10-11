@@ -121,7 +121,7 @@ test_validate_backup_hashes_without_shasum() {
   ( PATH="$sb/bin"; validate_backup "$sb/orig" "$sb/tampered" ) >/dev/null 2>&1; rc_tampered=$?
   ( PATH="$sb/bin"; validate_backup "$sb/orig" "$sb/copy" ) >/dev/null 2>&1; rc_copy=$?
   # No SHA-256 tool at all: the documented size-only fallback is preserved.
-  # shellcheck disable=SC2123 # deliberate: restricted PATH probe in a subshell
+  # shellcheck disable=SC2123,SC2030 # deliberate: restricted PATH probe in a subshell
   ( PATH="$sb/nohash"; validate_backup "$sb/orig" "$sb/copy" ) >/dev/null 2>&1; rc_nohash=$?
   rm -rf "$sb"
 
@@ -132,6 +132,90 @@ test_validate_backup_hashes_without_shasum() {
   fi
 }
 
+# Regression F2 (re-audit 2026-10-10): replacing a restore point must never
+# lose the previous generation. The old publish deleted the existing point and
+# THEN renamed the staged one into place; a failed rename discarded both.
+test_restore_point_replace_failure_keeps_previous() {
+  local sb rc content
+  sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-rp-keep.XXXXXX")
+  printf 'GEN1\n' > "$sb/f"
+  HOME="$sb" create_restore_point keep "$sb/f" >/dev/null 2>&1
+  printf 'GEN2\n' > "$sb/f"
+  # Fail only the publication rename (staging -> final); every other mv works.
+  ( mv() { case "$1" in *.staging.*) return 1 ;; esac; command mv "$@"; }
+    HOME="$sb" create_restore_point keep "$sb/f" ) >/dev/null 2>&1; rc=$?
+  printf 'CORRUPT\n' > "$sb/f"
+  HOME="$sb" restore_from_point keep >/dev/null 2>&1
+  content=$(cat "$sb/f")
+  rm -rf "$sb"
+  if [[ "$rc" -ne 0 && "$content" == "GEN1" ]]; then
+    echo -e "${GREEN}✓ Restore point: failed replacement keeps the previous generation${NC}"; return 0
+  else
+    echo -e "${RED}✗ Restore point replacement lost the previous generation (rc=$rc, restored='$content', want GEN1)${NC}"; return 1
+  fi
+}
+
+# Regression F2: an interruption between "previous renamed aside" and "new
+# renamed into place" must be recoverable, not leave the name missing.
+test_restore_point_interrupted_replace_recovers() {
+  local sb rc content
+  sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-rp-int.XXXXXX")
+  printf 'GEN1\n' > "$sb/f"
+  HOME="$sb" create_restore_point intr "$sb/f" >/dev/null 2>&1
+  local base="$sb/.config-backups/restore_points"
+  # Simulate the crash window: previous generation renamed into its holder.
+  mkdir -p "$base/.intr@previous.TESTXX"
+  mv "$base/intr" "$base/.intr@previous.TESTXX/point"
+  printf 'CORRUPT\n' > "$sb/f"
+  HOME="$sb" restore_from_point intr >/dev/null 2>&1; rc=$?
+  content=$(cat "$sb/f")
+  rm -rf "$sb"
+  if [[ "$rc" -eq 0 && "$content" == "GEN1" ]]; then
+    echo -e "${GREEN}✓ Restore point: interrupted replacement is recovered${NC}"; return 0
+  else
+    echo -e "${RED}✗ Restore point not recovered after interrupted replacement (rc=$rc, restored='$content')${NC}"; return 1
+  fi
+}
+
+# Regression F1 (re-audit 2026-10-10): a SHA-256 tool that fails or prints a
+# non-digest must make registration fail closed — never write a rollback
+# record with an empty digest (its tab columns then shift on rollback) — and
+# must not be mistaken for "no tool" by validate_backup. Exercised with and
+# without the caller's pipefail (the old pipe hid the failure without it).
+test_hash_tool_failure_fails_closed() {
+  local sb fails=0 mode shim rc_add rc_val rows
+  sb=$(mktemp -d "${TMPDIR:-/tmp}/vms-hashfail.XXXXXX")
+  mkdir -p "$sb/fail" "$sb/garbage"
+  printf '#!/bin/sh\nexit 1\n' > "$sb/fail/sha256sum"
+  printf '#!/bin/sh\necho "not-a-digest  -"\n' > "$sb/garbage/sha256sum"
+  chmod +x "$sb/fail/sha256sum" "$sb/garbage/sha256sum"
+  for shim in fail garbage; do
+    for mode in plain pipefail; do
+      printf 'orig\n' > "$sb/rc"
+      (
+        [[ "$mode" == pipefail ]] && set -o pipefail
+        # shellcheck disable=SC2031 # deliberate: subshell-local PATH with the shim first
+        PATH="$sb/$shim:$PATH"
+        HOME="$sb" transaction_start "hashfail_${shim}_${mode}" >/dev/null 2>&1
+        HOME="$sb" transaction_add_file "$sb/rc" >/dev/null 2>&1; rc_add=$?
+        rows=$(wc -l < "$_TRANSACTION_DIR/files.tsv" | tr -d ' ')
+        cp "$sb/rc" "$sb/rc.copy"
+        validate_backup "$sb/rc" "$sb/rc.copy" >/dev/null 2>&1; rc_val=$?
+        HOME="$sb" transaction_rollback >/dev/null 2>&1 || true
+        [[ "$rc_add" -ne 0 && "$rows" == 0 && "$rc_val" -ne 0 ]] && exit 0
+        echo "    $shim/$mode: add_file rc=$rc_add (want !=0) records=$rows (want 0) validate rc=$rc_val (want !=0)" >&2
+        exit 1
+      ) || fails=$((fails + 1))
+    done
+  done
+  rm -rf "$sb"
+  if [[ "$fails" -eq 0 ]]; then
+    echo -e "${GREEN}✓ Failing or garbage SHA-256 tool: registration and validation fail closed${NC}"; return 0
+  else
+    echo -e "${RED}✗ Hash-tool failure accepted in $fails of 4 cases${NC}"; return 1
+  fi
+}
+
 # Run tests — aggregate: any failure fails the file (not just the last test).
 _bk_fails=0
 test_backup_file || _bk_fails=$((_bk_fails + 1))
@@ -139,5 +223,8 @@ test_restore_backup || _bk_fails=$((_bk_fails + 1))
 test_restore_point_no_collision || _bk_fails=$((_bk_fails + 1))
 test_transaction_add_file_fail_closed || _bk_fails=$((_bk_fails + 1))
 test_validate_backup_hashes_without_shasum || _bk_fails=$((_bk_fails + 1))
+test_restore_point_replace_failure_keeps_previous || _bk_fails=$((_bk_fails + 1))
+test_restore_point_interrupted_replace_recovers || _bk_fails=$((_bk_fails + 1))
+test_hash_tool_failure_fails_closed || _bk_fails=$((_bk_fails + 1))
 
 exit "$_bk_fails"

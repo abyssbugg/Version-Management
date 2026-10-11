@@ -476,11 +476,16 @@ validate_backup() {
         return 1
     fi
 
-    # Compare file sizes
+    # Compare file sizes (GNU stat first: on Linux `stat -f` reports the file
+    # system, AX-21). Unreadable sizes fail closed instead of comparing equal.
     local original_size backup_size
-    original_size=$(stat -f%z "$original_file" 2>/dev/null || stat -c%s "$original_file" 2>/dev/null)
-    backup_size=$(stat -f%z "$backup_file" 2>/dev/null || stat -c%s "$backup_file" 2>/dev/null)
+    original_size=$(stat -c%s "$original_file" 2>/dev/null || stat -f%z "$original_file" 2>/dev/null)
+    backup_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file" 2>/dev/null)
 
+    if [[ ! "$original_size" =~ ^[0-9]+$ || ! "$backup_size" =~ ^[0-9]+$ ]]; then
+        log_error "Backup validation failed: cannot read file sizes"
+        return 1
+    fi
     if [[ "$original_size" != "$backup_size" ]]; then
         log_error "Backup validation failed: file sizes differ"
         log_debug "Original: $original_size bytes, Backup: $backup_size bytes"
@@ -488,13 +493,17 @@ validate_backup() {
     fi
 
     # Compare SHA-256 content hashes with whichever tool the host provides
-    # (_txn_sha256: sha256sum, else shasum). Hashing only via `shasum` made
-    # hosts that ship only sha256sum fall back to size-only silently.
-    local original_hash backup_hash
-    original_hash=$(_txn_sha256 "$original_file")
-    backup_hash=$(_txn_sha256 "$backup_file")
-    if [[ -z "$original_hash" && -z "$backup_hash" ]]; then
+    # (_txn_sha256: sha256sum, else shasum; AX-23). Only a host with NO tool
+    # falls back to size-only; a tool that fails or prints garbage fails
+    # closed (F1) — it must never be mistaken for "no tool".
+    local original_hash backup_hash rc_o=0 rc_b=0
+    original_hash=$(_txn_sha256 "$original_file") || rc_o=$?
+    backup_hash=$(_txn_sha256 "$backup_file") || rc_b=$?
+    if (( rc_o == 2 && rc_b == 2 )); then
         log_warn "Backup validated by size only: no SHA-256 tool (sha256sum or shasum) found"
+    elif (( rc_o != 0 || rc_b != 0 )); then
+        log_error "Backup validation failed: SHA-256 tool failed"
+        return 1
     elif [[ "$original_hash" != "$backup_hash" ]]; then
         log_error "Backup validation failed: checksums differ"
         return 1
@@ -533,12 +542,24 @@ fi
 _TRANSACTION_NAME_RE='^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$'
 
 # A3: content hashes use whatever 256-bit tool the platform provides.
+# F1 (re-audit 2026-10-10): fail closed. The old form piped the tool into awk,
+# so without the caller's pipefail a failing tool returned 0 with EMPTY output
+# — an empty digest then shifted the rollback record's tab-separated columns.
+# Prints the lowercase 64-hex digest. Status: 0 ok; 1 the tool failed or its
+# output is not a digest; 2 no SHA-256 tool on PATH. The file is read on
+# stdin so the tool never escapes an unusual file name in its output.
 _txn_sha256() {
+    local out
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" 2>/dev/null | awk '{print $1}'
+        out=$(sha256sum < "$1" 2>/dev/null) || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        out=$(shasum -a 256 < "$1" 2>/dev/null) || return 1
     else
-        shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+        return 2
     fi
+    out=${out%%[[:space:]]*}
+    [[ "$out" =~ ^[0-9a-f]{64}$ ]] || return 1
+    printf '%s\n' "$out"
 }
 
 # Audit journal (P3-2; M2: metadata recorded per operation). Best-effort:
@@ -718,7 +739,12 @@ transaction_add_file() {
         return 1
     fi
 
-    sha=$(_txn_sha256 "$entry_dir/data")
+    sha=$(_txn_sha256 "$entry_dir/data") || {
+        # F1: a record without a valid digest cannot be verified or parsed on
+        # rollback, so the pre-state would be unrecoverable — refuse.
+        log_error "Cannot hash the backup of $file (sha256sum/shasum missing or failing) — refusing to register"
+        return 1
+    }
     # Fail closed: the files.tsv row IS the rollback record. If this append
     # fails, the backup payload exists but nothing points rollback at it, so
     # the pre-state would be silently unrecoverable — refuse the registration.
@@ -947,6 +973,7 @@ create_restore_point() {
     # building the replacement, so any failure mid-build destroyed the prior
     # point with nothing to show for it. (restore-point integrity)
     mkdir -p "$backup_dir/restore_points" || { log_error "Cannot create restore_points dir"; return 1; }
+    _restore_point_recover_interrupted "$name" "$backup_dir/restore_points" || return 1
     local staging
     staging=$(mktemp -d "$backup_dir/restore_points/.$name.staging.XXXXXX") || {
         log_error "Cannot create restore-point staging dir"; return 1
@@ -985,20 +1012,70 @@ create_restore_point() {
 }
 EOF
 
-    # Atomic publish: the staging dir is now complete. Remove the previous
-    # restore point of this name ONLY now, then move the staged one into
-    # place. A failure before this point left the prior restore point intact.
+    # Publish (F2, re-audit 2026-10-10): the previous generation is never
+    # deleted before the new one is in place. It is first renamed aside into
+    # a hidden ".<name>@previous.XXXXXX/point" holder (same directory, so a
+    # rename), then the staged point is renamed into place. If that rename
+    # fails the previous generation is renamed back; it is removed only after
+    # the new point is published. An interruption between the two renames
+    # leaves the previous generation in its holder, which
+    # _restore_point_recover_interrupted puts back on the next create/restore.
+    local holder=""
     if [[ -d "$restore_dir" ]]; then
-        rm -rf "$restore_dir" || { log_error "Cannot replace existing restore point: $name"; rm -rf "$staging"; return 1; }
+        holder=$(mktemp -d "$backup_dir/restore_points/.$name@previous.XXXXXX") || {
+            log_error "Cannot stage replacement of restore point: $name"; rm -rf "$staging"; return 1
+        }
+        if ! mv "$restore_dir" "$holder/point"; then
+            log_error "Cannot replace existing restore point (left unchanged): $name"
+            rmdir "$holder" 2>/dev/null || true
+            rm -rf "$staging"
+            return 1
+        fi
     fi
     if ! mv "$staging" "$restore_dir"; then
         log_error "Cannot publish restore point: $name"
         rm -rf "$staging"
+        if [[ -n "$holder" ]]; then
+            if mv "$holder/point" "$restore_dir"; then
+                rmdir "$holder" 2>/dev/null || true
+                log_warn "Previous restore point kept: $name"
+            else
+                log_error "Previous restore point retained at: $holder/point (could not move it back)"
+            fi
+        fi
         return 1
+    fi
+    if [[ -n "$holder" ]]; then
+        rm -rf "$holder" || log_warn "Could not remove the replaced restore point: $holder"
     fi
 
     log_success "Restore point created: $name ($file_count files)"
     return 0
+}
+
+# Recover a restore point whose replacement was interrupted after the previous
+# generation was renamed aside but before the new one was renamed into place
+# (F2). Returns 0 when nothing needed recovery or the generation was put back;
+# 1 when recovery is ambiguous or failed (the holder paths are reported).
+_restore_point_recover_interrupted() {
+    local name="$1" base="$2"
+    local restore_dir="$base/$name" holders=() h
+    [[ -d "$restore_dir" ]] && return 0
+    for h in "$base/.$name@previous."*; do
+        [[ -d "$h/point" ]] && holders+=("$h")
+    done
+    [[ ${#holders[@]} -eq 0 ]] && return 0
+    if [[ ${#holders[@]} -gt 1 ]]; then
+        log_error "Restore point '$name' has ${#holders[@]} interrupted generations; recover one manually: ${holders[*]}"
+        return 1
+    fi
+    if mv "${holders[0]}/point" "$restore_dir"; then
+        rmdir "${holders[0]}" 2>/dev/null || true
+        log_warn "Recovered restore point '$name' from an interrupted replacement"
+        return 0
+    fi
+    log_error "Cannot recover restore point '$name' from: ${holders[0]}/point"
+    return 1
 }
 
 # Restore from a named restore point
@@ -1032,6 +1109,7 @@ restore_from_point() {
     backup_dir=$(_backup_default_dir) || return 1
     restore_dir="$backup_dir/restore_points/$name"
 
+    _restore_point_recover_interrupted "$name" "$backup_dir/restore_points" || return 1
     if [[ ! -d "$restore_dir" ]]; then
         log_error "Restore point not found: $name"
         return 1
@@ -1506,6 +1584,7 @@ export -f restore_backup list_backups cleanup_old_backups validate_backup _txn_s
 export -f transaction_start transaction_add_file transaction_commit transaction_rollback
 export -f transaction_is_active transaction_get_name
 export -f create_restore_point restore_from_point list_restore_points delete_restore_point
+export -f _restore_point_recover_interrupted
 export -f _install_dir_strip _install_dir_check_shape _install_dir_validate_target
 export -f _install_dir_is_system_root
 export -f _install_dir_validate_staged _install_dir_journal install_dir_stage install_dir_restore
