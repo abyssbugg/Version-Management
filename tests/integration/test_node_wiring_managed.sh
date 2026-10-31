@@ -32,8 +32,13 @@ assert_not_equals() {
 _fixture_fnm_shim() {
     ORIG_PATH="${ORIG_PATH:-$PATH}"
     mkdir -p "$SBX/bin"
-    printf '#!/usr/bin/env sh\nexit 0\n' > "$SBX/bin/fnm"
-    chmod +x "$SBX/bin/fnm"
+    local m
+    # All four managers shimmed: install-* takes the configure-only path
+    # (never brew/network) regardless of the host's inventory.
+    for m in fnm pyenv rbenv phpenv; do
+        printf '#!/usr/bin/env sh\nexit 0\n' > "$SBX/bin/$m"
+        chmod +x "$SBX/bin/$m"
+    done
     export PATH="$SBX/bin:$PATH"
 }
 
@@ -121,6 +126,83 @@ test_injected_failure_rolls_back() {
     _teardown
 }
 
+test_pyenv_rbenv_phpenv_adoption() {
+    _setup
+    # The live-machine legacy shape for the other three managers (R7 set).
+    cat >> "$SBX/.zshrc" << 'RC'
+
+# ---------- pyenv ----------
+export PYENV_ROOT="$HOME/.pyenv"
+path_prepend "$PYENV_ROOT/bin"
+command -v pyenv >/dev/null && eval "$(pyenv init -)"
+
+# ---------- rbenv ----------
+command -v rbenv >/dev/null && eval "$(rbenv init - zsh)"
+
+# ============================================================================
+# phpenv Configuration (added by version-manager)
+# ============================================================================
+export PHPENV_ROOT="$HOME/.phpenv"
+export PATH="$PHPENV_ROOT/bin:$PATH"
+
+# Lazy load phpenv for faster shell startup
+phpenv() {
+    unset -f phpenv php
+    eval "$(command phpenv init -)"
+    phpenv "$@"
+}
+
+php() {
+    unset -f phpenv php
+    eval "$(command phpenv init -)"
+    php "$@"
+}
+
+# Composer global bin
+path_prepend "$HOME/.config/composer/vendor/bin"
+export USER_MARKER_2=also-keep-me
+RC
+    bash "$ROOT_DIR/version-manager.sh" install-pyenv >/dev/null 2>&1
+    chk assert_equals "0" "$?" "install-pyenv adoption exits zero"
+    bash "$ROOT_DIR/version-manager.sh" install-rbenv >/dev/null 2>&1
+    chk assert_equals "0" "$?" "install-rbenv adoption exits zero"
+    bash "$ROOT_DIR/version-manager.sh" install-phpenv >/dev/null 2>&1
+    chk assert_equals "0" "$?" "install-phpenv adoption exits zero"
+    ! grep -qF 'command -v pyenv >/dev/null && eval "$(pyenv init -)"' "$SBX/.zshrc" \
+        && chk assert_equals "pyenv-legacy-gone" "pyenv-legacy-gone" "legacy pyenv bootstrap stripped" \
+        || chk assert_equals "pyenv-legacy-gone" "present" "legacy pyenv bootstrap stripped"
+    ! grep -qF 'command -v rbenv >/dev/null && eval "$(rbenv init - zsh)"' "$SBX/.zshrc" \
+        && chk assert_equals "rbenv-legacy-gone" "rbenv-legacy-gone" "legacy rbenv line stripped" \
+        || chk assert_equals "rbenv-legacy-gone" "present" "legacy rbenv line stripped"
+    ! grep -qF 'phpenv Configuration (added by version-manager)' "$SBX/.zshrc" \
+        && chk assert_equals "phpenv-block-gone" "phpenv-block-gone" "legacy phpenv block stripped" \
+        || chk assert_equals "phpenv-block-gone" "present" "legacy phpenv block stripped"
+    # The managed block has its own phpenv() (with composer); the LEGACY
+    # body's distinctive line (two-name unset) must be gone.
+    ! grep -qFx '    unset -f phpenv php' "$SBX/.zshrc" \
+        && chk assert_equals "legacy-phpenv-fn-gone" "legacy-phpenv-fn-gone" "legacy phpenv body gone (managed fn has composer)" \
+        || chk assert_equals "legacy-phpenv-fn-gone" "present" "legacy phpenv body gone (managed fn has composer)"
+    grep -q 'BEGIN version-management-setup:version-manager-pyenv' "$SBX/.zshrc" \
+        && chk assert_equals "pyenv-block" "pyenv-block" "managed pyenv block written" \
+        || chk assert_equals "pyenv-block" "absent" "managed pyenv block written"
+    grep -q 'BEGIN version-management-setup:version-manager-phpenv' "$SBX/.zshrc" \
+        && chk assert_equals "phpenv-block" "phpenv-block" "managed phpenv block written" \
+        || chk assert_equals "phpenv-block" "absent" "managed phpenv block written"
+    grep -qF 'path_prepend "$HOME/.config/composer/vendor/bin"' "$SBX/.zshrc" \
+        && chk assert_equals "composer-kept" "composer-kept" "composer paths survive the range strip" \
+        || chk assert_equals "composer-kept" "eaten" "composer paths survive the range strip"
+    grep -q 'export USER_MARKER_2=also-keep-me' "$SBX/.zshrc" \
+        && chk assert_equals "marker2-kept" "marker2-kept" "user content after the blocks preserved" \
+        || chk assert_equals "marker2-kept" "lost" "user content after the blocks preserved"
+    # The adopted rc must parse.
+    if command -v zsh >/dev/null 2>&1; then
+        zsh -n "$SBX/.zshrc" \
+            && chk assert_equals "parses" "parses" "adopted rc is zsh-clean" \
+            || chk assert_equals "parses" "broken" "adopted rc is zsh-clean"
+    fi
+    _teardown
+}
+
 test_near_miss_lines_survive() {
     _setup
     # Same shape, different content: the exact-match strip must not touch it.
@@ -165,6 +247,7 @@ run_case live-nvm-kept test_live_nvm_preserved || failures=$((failures + 1))
 run_case dry-run test_dry_run_zero_writes || failures=$((failures + 1))
 run_case injected-rollback test_injected_failure_rolls_back || failures=$((failures + 1))
 run_case near-miss test_near_miss_lines_survive || failures=$((failures + 1))
+run_case manager-set test_pyenv_rbenv_phpenv_adoption || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 || "$FAILURES" -gt 0 ]]; then
     echo "test_node_wiring_managed.sh: $failures case(s) failed, $FAILURES assertion(s) failed"

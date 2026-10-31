@@ -664,9 +664,90 @@ _vm_strip_legacy_node_wiring() {
                   -e 'eval "$(fnm env --use-on-cd)"' \
             "$resolved" > "$tmp" || true
     fi
+    _vm_publish_strip "$resolved" "$tmp"
+}
+
+# ============================================================================
+# R7: legacy manager-wiring strips (one per managed block; the strip IS the
+# migration — exact full-line matches or validated unique ranges, never
+# unknown user content; each runs INSIDE _vm_configure_block's transaction).
+# ============================================================================
+
+# pyenv: the flat bootstrap trio the managed lazy block replaces.
+_vm_strip_legacy_pyenv_wiring() {
+    local resolved="$1"
+    [[ -f "$resolved" ]] || return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would strip legacy pyenv wiring from $resolved (exact lines only)"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_pyenv_strip.XXXXXX") || return 1
+    grep -vFx -e '# ---------- pyenv ----------' \
+              -e 'export PYENV_ROOT="$HOME/.pyenv"' \
+              -e 'path_prepend "$PYENV_ROOT/bin"' \
+              -e 'command -v pyenv >/dev/null && eval "$(pyenv init -)"' \
+        "$resolved" > "$tmp" || true
+    _vm_publish_strip "$resolved" "$tmp"
+}
+
+# rbenv: the guarded init line the managed lazy block replaces.
+_vm_strip_legacy_rbenv_wiring() {
+    local resolved="$1"
+    [[ -f "$resolved" ]] || return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would strip legacy rbenv wiring from $resolved (exact lines only)"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_rbenv_strip.XXXXXX") || return 1
+    grep -vFx -e '# ---------- rbenv ----------' \
+              -e 'command -v rbenv >/dev/null && eval "$(rbenv init - zsh)"' \
+        "$resolved" > "$tmp" || true
+    _vm_publish_strip "$resolved" "$tmp"
+}
+
+# phpenv: this tool's own historical multi-line block ("added by
+# version-manager") — a RANGE strip between two validated unique anchors
+# (start: the historical header; end: the next section's comment, exclusive).
+# Flat exact lines cannot work here: the legacy body is a function definition.
+_vm_strip_legacy_phpenv_wiring() {
+    local resolved="$1"
+    [[ -f "$resolved" ]] || return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would strip the legacy phpenv block from $resolved (validated range)"
+        return 0
+    fi
+    local start_anchor='# phpenv Configuration (added by version-manager)'
+    local end_anchor='# Composer global bin'
+    local s_count e_count s_line e_line
+    s_count=$(grep -cFx "$start_anchor" "$resolved" || true)
+    e_count=$(grep -cFx "$end_anchor" "$resolved" || true)
+    if [[ "$s_count" != "1" || "$e_count" != "1" ]]; then
+        log_info "Legacy phpenv block anchors not found uniquely — nothing to strip"
+        return 0
+    fi
+    s_line=$(grep -nFx "$start_anchor" "$resolved" | cut -d: -f1)
+    e_line=$(grep -nFx "$end_anchor" "$resolved" | cut -d: -f1)
+    if (( s_line >= e_line )); then
+        log_warn "Legacy phpenv block anchors out of order — nothing to strip"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_phpenv_strip.XXXXXX") || return 1
+    awk -v s="$s_line" -v e="$e_line" 'NR < s || NR >= e' "$resolved" > "$tmp" || {
+        rm -f "$tmp"; return 1;
+    }
+    _vm_publish_strip "$resolved" "$tmp"
+}
+
+# Shared publisher for the strips: mode-preserving atomic replace, no-op when
+# nothing changed. The caller's transaction owns rollback (file registered).
+_vm_publish_strip() {
+    local resolved="$1" tmp="$2"
     if mutation_files_identical "$tmp" "$resolved"; then
         rm -f "$tmp"
-        log_info "No legacy node-manager wiring found — nothing to strip"
+        log_info "No legacy wiring found — nothing to strip"
         return 0
     fi
     if ! _mutation_preserve_mode "$resolved" "$tmp"; then
@@ -679,7 +760,7 @@ _vm_strip_legacy_node_wiring() {
         log_error "Cannot replace $resolved — legacy wiring left in place"
         return 1
     fi
-    log_success "Legacy node-manager wiring stripped (managed fnm block takes over)"
+    log_success "Legacy wiring stripped (managed block takes over)"
     return 0
 }
 
@@ -793,7 +874,7 @@ install_pyenv() {
 }
 
 configure_pyenv() {
-    _vm_configure_block pyenv 'PYENV_ROOT|pyenv init' "$(get_shell_config)" << 'EOF'
+    _vm_configure_block pyenv 'PYENV_ROOT|pyenv init' "$(get_shell_config)" _vm_strip_legacy_pyenv_wiring << 'EOF'
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
 
@@ -875,7 +956,7 @@ install_rbenv() {
 }
 
 configure_rbenv() {
-    _vm_configure_block rbenv 'rbenv init' "$(get_shell_config)" << 'EOF'
+    _vm_configure_block rbenv 'rbenv init' "$(get_shell_config)" _vm_strip_legacy_rbenv_wiring << 'EOF'
 export PATH="$HOME/.rbenv/bin:$PATH"
 
 # Lazy load rbenv for faster shell startup
@@ -912,6 +993,15 @@ EOF
 
 install_phpenv() {
     log_info "Installing phpenv..."
+
+    # Presence short-circuit (R7 set): an installed phpenv takes the
+    # configure-only path — same posture as install_fnm/pyenv/rbenv; brew
+    # never re-installs over an existing setup.
+    if command_exists phpenv; then
+        log_info "phpenv already installed"
+        configure_phpenv
+        return 0
+    fi
 
     local os="$(get_os)"
 
@@ -973,7 +1063,7 @@ install_phpenv() {
 }
 
 configure_phpenv() {
-    _vm_configure_block phpenv 'PHPENV_ROOT|phpenv init' "$(get_shell_config)" << 'EOF'
+    _vm_configure_block phpenv 'PHPENV_ROOT|phpenv init' "$(get_shell_config)" _vm_strip_legacy_phpenv_wiring << 'EOF'
 export PHPENV_ROOT="$HOME/.phpenv"
 export PATH="$PHPENV_ROOT/bin:$PATH"
 
