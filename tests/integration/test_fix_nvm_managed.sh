@@ -128,17 +128,31 @@ test_dry_run_zero_writes() {
 # chk: per-assertion failure accounting that survives _teardown masking
 # (lane V's pattern — a case ending with _teardown otherwise exits 0 even
 # when its assertions failed, and the runner judges by exit code).
+# TH-2: FAILURES was incremented but never read, making this file a vacuous
+# green; run_case gates each case on the FAILURES delta (recovery pattern).
 FAILURES=0
 chk() { "$@" || FAILURES=$((FAILURES + 1)); }
 
-failures=0
-test_first_run_creates_block || failures=$((failures + 1))
-test_rerun_byte_identical || failures=$((failures + 1))
-test_legacy_drift_converges || failures=$((failures + 1))
-test_injected_failure_rolls_back || failures=$((failures + 1))
-test_dry_run_zero_writes || failures=$((failures + 1))
+run_case() {
+    local name="$1"
+    shift
+    local before=$FAILURES
+    "$@"
+    if [[ "$FAILURES" -gt "$before" ]]; then
+        echo "    [case $name] $((FAILURES - before)) assertion(s) failed"
+        return 1
+    fi
+    return 0
+}
 
-if [[ "$failures" -gt 0 ]]; then
-    echo "test_fix_nvm_managed.sh: $failures case(s) failed"
+failures=0
+run_case first-run-creates-block test_first_run_creates_block || failures=$((failures + 1))
+run_case rerun-byte-identical test_rerun_byte_identical || failures=$((failures + 1))
+run_case legacy-drift-converges test_legacy_drift_converges || failures=$((failures + 1))
+run_case injected-rollback test_injected_failure_rolls_back || failures=$((failures + 1))
+run_case dry-run-zero-writes test_dry_run_zero_writes || failures=$((failures + 1))
+
+if [[ "$failures" -gt 0 || "$FAILURES" -gt 0 ]]; then
+    echo "test_fix_nvm_managed.sh: $failures case(s) failed, $FAILURES assertion(s) failed"
     exit 1
 fi

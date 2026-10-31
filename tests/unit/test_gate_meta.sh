@@ -29,6 +29,9 @@
 #                    must be able to fail)
 #   6. B1.8        — a hung test file is killed by the runner's per-file
 #                    watchdog: gate red, bounded runtime, exit 124 recorded
+#   7. TH-2        — a chk-based test file with a seeded failing assertion
+#                    exits nonzero (the counter must be read, not just
+#                    written; a vacuous green is the defect TH-2 closed)
 # =============================================================================
 
 source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
@@ -268,6 +271,52 @@ test_meta_watchdog_red() {
     return "$f"
 }
 
+# Case 7 (TH-2): the chk accounting convention must be able to fail.
+# A chk-based test file whose counter is never read is a vacuous green —
+# the exact defect TH-2 found in test_fix_nvm_managed.sh. Probe: a minimal
+# chk+run_case file with one seeded failing assertion must exit nonzero;
+# the same file with all-passing assertions is the green positive control.
+_meta_chk_probe_file() {
+    local clone="$1" seeded="$2" target_assert
+    if [[ "$seeded" == "fail" ]]; then target_assert='"a" "b"'; else target_assert='"a" "a"'; fi
+    cat > "$clone/tests/unit/meta_chk_probe.sh" << EOF
+#!/usr/bin/env bash
+source "\${BASH_SOURCE[0]%/*}/../helpers.sh" || exit 1
+set +e
+FAILURES=0
+chk() { "\$@" || FAILURES=\$((FAILURES + 1)); }
+run_case() { local name="\$1"; shift; local before=\$FAILURES; "\$@"; [[ "\$FAILURES" -gt "\$before" ]] && return 1; return 0; }
+case_probe() { chk assert_equals $target_assert "meta probe"; }
+failures=0
+run_case probe case_probe || failures=\$((failures + 1))
+[[ "\$failures" -gt 0 || "\$FAILURES" -gt 0 ]] && { echo "seeded chk failure detected"; exit 1; }
+exit 0
+EOF
+}
+
+test_meta_chk_accounting() {
+    local f=0 clone rc probe_home
+    clone=$(_new_clone) || return 1
+    probe_home=$(mktemp -d "${TMPDIR:-/tmp}/vms-meta-chk.XXXXXX")
+
+    _meta_chk_probe_file "$clone" "fail"
+    HOME="$probe_home" bash "$clone/tests/unit/meta_chk_probe.sh" >/dev/null 2>&1
+    rc=$?
+    _assert_red "$rc" "TH-2: chk file with a seeded failing assertion exits nonzero" || f=$((f + 1))
+
+    _meta_chk_probe_file "$clone" "pass"
+    HOME="$probe_home" bash "$clone/tests/unit/meta_chk_probe.sh" >/dev/null 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        assert_equals "green-control" "green-control" "TH-2: chk file with passing assertions exits zero" || f=$((f + 1))
+    else
+        assert_equals "green-control" "red:$rc" "TH-2: chk file with passing assertions exits zero" || f=$((f + 1))
+    fi
+
+    rm -rf "$clone" "$probe_home"
+    return "$f"
+}
+
 test_meta_routing_red || failures=$((failures + 1))
 test_meta_syntax_bash_red || failures=$((failures + 1))
 test_meta_syntax_zsh_red || failures=$((failures + 1))
@@ -275,6 +324,7 @@ test_meta_quality_red || failures=$((failures + 1))
 test_meta_quality_diagnostics || failures=$((failures + 1))
 test_meta_comparator || failures=$((failures + 1))
 test_meta_watchdog_red || failures=$((failures + 1))
+test_meta_chk_accounting || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_gate_meta.sh: $failures meta-test(s) failed"
