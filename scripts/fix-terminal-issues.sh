@@ -147,11 +147,51 @@ append_zsh_to_etc_shells() {
     log_success "Added $zsh_path to /etc/shells"
 }
 
+# F-A1: the login-shell change is a privileged system mutation, consented
+# like the /etc/shells append — same confirm plumbing, same safe default.
+confirm_chsh_change() {
+    local zsh_path="$1"
+
+    if [[ "$CONFIRM_SYSTEM_CHANGES" == "true" || "${VMS_CONFIRM:-}" == "1" ]]; then
+        return 0
+    fi
+
+    local response=""
+    if [[ -t 0 ]]; then
+        read -r -p "Make $zsh_path the default login shell (chsh)? [y/N]: " response
+    else
+        log_warn "Confirmation required to change the login shell; re-run with --confirm or VMS_CONFIRM=1"
+        return 1
+    fi
+
+    if [[ "$response" =~ ^([Yy]|[Yy][Ee][Ss])$ ]]; then
+        return 0
+    fi
+
+    log_info "Skipped default-shell change"
+    return 1
+}
+
 # Fix shell configuration
 fix_shell_configuration() {
     log_info " Fixing Shell Configuration"
     log_info "=============================="
     echo
+
+    # F-A1: the /etc/shells append and chsh are real system mutations; a
+    # declared dry run plans them and touches nothing. (The dry-run banner
+    # above promises zero filesystem writes — fix-shell/fix-all previously
+    # bypassed this and could mutate /etc/shells and the login shell.)
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        if [[ "$SHELL" != *"zsh"* ]] && command -v zsh >/dev/null 2>&1; then
+            local dry_zsh_path
+            dry_zsh_path=$(command -v zsh)
+            log_info "[dry-run] would append $dry_zsh_path to /etc/shells (if absent) and run: chsh -s $dry_zsh_path (consented)"
+        else
+            log_info "[dry-run] default shell is already zsh — nothing to change"
+        fi
+        return 0
+    fi
 
     # Change default shell to zsh if it's not already
     if [[ "$SHELL" != *"zsh"* ]]; then
@@ -160,10 +200,16 @@ fix_shell_configuration() {
             local zsh_path
             zsh_path=$(command -v zsh)
 
-            # Add zsh to /etc/shells if not already there
-            append_zsh_to_etc_shells "$zsh_path"
+            # Add zsh to /etc/shells if not already there (consented inside)
+            if ! append_zsh_to_etc_shells "$zsh_path"; then
+                log_info "Default-shell change skipped (append declined)"
+                return 0
+            fi
 
-            # Change shell
+            # Change shell — consented (F-A1: previously unguarded)
+            if ! confirm_chsh_change "$zsh_path"; then
+                return 0
+            fi
             chsh -s "$zsh_path"
             log_success "Default shell changed to zsh"
             log_info "📢 Please restart your terminal for changes to take effect"

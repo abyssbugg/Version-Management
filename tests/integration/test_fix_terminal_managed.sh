@@ -8,9 +8,9 @@
 # --dry-run plans with zero writes, and an injected root-proof failure exits
 # nonzero with the pre-state preserved byte-identically.
 #
-# Scope guard: /etc/shells and chsh paths are pre-existing gated surfaces
-# (confirm prompt + backup, landed by earlier remediation) and are
-# deliberately NOT exercised here.
+# Scope guard (F-A1): the /etc/shells and chsh paths ARE now exercised —
+# through recording shims for sudo/chsh (the privileged application is
+# mirrored into the sandbox; the real /etc/shells is only ever read).
 #
 # Font assets: the repository commits no MesloLGS*.ttf files, so the font
 # copy loop is exercised through a sandbox-local repo layout — the script,
@@ -253,6 +253,111 @@ test_injected_failure_preserves_prestate() {
     if command -v chattr >/dev/null 2>&1; then chattr -i "$SBX/.p10k.zsh" 2>/dev/null; fi
 }
 
+# ── F-A1: fix-shell dry-run/consent on the /etc/shells + chsh surfaces ──────
+# Recording shims replace sudo and chsh; `command -v zsh` resolves to the
+# SHIM zsh (a path that can never be present in the real /etc/shells), so the
+# privileged branch always runs. The sudo shim mirrors `tee -a` into the
+# SANDBOX — the real /etc/shells is only ever read.
+_shim_env() {
+    SHIM=$(mktemp -d "${TMPDIR:-/tmp}/vms-shim.XXXXXX")
+    VMS_SHIM_LOG="$SHIM/invocations.log"
+    VMS_FAKE_ETC="$SHIM/etc-shells-mirror"
+    : > "$VMS_SHIM_LOG"
+    cat > "$SHIM/zsh" << 'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+    cat > "$SHIM/sudo" << 'EOF'
+#!/usr/bin/env sh
+# argv after $0 is the wrapped command: tee -a <file> — $0 is the shim's own
+# name, so there is no leading "sudo" argument to shift away.
+printf 'sudo %s\n' "$*" >> "$VMS_SHIM_LOG"
+if [ "${1:-}" = "tee" ]; then
+    shift
+    [ "${1:-}" = "-a" ] && shift
+    cat >> "$VMS_FAKE_ETC"
+fi
+exit 0
+EOF
+    cat > "$SHIM/chsh" << 'EOF'
+#!/usr/bin/env sh
+printf 'chsh %s\n' "$*" >> "$VMS_SHIM_LOG"
+exit 0
+EOF
+    chmod +x "$SHIM/zsh" "$SHIM/sudo" "$SHIM/chsh"
+    export PATH="$SHIM:$PATH"
+    export VMS_SHIM_LOG VMS_FAKE_ETC
+    export SHELL="/bin/bash"   # force the change branch
+}
+
+_shim_teardown() {
+    [[ -n "${SHIM:-}" && "$SHIM" == */vms-shim.* ]] && rm -rf "$SHIM"
+    # PATH was inherited by the child script processes only; nothing to restore.
+}
+
+_shim_no_privileged_calls() {
+    local message="$1"
+    if grep -qE 'sudo|chsh' "$VMS_SHIM_LOG" 2>/dev/null; then
+        _chk "none" "attempted: $(tr '\n' ';' < "$VMS_SHIM_LOG")" "$message"
+    else
+        _chk "none" "none" "$message"
+    fi
+}
+
+test_fix_shell_dry_run_touches_nothing() {
+    _setup
+    _shim_env
+    if ! command -v zsh >/dev/null 2>&1; then
+        _chk "zsh-present" "absent" "zsh required (capability gap reported, not silently passed)"
+        _shim_teardown
+        return 0
+    fi
+    local etc_pre
+    etc_pre=$(sha /etc/shells 2>/dev/null || echo unavailable)
+    bash "$REAL_SCRIPT" --dry-run fix-shell </dev/null >/dev/null 2>&1
+    _chk "0" "$?" "dry-run fix-shell exits zero"
+    _shim_no_privileged_calls "dry-run fix-shell must not invoke sudo/chsh"
+    bash "$REAL_SCRIPT" --dry-run fix-all </dev/null >/dev/null 2>&1
+    _chk "0" "$?" "dry-run fix-all exits zero"
+    _shim_no_privileged_calls "dry-run fix-all must not invoke sudo/chsh"
+    _chk "$etc_pre" "$(sha /etc/shells 2>/dev/null || echo unavailable)" "real /etc/shells untouched"
+    _shim_teardown
+}
+
+test_fix_shell_decline_in_nontty() {
+    _setup
+    _shim_env
+    if ! command -v zsh >/dev/null 2>&1; then
+        _shim_teardown
+        return 0
+    fi
+    bash "$REAL_SCRIPT" fix-shell </dev/null >/dev/null 2>&1
+    _chk "0" "$?" "non-TTY without confirm declines safely (exit zero)"
+    _shim_no_privileged_calls "declined run must not invoke sudo/chsh"
+    _shim_teardown
+}
+
+test_fix_shell_confirm_applies_via_shims() {
+    _setup
+    _shim_env
+    if ! command -v zsh >/dev/null 2>&1; then
+        _shim_teardown
+        return 0
+    fi
+    VMS_CONFIRM=1 bash "$REAL_SCRIPT" fix-shell </dev/null >/dev/null 2>&1
+    _chk "0" "$?" "consented fix-shell exits zero"
+    grep -q '^sudo ' "$VMS_SHIM_LOG" \
+        && _chk "sudo-recorded" "sudo-recorded" "consent path invokes the /etc/shells append" \
+        || _chk "sudo-recorded" "absent" "consent path invokes the /etc/shells append"
+    grep -Fxq "$SHIM/zsh" "$VMS_FAKE_ETC" \
+        && _chk "mirror-appended" "mirror-appended" "tee -a mirrored into the sandbox" \
+        || _chk "mirror-appended" "absent" "tee -a mirrored into the sandbox"
+    grep -q "^chsh -s $SHIM/zsh$" "$VMS_SHIM_LOG" \
+        && _chk "chsh-recorded" "chsh-recorded" "consent path invokes chsh" \
+        || _chk "chsh-recorded" "absent" "consent path invokes chsh"
+    _shim_teardown
+}
+
 # Case runner: fresh failure counter, guaranteed teardown, honest exit status.
 run_case() {
     local name="$1"
@@ -274,6 +379,9 @@ run_case p10k-dry-run test_p10k_dry_run_zero_writes || failures=$((failures + 1)
 run_case fonts-apply test_fonts_apply_and_rerun || failures=$((failures + 1))
 run_case fonts-dry-run test_fonts_dry_run_plan_zero_writes || failures=$((failures + 1))
 run_case injected-failure test_injected_failure_preserves_prestate || failures=$((failures + 1))
+run_case fixshell-dry-run test_fix_shell_dry_run_touches_nothing || failures=$((failures + 1))
+run_case fixshell-decline test_fix_shell_decline_in_nontty || failures=$((failures + 1))
+run_case fixshell-confirm test_fix_shell_confirm_applies_via_shims || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_fix_terminal_managed.sh: $failures case(s) failed"
