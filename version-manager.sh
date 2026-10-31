@@ -258,6 +258,11 @@ init_directories() {
 # Subshell scope keeps transaction state and cleanup traps out of the caller.
 _vm_configure_block() (
     local name="$1" signature="$2" file="$3" block="version-manager-$1"
+    # Optional 4th arg: a strip function run INSIDE the transaction (after
+    # the pre-state is registered, before the block is written) so legacy
+    # wiring this block replaces is removed atomically — a block-write
+    # failure rolls the strip back too, never leaving the rc unconfigured.
+    local strip_fn="${4:-}"
     local content='' target="$file" active=0 locked=0
     # shellcheck disable=SC2030 # Deliberately isolate preview logging from the caller.
     local LOG_FILE=''  # Planning and diagnostics must never initialize file logging.
@@ -281,7 +286,10 @@ _vm_configure_block() (
             $0 == e { if (!inside) bad=1; inside=0; next }
             END { exit (bad || inside) ? 1 : 0 }
         ' "$file" || { log_error "Malformed managed block in $file; repair markers before retrying"; return 1; }
-        if awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
+        # With a stripper (4th arg) the legacy wiring is migrated inside the
+        # transaction below, so the signature check is deferred to a post-strip
+        # assertion instead of refusing here.
+        if [[ -z "$strip_fn" ]] && awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
             $0 == b { inside=1; next } $0 == e { inside=0; next } !inside { print }
         ' "$file" | grep -Eq "$signature"; then
             log_error "Existing unmanaged $name configuration in $file; review/migrate it before retrying (left unchanged)"
@@ -315,6 +323,20 @@ _vm_configure_block() (
     active=1
     transaction_add_file "$file" || return 1
     if [[ "$target" != "$file" ]]; then transaction_add_file "$target" || return 1; fi
+    if [[ -n "$strip_fn" ]]; then
+        if ! "$strip_fn" "$target"; then
+            log_error "Legacy wiring strip failed; nothing written (transaction rolled back)"
+            return 1
+        fi
+        # The strip IS the migration: if a signature match survived it, the
+        # managed block would duplicate the legacy config — refuse loudly.
+        if awk -v b="# BEGIN version-management-setup:$block" -v e="# END version-management-setup:$block" '
+            $0 == b { inside=1; next } $0 == e { inside=0; next } !inside { print }
+        ' "$target" | grep -Eq "$signature"; then
+            log_error "Legacy $name wiring survived the strip; refusing to duplicate it (transaction rolled back)"
+            return 1
+        fi
+    fi
     mutation_block_write "$file" "$block" "$content" || return 1
     if [[ "${SHELL##*/}" == zsh ]]; then
         command -v zsh >/dev/null 2>&1 || { log_error 'zsh is required to verify zsh configuration'; return 1; }
@@ -608,8 +630,61 @@ install_fnm() {
     return 1
 }
 
+# R7/F-A4-era adoption: remove the exact legacy node-manager wiring the
+# managed fnm block replaces. EXACT FULL-LINE matches only — never unknown
+# user content. The dead nvm bootstrap (whose target directory does not
+# exist) is stripped only when nvm is genuinely absent; a live nvm install
+# keeps its lines (the nvm block writer owns them). Runs INSIDE the
+# caller's transaction (file already registered). Dry-run: plan only.
+_vm_strip_legacy_node_wiring() {
+    local resolved="$1"
+    [[ -f "$resolved" ]] || return 0
+    if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
+        log_info "[dry-run] would strip legacy node-manager wiring from $resolved (exact lines only)"
+        return 0
+    fi
+    # Deliberately $HOME/.nvm — the exact-match lines below reference that
+    # literal path, and an inherited NVM_DIR must not decide the strip.
+    local nvm_absent=0
+    if [[ ! -d "$HOME/.nvm" ]]; then
+        nvm_absent=1
+    fi
+    local tmp
+    tmp=$(mktemp "${TMPDIR:-/tmp}/tmp_rovodev_node_strip.XXXXXX") || return 1
+    if [[ "$nvm_absent" == "1" ]]; then
+        grep -vFx -e '# ---------- NVM ----------' \
+                  -e 'export NVM_DIR="$HOME/.nvm"' \
+                  -e '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' \
+                  -e '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' \
+                  -e 'eval "$(fnm env)"' \
+                  -e 'eval "$(fnm env --use-on-cd)"' \
+            "$resolved" > "$tmp" || true
+    else
+        grep -vFx -e 'eval "$(fnm env)"' \
+                  -e 'eval "$(fnm env --use-on-cd)"' \
+            "$resolved" > "$tmp" || true
+    fi
+    if mutation_files_identical "$tmp" "$resolved"; then
+        rm -f "$tmp"
+        log_info "No legacy node-manager wiring found — nothing to strip"
+        return 0
+    fi
+    if ! _mutation_preserve_mode "$resolved" "$tmp"; then
+        rm -f "$tmp"
+        log_error "Cannot preserve the mode of $resolved — legacy wiring left in place"
+        return 1
+    fi
+    if ! mv "$tmp" "$resolved"; then
+        rm -f "$tmp"
+        log_error "Cannot replace $resolved — legacy wiring left in place"
+        return 1
+    fi
+    log_success "Legacy node-manager wiring stripped (managed fnm block takes over)"
+    return 0
+}
+
 configure_fnm() {
-    _vm_configure_block fnm 'fnm env' "$(get_shell_config)" << 'EOF'
+    _vm_configure_block fnm 'fnm env' "$(get_shell_config)" _vm_strip_legacy_node_wiring << 'EOF'
 if command -v fnm >/dev/null 2>&1; then
     eval "$(fnm env --use-on-cd)"
 fi
