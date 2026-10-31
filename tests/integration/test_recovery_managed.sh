@@ -247,6 +247,19 @@ test_reset_injected_failure_rolls_back() {
     fi
 }
 
+
+# ── F-A2: a held workstation-config lock must refuse the run ────────────────
+test_lock_denial_refuses() {
+    local c; c="$(_newcase lockdeny)"
+    with_lock_denied "$ROOT_DIR" "workstation-config" \
+        bash "$ROOT_DIR/scripts/emergency-recovery.sh"
+    if [[ "$LOCK_DENIED_RC" -ne 0 && "$LOCK_DENIED_OUT" == *"Failed to acquire lock"* ]]; then
+        chk assert_equals "denied" "denied" "held lock refuses emergency-recovery (rc=$LOCK_DENIED_RC)"
+    else
+        chk assert_equals "denied" "rc=$LOCK_DENIED_RC out=${LOCK_DENIED_OUT:0:80}" "held lock refuses emergency-recovery"
+    fi
+}
+
 failures=0
 _run_case test_restore_file_applies_and_rerun_identical          || failures=$((failures + 1))
 _run_case test_restore_file_records_transaction_and_journal      || failures=$((failures + 1))
@@ -254,6 +267,7 @@ _run_case test_injected_failure_rolls_back                       || failures=$((
 _run_case test_dry_run_zero_writes                               || failures=$((failures + 1))
 _run_case test_reset_confirm_transaction_and_apply               || failures=$((failures + 1))
 _run_case test_reset_injected_failure_rolls_back                 || failures=$((failures + 1))
+_run_case test_lock_denial_refuses                               || failures=$((failures + 1))
 
 # Cleanup the single sandbox at file scope (each case cleaned its own dir
 # state only via _newcase's rm -rf on reuse).

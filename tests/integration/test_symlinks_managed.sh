@@ -345,6 +345,27 @@ test_transaction_dry_run_zero_writes() {
 }
 
 # ── e. Restore path: plan gate preserved; --confirm runs under a transaction ─
+
+# ── F-A2: the apply path must refuse while the workstation-config lock is
+# held — /usr/local/bin/{node,npm,npx} are shared with auto-activate's sync.
+test_update_lock_denial_refuses() {
+    # The apply path only reaches the lock after a successful plan, which
+    # needs node/npm/npx on PATH — report the capability gap otherwise.
+    if ! command -v node >/dev/null 2>&1; then
+        chk "skip-capability" "skip-capability" \
+            "node not on PATH — symlink lock denial untestable here (reported, not silently passed)" || return 1
+        return 0
+    fi
+    with_lock_denied "$ROOT_DIR" "workstation-config" \
+        bash "$ROOT_DIR/tools/update-global-node-symlinks.sh" --confirm
+    if [[ "$LOCK_DENIED_RC" -ne 0 && "$LOCK_DENIED_OUT" == *"Failed to acquire lock"* ]]; then
+        chk "denied" "denied" "held lock refuses the symlink apply (rc=$LOCK_DENIED_RC)" || return 1
+    else
+        chk "denied" "rc=$LOCK_DENIED_RC out=${LOCK_DENIED_OUT:0:80}" "held lock refuses the symlink apply" || return 1
+    fi
+    return 0
+}
+
 test_restore_gate_and_transaction() {
     CASE_FAILED=0
     _setup
@@ -386,6 +407,7 @@ test_preflight_failclosed_zero_sudo || failures=$((failures + 1))
 test_plan_mode_zero_writes || failures=$((failures + 1))
 test_transaction_dry_run_zero_writes || failures=$((failures + 1))
 test_restore_gate_and_transaction || failures=$((failures + 1))
+test_update_lock_denial_refuses || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_symlinks_managed.sh: $failures case(s) failed"

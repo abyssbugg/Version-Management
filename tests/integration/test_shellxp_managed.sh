@@ -435,6 +435,21 @@ run_case() {
     return 0
 }
 
+
+# ── F-A2: the plugins-array writer must refuse while the workstation-config
+# lock is held by another writer (the .zshrc write phase shares the lock).
+test_plugins_edit_lock_denial() {
+    _setup
+    with_lock_denied "$ROOT_DIR" "workstation-config" \
+        bash -c 'source "$1/lib/shell-experience.sh" && shellxp_plugins_add zoxide' _ "$ROOT_DIR"
+    if [[ "$LOCK_DENIED_RC" -ne 0 && "$LOCK_DENIED_OUT" == *"Failed to acquire lock"* ]]; then
+        _chk "denied" "denied" "held lock refuses the plugins edit (rc=$LOCK_DENIED_RC)"
+    else
+        _chk "denied" "rc=$LOCK_DENIED_RC out=${LOCK_DENIED_OUT:0:80}" "held lock refuses the plugins edit"
+    fi
+    _teardown
+}
+
 failures=0
 run_case plugins-add-managed test_plugins_add_managed || failures=$((failures + 1))
 run_case syntax-highlighting-last test_syntax_highlighting_last || failures=$((failures + 1))
@@ -444,6 +459,7 @@ run_case clone-local-fixture test_clone_local_fixture || failures=$((failures + 
 run_case dry-run-zero-writes test_dry_run_zero_writes || failures=$((failures + 1))
 run_case clone-refused-in-caller-txn test_clone_refused_in_caller_transaction || failures=$((failures + 1))
 run_case clone-pinned-commit test_clone_checks_out_pinned_commit || failures=$((failures + 1))
+run_case plugins-lock-denial test_plugins_edit_lock_denial || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_shellxp_managed.sh: $failures case(s) failed"

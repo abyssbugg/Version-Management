@@ -358,6 +358,19 @@ test_fix_shell_confirm_applies_via_shims() {
     _shim_teardown
 }
 
+
+# ── F-A2: a held workstation-config lock must refuse the run ────────────────
+test_fix_shell_lock_denial() {
+    _setup
+    with_lock_denied "$ROOT_DIR" "workstation-config" bash "$REAL_SCRIPT" fix-p10k
+    if [[ "$LOCK_DENIED_RC" -ne 0 && "$LOCK_DENIED_OUT" == *"Failed to acquire lock"* ]]; then
+        _chk "denied" "denied" "held lock refuses the run (rc=$LOCK_DENIED_RC)"
+    else
+        _chk "denied" "rc=$LOCK_DENIED_RC out=${LOCK_DENIED_OUT:0:80}" "held lock refuses the run"
+    fi
+    _teardown
+}
+
 # Case runner: fresh failure counter, guaranteed teardown, honest exit status.
 run_case() {
     local name="$1"
@@ -382,6 +395,7 @@ run_case injected-failure test_injected_failure_preserves_prestate || failures=$
 run_case fixshell-dry-run test_fix_shell_dry_run_touches_nothing || failures=$((failures + 1))
 run_case fixshell-decline test_fix_shell_decline_in_nontty || failures=$((failures + 1))
 run_case fixshell-confirm test_fix_shell_confirm_applies_via_shims || failures=$((failures + 1))
+run_case fixshell-lock-denial test_fix_shell_lock_denial
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_fix_terminal_managed.sh: $failures case(s) failed"

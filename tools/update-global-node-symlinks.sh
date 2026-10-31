@@ -44,6 +44,11 @@ source "$SCRIPT_DIR/lib/backup.sh" || {
     exit 1
 }
 
+source "$SCRIPT_DIR/lib/lock.sh" || {
+    log_error "Cannot load lib/lock.sh (workstation lock)"
+    exit 1
+}
+
 # ============================================================================
 # Safety Checks
 # ============================================================================
@@ -276,6 +281,10 @@ update_global_node_symlinks() {
         fi
     fi
 
+    # F-A2: /usr/local/bin/{node,npm,npx} are the same destinations
+    # lib/auto-activate.sh's sudo -n symlink sync writes — one lock name
+    # (workstation-config) makes the two mutually exclusive (AX-5 lesson).
+    lock_with_trap "workstation-config" 30 || exit 1
     transaction_start "update_node_symlinks" || exit 1
 
     # Capture + register the pre-mutation state of every destination BEFORE
@@ -385,6 +394,8 @@ restore_symlinks() {
 
     # M4/P3-1: the restore path is a privileged mutation too — same
     # transaction treatment as the update path.
+    # F-A2: same shared lock as the update path.
+    lock_with_trap "workstation-config" 30 || exit 1
     transaction_start "restore_node_symlinks" || exit 1
 
     local pre_node pre_npm pre_npx

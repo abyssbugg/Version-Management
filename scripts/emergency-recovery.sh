@@ -42,6 +42,11 @@ if ! source "${_EMERGENCY_ROOT}/lib/backup.sh"; then
     exit 1
 fi
 
+if ! source "${_EMERGENCY_ROOT}/lib/lock.sh"; then
+    log_error "Cannot load lib/lock.sh (workstation lock)"
+    exit 1
+fi
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -636,6 +641,13 @@ main() {
         dry_run=1
         export TRANSACTION_DRY_RUN=1
         shift
+    fi
+
+    # F-A2: restore/reset rewrite rc files and restore targets — share the
+    # workstation-config lock with the other rc writers (AX-5 lesson). A
+    # dry run writes nothing and stays lock-free.
+    if [[ "$dry_run" -eq 0 ]]; then
+        lock_with_trap "workstation-config" 30 || exit 1
     fi
 
     show_header

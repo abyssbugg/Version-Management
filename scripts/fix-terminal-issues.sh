@@ -23,6 +23,7 @@ REPO_ROOT="$(cd "${_SCRIPT_FILE_DIR}/.." && pwd)"
 source "${REPO_ROOT}/lib/logger.sh"
 source "${REPO_ROOT}/lib/env.sh"
 source "${REPO_ROOT}/lib/backup.sh"
+source "${REPO_ROOT}/lib/lock.sh"
 
 # Configuration paths
 ZSHRC="$HOME/.zshrc"
@@ -491,6 +492,15 @@ main() {
         log_info "DRY-RUN MODE — planning P10k/font changes only, zero filesystem writes"
         echo
     fi
+
+    # F-A2: the fix commands mutate ~/.p10k.zsh, ~/.zshrc, fonts and (consented)
+    # system paths — share the workstation-config lock with the other rc
+    # writers (AX-5 lesson). diagnose/test/help stay lock-free.
+    case "$command" in
+        fix-shell|fix-p10k|fix-fonts|fix-all)
+            lock_with_trap "workstation-config" 30 || exit 1
+            ;;
+    esac
 
     case "$command" in
         diagnose)

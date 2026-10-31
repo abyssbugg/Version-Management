@@ -63,6 +63,9 @@ fi
 if ! declare -f transaction_start >/dev/null 2>&1; then
     source "$_SHELLXP_DIR/mutation.sh"   # brings backup.sh + validation.sh
 fi
+if ! declare -f lock_acquire >/dev/null 2>&1; then
+    source "$_SHELLXP_DIR/lock.sh"       # F-A2: shared workstation-config lock
+fi
 
 # =============================================================================
 # Registry (case tables: tool -> install method per platform)
@@ -993,18 +996,38 @@ _shellxp_plugins_edit() {
         return 0
     fi
 
+    if ! _shellxp_plugins_apply "$file" "$joined_new"; then
+        return 1
+    fi
+}
+
+# F-A2: the .zshrc write phase runs under the shared workstation-config lock
+# (same domain as the other rc writers — AX-5 lesson). Subshell function: the
+# EXIT trap releases the lock on every exit path (auto-activate discipline).
+_shellxp_plugins_apply() (
+    local file="$1" joined_new="$2"
+    local locked=0 rc=0
+    trap 'rc=$?; trap - EXIT; if [[ "$locked" == 1 ]]; then lock_release workstation-config || rc=1; fi; exit "$rc"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    if ! lock_acquire workstation-config 30; then
+        log_error "shellxp: workstation-config lock held — another configuration writer is active"
+        exit 1
+    fi
+    locked=1
+
     # Compose the full new .zshrc into a temp file.
     local dir
     dir=$(dirname "$file")
     if [[ ! -d "$dir" ]]; then
-        mkdir -p "$dir" || { log_error "shellxp: cannot create $dir"; return 1; }
+        mkdir -p "$dir" || { log_error "shellxp: cannot create $dir"; exit 1; }
     fi
     local composed block
-    composed=$(mktemp "$dir/.vms-shellxp.XXXXXX") || { log_error "shellxp: mktemp failed in $dir"; return 1; }
+    composed=$(mktemp "$dir/.vms-shellxp.XXXXXX") || { log_error "shellxp: mktemp failed in $dir"; exit 1; }
     block=$(mktemp "$dir/.vms-shellxp.XXXXXX") || {
         rm -f "$composed"
         log_error "shellxp: mktemp failed in $dir"
-        return 1
+        exit 1
     }
 
     if [[ ${#ordered[@]} -gt 0 ]]; then
@@ -1015,7 +1038,7 @@ _shellxp_plugins_edit() {
     local render_rc=$?
     if [[ "$render_rc" != "0" ]]; then
         rm -f "$composed" "$block"
-        return 1
+        exit 1
     fi
 
     if [[ "${_SHELLXP_REGION_START:-0}" -gt 0 ]]; then
@@ -1043,19 +1066,19 @@ _shellxp_plugins_edit() {
     if ! _shellxp_validate_zshrc "$composed"; then
         rm -f "$composed"
         log_error "shellxp: composed .zshrc failed validation — nothing written"
-        return 1
+        exit 1
     fi
 
     # Transaction: reuse an adopter's, or own one.
     local owned=0
     if ! transaction_is_active; then
-        transaction_start "shellxp_plugins" || { rm -f "$composed"; return 1; }
+        transaction_start "shellxp_plugins" || { rm -f "$composed"; exit 1; }
         owned=1
     fi
 
     if ! _shellxp_write_zshrc "$composed"; then
         if [[ "$owned" == "1" ]]; then transaction_rollback || true; fi
-        return 1
+        exit 1
     fi
 
     # Post-write verification: the file must re-parse to the intended list.
@@ -1064,15 +1087,17 @@ _shellxp_plugins_edit() {
         if [[ "${_SHELLXP_ENTRIES:-}" != "$joined_new" ]]; then
             log_error "shellxp: post-write verification FAILED for $file"
             if [[ "$owned" == "1" ]]; then transaction_rollback || true; fi
-            return 1
+            exit 1
         fi
     fi
 
     if [[ "$owned" == "1" ]]; then
-        transaction_commit || return 1
+        transaction_commit || exit 1
     fi
-    return 0
-}
+    exit 0
+)
+
+# (the original _shellxp_plugins_edit body continues below)
 
 shellxp_plugins_add() {
     _shellxp_plugins_edit add "$@"

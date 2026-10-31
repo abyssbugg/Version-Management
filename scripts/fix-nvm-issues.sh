@@ -38,6 +38,10 @@ source "${_NVM_FIX_ROOT}/lib/mutation.sh" || {
     log_error "Cannot load lib/mutation.sh (managed-block editor)"
     exit 1
 }
+source "${_NVM_FIX_ROOT}/lib/lock.sh" || {
+    log_error "Cannot load lib/lock.sh (workstation lock)"
+    exit 1
+}
 
 show_usage() {
     echo "Usage: $0 [OPTION]"
@@ -199,6 +203,11 @@ fix_nvm_issues() {
 
 # Main execution - only run when script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # F-A2: every non-help command rewrites the shell rc — share the
+    # workstation-config lock with the other rc writers (AX-5 lesson).
+    if [[ "${1:-}" != "--help" ]]; then
+        lock_with_trap "workstation-config" 30 || exit 1
+    fi
     case "${1:-}" in
         --dry-run)
             export TRANSACTION_DRY_RUN=1

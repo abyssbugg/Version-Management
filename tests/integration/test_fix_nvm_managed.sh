@@ -125,6 +125,19 @@ test_dry_run_zero_writes() {
     _teardown
 }
 
+
+# ── F-A2: a held workstation-config lock must refuse the run ────────────────
+test_lock_denial_refuses() {
+    _setup
+    with_lock_denied "$ROOT_DIR" "workstation-config" bash "$ROOT_DIR/scripts/fix-nvm-issues.sh" --all
+    if [[ "$LOCK_DENIED_RC" -ne 0 && "$LOCK_DENIED_OUT" == *"Failed to acquire lock"* ]]; then
+        chk assert_equals "denied" "denied" "held lock refuses the run (rc=$LOCK_DENIED_RC)"
+    else
+        chk assert_equals "denied" "rc=$LOCK_DENIED_RC out=${LOCK_DENIED_OUT:0:80}" "held lock refuses the run"
+    fi
+    _teardown
+}
+
 # chk: per-assertion failure accounting that survives _teardown masking
 # (lane V's pattern — a case ending with _teardown otherwise exits 0 even
 # when its assertions failed, and the runner judges by exit code).
@@ -151,6 +164,7 @@ run_case rerun-byte-identical test_rerun_byte_identical || failures=$((failures 
 run_case legacy-drift-converges test_legacy_drift_converges || failures=$((failures + 1))
 run_case injected-rollback test_injected_failure_rolls_back || failures=$((failures + 1))
 run_case dry-run-zero-writes test_dry_run_zero_writes || failures=$((failures + 1))
+run_case lock-denial test_lock_denial_refuses
 
 if [[ "$failures" -gt 0 || "$FAILURES" -gt 0 ]]; then
     echo "test_fix_nvm_managed.sh: $failures case(s) failed, $FAILURES assertion(s) failed"

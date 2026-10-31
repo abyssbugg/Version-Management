@@ -355,3 +355,40 @@ print_summary() {
   echo "=========================="
   return "$_TEST_FAIL_COUNT"
 }
+
+# =============================================================================
+# F-A2 lock-denial support: run a command while a named workstation lock is
+# held by a live background owner (45s — longer than any caller's acquire
+# timeout, so a denied writer hits its own timeout instead of waiting out the
+# holder and reclaiming). The command must refuse (nonzero rc +
+# lock-denial message) or the mutation can interleave with a concurrent rc
+# writer. Results land in LOCK_DENIED_RC / LOCK_DENIED_OUT.
+# =============================================================================
+with_lock_denied() { # <repo_root> <lock_name> <cmd...>
+    local root="$1" name="$2"
+    shift 2
+    local holder_ready holder_pid i
+    holder_ready=$(mktemp "${TMPDIR:-/tmp}/vms-lock-holder.XXXXXX")
+    bash -c 'source "$1/lib/lock.sh" || exit 3; lock_acquire "$2" 60 || exit 3; echo ready >> "$3"; sleep 45' \
+        _ "$root" "$name" "$holder_ready" &
+    holder_pid=$!
+    i=0
+    while [[ ! -s "$holder_ready" && "$i" -lt 50 ]]; do
+        sleep 0.1
+        i=$((i + 1))
+    done
+    if [[ ! -s "$holder_ready" ]]; then
+        kill "$holder_pid" 2>/dev/null
+        wait "$holder_pid" 2>/dev/null
+        rm -f "$holder_ready"
+        LOCK_DENIED_RC=3
+        LOCK_DENIED_OUT="holder failed to acquire"
+        return 0
+    fi
+    LOCK_DENIED_OUT=$("$@" 2>&1 </dev/null)
+    LOCK_DENIED_RC=$?
+    kill "$holder_pid" 2>/dev/null
+    wait "$holder_pid" 2>/dev/null
+    rm -f "$holder_ready"
+    return 0
+}
