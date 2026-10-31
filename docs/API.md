@@ -95,6 +95,7 @@ Detects OS, shell, and environment characteristics.
 | `detect_shell` | Detect the running shell (`$SHELL`, then `ps`, then version variables) | `zsh`, `bash` |
 | `get_os` | Canonical OS name (alias of `detect_os`; P1-9) | `macos`, `linux`, `wsl`, `windows`, `unknown` |
 | `get_shell` | Login-shell name: basename of `$SHELL`, default `bash` (distinct from `detect_shell`) | `zsh`, `bash`, ... |
+| `get_arch` | Canonical architecture normalization (F-A4): `uname -m` mapped to short families | `x64`, `arm64`, `arm`, `x86`, `unknown` |
 | `validate_env_var` | Validate environment variable exists | 0 or 1 |
 | `command_exists` | `command -v` probe (shared shim, ROADMAP 4.2; a caller's own definition wins) | 0 or 1 |
 | `log` | Level wrapper over the logger: `log ERROR\|WARN\|INFO\|SUCCESS\|DEBUG <message>` (shared shim) | — |

@@ -417,7 +417,7 @@ test_get_arch_canonical_home() {
     fi
     # Sole production definition: no other non-test .sh defines it.
     local dupes
-    dupes="$(grep -rln '^get_arch()' --include='*.sh' "$ROOT_DIR" 2>/dev/null | grep -v '/tests/' | grep -v '/FontPatcher/' | grep -v 'lib/env.sh' | wc -l | tr -d ' ')"
+    dupes="$(grep -rln '^get_arch()' --include='*.sh' "$ROOT_DIR" 2>/dev/null | grep -v '/tests/' | grep -v '/FontPatcher/' | grep -cv 'lib/env.sh' || true)"
     assert "0" "$dupes" "no duplicate get_arch definitions outside lib/env.sh" || f=$((f + 1))
     # Behavior: the host maps to a known family.
     local arch
