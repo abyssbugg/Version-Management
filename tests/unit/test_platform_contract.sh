@@ -402,6 +402,35 @@ test_root_scripts_host_get_os_parity
 test_get_shell_config_canonical
 test_wsl_installers_plan_linux_build_deps
 rm -rf "$_ROOT_SANDBOX_HOME"
+# =============================================================================
+# F-A4: get_arch is part of the canonical platform API (ENGINEERING_RULES
+# §5.1) — ONE implementation, in lib/env.sh, like get_os/get_shell.
+# =============================================================================
+
+test_get_arch_canonical_home() {
+    local f=0
+    # Canonical home: defined in lib/env.sh.
+    if grep -q '^get_arch() {' "$LIB_DIR/env.sh"; then
+        assert "env-sh" "env-sh" "get_arch defined in lib/env.sh" || f=$((f + 1))
+    else
+        assert "env-sh" "absent" "get_arch defined in lib/env.sh" || f=$((f + 1))
+    fi
+    # Sole production definition: no other non-test .sh defines it.
+    local dupes
+    dupes="$(grep -rln '^get_arch()' --include='*.sh' "$ROOT_DIR" 2>/dev/null | grep -v '/tests/' | grep -v '/FontPatcher/' | grep -v 'lib/env.sh' | wc -l | tr -d ' ')"
+    assert "0" "$dupes" "no duplicate get_arch definitions outside lib/env.sh" || f=$((f + 1))
+    # Behavior: the host maps to a known family.
+    local arch
+    arch="$(_with_lib "$LIB_DIR/env.sh" "get_arch")"
+    case "$arch" in
+        x64|arm64|arm|x86|unknown) assert "known-family" "known-family" "get_arch returns a known family ($arch)" || f=$((f + 1)) ;;
+        *) assert "known-family" "$arch" "get_arch returns a known family" || f=$((f + 1)) ;;
+    esac
+    return "$f"
+}
+
+
+test_get_arch_canonical_home || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_platform_contract.sh: $failures contract violation(s)"

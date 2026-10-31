@@ -178,6 +178,18 @@ get_os() {
     detect_os
 }
 
+# Canonical architecture normalization (F-A4 — ENGINEERING_RULES §5.1 keeps
+# the whole platform API in this file). uname -m mapped to short families.
+get_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64)  echo "x64" ;;
+        arm64|aarch64) echo "arm64" ;;
+        armv7l)        echo "arm" ;;
+        i386|i686)     echo "x86" ;;
+        *)             echo "unknown" ;;
+    esac
+}
+
 # =============================================================================
 # Environment Variable Validation Functions
 # =============================================================================

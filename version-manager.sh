@@ -246,16 +246,8 @@ init_directories() {
 # WSL is reported as "wsl" — the install_* case labels below carry explicit
 # wsl branches so WSL keeps its pre-conversion behavior.
 
-# Get architecture
-get_arch() {
-    case "$(uname -m)" in
-        x86_64|amd64)  echo "x64" ;;
-        arm64|aarch64) echo "arm64" ;;
-        armv7l)        echo "arm" ;;
-        i386|i686)     echo "x86" ;;
-        *)             echo "unknown" ;;
-    esac
-}
+# get_arch: canonical implementation lives in lib/env.sh (sourced above,
+# F-A4 — same consolidation rule as get_os/get_shell, P1-9).
 
 # get_shell: canonical implementation lives in lib/env.sh (sourced above,
 # P1-9) — the login-shell name, basename of $SHELL with a /bin/bash default.
