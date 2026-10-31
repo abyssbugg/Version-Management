@@ -120,7 +120,7 @@ Keep shell, add guardrails (GPT-5.5 trade-off analysis §13). Full rewrite rejec
 
 ---
 
-## 6. Remediation-Program Register (merged-audit-directive.md v3 — added 2026-10-02)
+## 7. Remediation-Program Register (merged-audit-directive.md v3 — added 2026-10-02)
 
 Directive-scoped findings beyond the P0–P3 register above. **Correction (A2):**
 P2-1 above records the *absence* of strict mode in sourced libraries as the

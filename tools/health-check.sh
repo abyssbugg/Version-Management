@@ -13,10 +13,10 @@ echo "🏥 Development Environment Health Check"
 echo "======================================="
 echo
 
-# Color codes
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+# F-A6: canonical palette from lib/logger.sh (duplicate color definitions
+# removed; the logger's ${VAR=default} posture stays caller-overridable).
+_TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_TOOL_DIR}/../lib/logger.sh"
 
 # check <label> <command> [args...] — the label is printed as data (%s), so
 # file-derived text cannot inject terminal escapes either.

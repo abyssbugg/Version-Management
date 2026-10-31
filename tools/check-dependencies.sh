@@ -3,12 +3,14 @@
 
 set -euo pipefail
 
-readonly GREEN='\\033[0;32m'
-readonly RED='\\033[0;31m'
-readonly NC='\\033[0m'
+# F-A6: canonical logging/colors from lib/logger.sh. This tool previously
+# carried its own duplicate palette — whose '\\033' single-quoted literals
+# never rendered as color at all.
+_TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_TOOL_DIR}/../lib/logger.sh"
 
-log_success() { echo -e "${GREEN}[✓]${NC} $*"; }
-log_error() { echo -e "${RED}[✗]${NC} $*"; }
+log_success() { printf '%b\n' "${GREEN}[✓]${NC} $*"; }
+log_error() { printf '%b\n' "${RED}[✗]${NC} $*"; }
 
 main() {
     echo "Dependency Health Check"

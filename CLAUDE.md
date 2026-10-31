@@ -40,7 +40,7 @@ tools reflexively either — justify each one.
 
 First deliverable on any unfamiliar area is **comprehension**, not a fix. Trace
 the path end to end. If you can't explain how it currently works, you're not
-ready to change it. This project has ~20 shell libraries in `lib/`, a dozen
+ready to change it. This project has 23 shell libraries in `lib/`, a dozen
 mutating entry-point scripts, and a verified finding register in
 **`docs/governance/MASTER_AUDIT.md`** (linked from `AGENTS.md`) — read the
 relevant entries before assuming, and check §5 (REJECTED approaches) before
