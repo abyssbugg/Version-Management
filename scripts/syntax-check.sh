@@ -9,9 +9,12 @@
 # config/minimal-p10k.zsh, config/rainbow-p10k.zsh).
 #
 # Exit: 0 iff every checked file parses. A missing zsh binary fails closed.
+# F-A3: strict mode is mandatory for executables (ENGINEERING_RULES §3), and
+# a vacuous run (a failing `find` yielding zero files) must fail closed —
+# the loop's exit status is the fail count, so `checked == 0` is asserted.
 # =============================================================================
 
-set -uo pipefail
+set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR" || exit 1
@@ -53,4 +56,11 @@ else
 fi
 
 echo "syntax-check: ${checked} file(s) checked, ${failures} failure(s)"
-[[ $failures -eq 0 ]]
+if (( checked == 0 )); then
+    echo "SYNTAX GATE: zero files checked — the discovery step failed (fail-closed)"
+    exit 1
+fi
+if (( failures == 0 )); then
+    exit 0
+fi
+exit 1

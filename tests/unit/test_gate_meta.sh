@@ -32,6 +32,8 @@
 #   7. TH-2        — a chk-based test file with a seeded failing assertion
 #                    exits nonzero (the counter must be read, not just
 #                    written; a vacuous green is the defect TH-2 closed)
+#   8. F-A3        — the syntax gate is red on a vacuous tree (zero files
+#                    checked must fail closed, not exit 0)
 # =============================================================================
 
 source "${BASH_SOURCE[0]%/*}/../helpers.sh" || { echo "FATAL: cannot source helpers.sh — run via tests/test_runner.sh (P0-3: unsandboxed HOME writes forbidden)" >&2; exit 1; }
@@ -317,6 +319,27 @@ test_meta_chk_accounting() {
     return "$f"
 }
 
+# Case 8 (F-A3): the syntax gate must fail closed on a VACUOUS run — a
+# failing discovery step (zero files found) previously exited 0 because the
+# loop's status was the (zero) failure count. The gate is copied into an
+# isolated parent with no *.sh files (the gate itself named without the
+# extension so it does not match its own find).
+test_meta_syntax_vacuous_red() {
+    local f=0 clone holder rc
+    clone=$(_new_clone) || return 1
+    # Isolation: the gate's ROOT_DIR is its own parent, so the parent must
+    # contain no *.sh files (inside the clone it would find the whole tree).
+    holder="$(mktemp -d "${TMPDIR:-/tmp}/vms-meta-vacuous.XXXXXX")"
+    mkdir -p "$holder/inner/config"
+    cp "$clone/scripts/syntax-check.sh" "$holder/inner/syntax-check"
+    bash "$holder/inner/syntax-check" >/dev/null 2>&1
+    rc=$?
+    _assert_red "$rc" "F-A3: syntax gate red on a vacuous tree (zero files checked)" || f=$((f + 1))
+    rm -rf "$clone" "$holder"
+    return "$f"
+}
+
+
 test_meta_routing_red || failures=$((failures + 1))
 test_meta_syntax_bash_red || failures=$((failures + 1))
 test_meta_syntax_zsh_red || failures=$((failures + 1))
@@ -325,6 +348,7 @@ test_meta_quality_diagnostics || failures=$((failures + 1))
 test_meta_comparator || failures=$((failures + 1))
 test_meta_watchdog_red || failures=$((failures + 1))
 test_meta_chk_accounting || failures=$((failures + 1))
+test_meta_syntax_vacuous_red || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 ]]; then
     echo "test_gate_meta.sh: $failures meta-test(s) failed"
