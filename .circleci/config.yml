@@ -86,6 +86,9 @@ jobs:
             Start-Process msiexec.exe -ArgumentList "/i $msi /qn /norestart" -Wait
             wsl.exe --version | Out-Host
             wsl.exe --set-default-version 2 | Out-Host
+            # The error's own remediation for WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED
+            # (run #4): try activating the component without a reboot.
+            wsl.exe --install --no-distribution 2>&1 | Out-Host
             # Ubuntu 24.04 rootfs: the current/ directory rotates the file
             # name (run #2's 404), and run #3 showed Windows PowerShell 5.1
             # cannot parse the listing page (.Links NullReferenceException).
