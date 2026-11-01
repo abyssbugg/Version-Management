@@ -19,11 +19,17 @@ version: 2.1
 # translated into the guest via WSLENV (CIRCLE_WORKING_DIRECTORY/p), the
 # same mechanism the GH lane used.
 #
-# FEASIBILITY NOTE (this lane must fail loudly, never fake green): WSL2
-# needs nested virtualization. GitHub's windows-2025 runners have it;
-# whether CircleCI's Windows machine executor does is exactly what the
-# first run proves. If the WSL2 kernel cannot start here, the kernel
-# assertion fails with the host's virtualization evidence in the log.
+# FEASIBILITY VERDICT (runs #1-#5, 2026-11-01 — the lane failed loudly as
+# designed, and the evidence is definitive): the CircleCI Windows machine
+# executor HAS a hypervisor and installs WSL 3.0.3 cleanly (kernel
+# 6.18.54.1 ships), but DISM reports "Changes will not be effective until
+# the system is rebooted" and wsl --import then fails
+# WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED. A CI job cannot reboot mid-run,
+# so WSL2 cannot activate on the STOCK image. The lane is kept because it
+# runs unchanged the moment the host can: a custom machine image with WSL
+# pre-activated (built once with its own reboot), or a CircleCI image
+# update. Until then WSL-3's live execution needs such an image or the
+# GH-hosted lane (whose windows image ships WSL activated at build time).
 #
 # No orbs are used (nothing to pin); the machine image :current tag is
 # CircleCI's documented stable reference for the windows-server-2022-gui
