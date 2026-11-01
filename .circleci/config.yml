@@ -76,10 +76,27 @@ jobs:
             # hypervisor is actually available without one.
             dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Host
             dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Host
-            wsl.exe --set-default-version 2 2>&1 | Out-Host
-            wsl.exe --update --web-download 2>&1 | Out-Host
+            # Modern WSL from the PINNED GitHub release (run #2 evidence: the
+            # inbox wsl.exe on Server 2022 lacks the modern flags). The release
+            # carries no official checksum file, so the digest is logged here
+            # for the audit trail (download->log->install, rule section 7).
+            $msi = "C:\wsl\wsl.msi"
+            Invoke-WebRequest -Uri "https://github.com/microsoft/WSL/releases/download/3.0.3/wsl.3.0.3.0.x64.msi" -OutFile $msi
+            Write-Host ("wsl.msi sha256: " + (Get-FileHash $msi -Algorithm SHA256).Hash)
+            Start-Process msiexec.exe -ArgumentList "/i $msi /qn /norestart" -Wait
+            wsl.exe --version | Out-Host
+            wsl.exe --set-default-version 2 | Out-Host
+            # Ubuntu 24.04 rootfs: the current/ directory rotates the file
+            # name (run #2's 404) — resolve the amd64 rootfs link dynamically.
+            $base = "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/"
+            $link = (Invoke-WebRequest -Uri $base).Links |
+                Where-Object { $_.href -match 'amd64-24\.04lts\.rootfs\.tar\.gz$' } |
+                Select-Object -First 1 -ExpandProperty href
+            if (-not $link) { throw "no 24.04 amd64 rootfs found in the current/ listing" }
+            if ($link -notmatch '^https?://') { $link = $base + $link }
+            Write-Host "rootfs: $link"
             $rootfs = "C:\wsl\ubuntu-24.04.tar.gz"
-            Invoke-WebRequest -Uri "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/ubuntu-noble-wsl-amd64-ubuntu24.04lts.rootfs.tar.gz" -OutFile $rootfs
+            Invoke-WebRequest -Uri $link -OutFile $rootfs
             wsl.exe --import Ubuntu-24.04 C:\wsl\ubuntu $rootfs
             wsl.exe --set-default Ubuntu-24.04
             wsl.exe --list --verbose | Out-Host
