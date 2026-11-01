@@ -166,3 +166,18 @@ same owner action that keeps 5.1 at `[~]` (a manual Test dispatch on
 Also fixed: an interrupted test run orphaned the running test and leaked its
 sandbox (TH-1, `4e15ee7`). The release SHA is re-attested after each landing;
 the newest `.release-attested-*` marker names the commit to tag.
+
+## Reconciliation Note (2026-10-31, fresh audit + fix program)
+
+A fresh independent audit of `5ffb380` re-verified every open claim above
+(all held), then closed nine new findings (MASTER_AUDIT §8: INT-1, F-A1..A6,
+TH-2, R7) with RED→GREEN regressions — notably: the shell rc theme wiring
+is now a managed block gated on shell interactivity (INT-1: wrapped
+interactive shells no longer lose the prompt), the per-file chk harness can
+no longer be vacuously green (TH-2), the syntax gate fails closed on an
+empty discovery (F-A3), and install-fnm/pyenv/rbenv/phpenv adopt legacy rc
+wiring transactionally (R7). The maintainer's workstation is adopted (5
+managed blocks; a plaintext API key moved to the secrets file through the
+framework). Local gate: lint 0, syntax 0, unit 49/49, integration 27/27.
+5.1 stays `[~]` (first tagged release still pending the GitHub Actions
+billing lock); WSL-3 still not run (same blocker).

@@ -602,6 +602,39 @@ worktree: lint (132 scripts), syntax (141 files), unit 49/49, integration
 scripts, syntax 142 files, integration 25/25, and Buildkite #72 (`4e15ee7`)
 passed every gate with Linux 74/74 and macOS 74/74.
 
+## 8. Fresh audit + fix program (2026-10-31, this session)
+
+An independent fresh audit of `5ffb380` re-verified the register above
+against live code (all §3–§7 claims held), then ran a remediation program.
+Each finding was fixed with RED→GREEN sandboxed regressions and applied to
+the maintainer's own workstation through the framework (restore points +
+audit journal).
+
+| ID | Finding (verified at `5ffb380`) | Status | Fix / evidence |
+|----|----------------------------------|--------|----------------|
+| INT-1 | The project never owned the shell rc THEME wiring — setup-theme.sh only wrote ~/.p10k.zsh — so live rc theme gates keyed on stdout-tty (`[[ -t 1 ]]`) starve wrapped interactive shells (agent terminals) of the prompt entirely; probe-proven (non-tty interactive shell: ZSH_THEME empty, p10k absent) | **FIXED** `edfec2f` | managed block `setup-theme-p10k` is the single owner, gated on `[[ -o interactive ]]`; exact-anchor legacy strip; --dry-run/--zshrc-only/--enable-segments; `tests/integration/test_theme_zshrc_managed.sh` |
+| F-A1 | fix-shell/fix-all dispatched to fix_shell_configuration under TRANSACTION_DRY_RUN=1 — a declared zero-write preview could append to /etc/shells and run chsh; chsh itself had no consent gate | **FIXED** `1790f34` | dry-run plans the privileged steps; confirm_chsh_change shares the /etc/shells consent plumbing; recording-shim regression |
+| F-A2 | Four rc/system writers held no workstation lock while their peers did (fix-nvm-issues, fix-terminal-issues, emergency-recovery, update-global-node-symlinks vs auto-activate's sudo -n sync on the same /usr/local/bin paths); the latent shellxp .zshrc writer too | **FIXED** `6fd2926` | shared workstation-config lock everywhere; with_lock_denied helper + 5 lock-denial regressions (holder outlives the acquire timeout) |
+| F-A3 | scripts/syntax-check.sh: no -e (rule §3 violation) and a vacuous pass when discovery yields zero files | **FIXED** `9f594d6` | set -euo pipefail + checked==0 fail-closed; meta-case 8 pins the vacuous-tree red |
+| F-A4 | get_arch() lived in version-manager.sh, outside the canonical platform API (rule §5.1) | **FIXED** `ce2055d` | moved to lib/env.sh; platform contract test pins home/sole-definition/behavior; API.md documented (conformance R2) |
+| F-A5 | setup-theme.sh had no dry-run (the only mutating script without one; ROADMAP 3.4 gap) | **FIXED** `edfec2f` | --dry-run (zero-write plan; restore point skipped) folded into the INT-1 rework |
+| F-A6 | MASTER_AUDIT had two "## 6" sections; ARCHITECTURE/CLAUDE said 20 modules (23 real); tools/check-dependencies + health-check carried duplicate palettes (the former's '\\\\033' literals never rendered); untracked debris | **FIXED** `b3ee94e` | register renumbered §7; counts corrected; both tools source lib/logger.sh (verified rendering); debris deleted |
+| TH-2 | test_fix_nvm_managed.sh accumulated a chk FAILURES counter its final gate never read — a vacuous green (B1.7 class in the per-file harness; the runner judges by exit code) | **FIXED** `7993978` | run_case gates each case on the FAILURES delta; final gate reads both counters; gate_meta case 7 pins the convention with a seeded red + green control |
+| R7 | A machine that moved nvm→fnm keeps a dead nvm bootstrap + a raw fnm eval beside the managed machinery (three coexisting node topologies); nothing adopted the legacy wiring, and configure's signature detector refused | **FIXED** `fe28edf`+`7191e88`+`538432b` | _vm_configure_block strip hooks (exact-line for fnm/pyenv/rbenv; validated range for the historical phpenv block; post-strip signature assertion refuses survivors); install_* presence short-circuits; `test_node_wiring_managed.sh` |
+
+Workstation adoption (2026-10-31, maintainer's machine, all through the
+framework): theme block + interactive gate + node/pyenv prompt segments;
+fnm/pyenv/rbenv/phpenv managed blocks replacing the dead nvm bootstrap and
+raw evals (5 managed blocks total, rerun-idempotent); a plaintext API key
+moved from .zshrc to ~/.config/shell/secrets.zsh transactionally; 7
+orphaned gitstatusd daemons killed. Probes: interactive shell now loads
+p10k + fnm node regardless of stdout tty; pure command shells stay quiet.
+
+Residuals, deliberately open: goenv/jenv/cargo wiring has no managed
+writers (their rc lines stay unmanaged by design — no block owns them);
+the INSTANT-PROMPT block stays hand-managed (position-sensitive top-of-rc;
+the block editor cannot insert at top — documented INT-1 follow-up).
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its
