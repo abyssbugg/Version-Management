@@ -253,6 +253,60 @@ test_injected_failure_rolls_back() {
     _teardown
 }
 
+
+# ── INT-1 follow-up: the block reaps gitstatusd orphans, spares live ones ───
+test_gitstatusd_reap_kills_only_orphans() {
+    _setup
+    bash "$ROOT_DIR/setup-theme.sh" --zshrc-only >/dev/null 2>&1
+    # Extract the reap function from the ADOPTED rc (not from setup-theme.sh):
+    # what ships is what runs.
+    local fnsrc
+    fnsrc="$(awk '/vms_reap_orphaned_gitstatusd\(\)/{flag=1} flag{print} flag && /^[[:space:]]*}/{exit}' "$SBX/.zshrc")"
+    if [[ -z "$fnsrc" ]]; then
+        chk assert_equals "fn-extracted" "absent" "reap function present in the adopted block"
+        _teardown
+        return 0
+    fi
+    chk assert_equals "fn-extracted" "fn-extracted" "reap function present in the adopted block"
+
+    local fake_dir
+    fake_dir=$(mktemp -d "${TMPDIR:-/tmp}/vms-gsd-fake.XXXXXX")
+    echo "$fnsrc" > "$fake_dir/reap.sh"
+
+    # a. TRUE ORPHAN: double-fork — the inner subshell exits immediately, so
+    # the daemon reparents to PID 1 (a copied binary gets SIGKILLed by the
+    # sandbox; a symlink execs the real signed sleep under the fake name).
+    ln -sf "$(command -v sleep)" "$fake_dir/gitstatusd-fake"
+    ( ( "$fake_dir/gitstatusd-fake" 30 ) & ) 2>/dev/null
+    sleep 0.6
+    local orphan_pid
+    orphan_pid="$(pgrep -f 'gitstatusd-fake' | head -1)"
+    chk assert_not_equals "" "$orphan_pid" "fake orphan spawned"
+    ( source "$fake_dir/reap.sh"; vms_reap_orphaned_gitstatusd )
+    sleep 0.3
+    if [[ -n "$orphan_pid" ]] && kill -0 "$orphan_pid" 2>/dev/null; then
+        chk assert_equals "reaped" "alive" "orphaned gitstatusd is reaped"
+        kill "$orphan_pid" 2>/dev/null || true
+    else
+        chk assert_equals "reaped" "reaped" "orphaned gitstatusd is reaped"
+    fi
+
+    # b. LIVE PARENT: same binary with a living parent → spared.
+    "$fake_dir/gitstatusd-fake" 30 &
+    local live_pid=$!
+    ( source "$fake_dir/reap.sh"; vms_reap_orphaned_gitstatusd )
+    if kill -0 "$live_pid" 2>/dev/null; then
+        chk assert_equals "spared" "spared" "live-parent daemon is spared"
+        kill "$live_pid" 2>/dev/null || true
+    else
+        chk assert_equals "spared" "killed" "live-parent daemon is spared"
+    fi
+    wait "$live_pid" 2>/dev/null || true
+    rm -rf "$fake_dir"
+    _teardown
+}
+
+
 # chk: per-assertion failure accounting that survives _teardown masking
 # (TH-2: chk must feed a counter a case-level gate actually reads — the
 # runner judges by exit code, so an unread counter is a vacuous green).
@@ -283,6 +337,7 @@ run_case segments-enabled test_segments_enabled || failures=$((failures + 1))
 run_case segments-idempotent test_segments_idempotent || failures=$((failures + 1))
 run_case segments-uncomment test_segments_pyenv_uncomment_branch || failures=$((failures + 1))
 run_case injected-rollback test_injected_failure_rolls_back || failures=$((failures + 1))
+run_case gitstatusd-reap test_gitstatusd_reap_kills_only_orphans || failures=$((failures + 1))
 
 if [[ "$failures" -gt 0 || "$FAILURES" -gt 0 ]]; then
     echo "test_theme_zshrc_managed.sh: $failures case(s) failed, $FAILURES assertion(s) failed"

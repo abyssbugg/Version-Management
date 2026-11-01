@@ -241,6 +241,27 @@ if [[ -o interactive ]]; then
     source "$ZSH/oh-my-zsh.sh"
     # Powerlevel10k configuration (presets via setup-theme.sh)
     [[ ! -f "$HOME/.p10k.zsh" ]] || source "$HOME/.p10k.zsh"
+
+    # Reap gitstatusd daemons orphaned by hard-killed shells (INT-1 follow-up):
+    # a SIGKILLed shell cannot tell its daemon to exit, so the daemon lingers
+    # reparented to PID 1. Only TRUE orphans are reaped — a live terminal's
+    # daemon has a living parent and is never touched. Cheap: a handful of
+    # ps probes per interactive start.
+    vms_reap_orphaned_gitstatusd() {
+        # command -v, NOT 'command pgrep' — the latter INVOKES pgrep with no
+        # pattern, which fails on BSD pgrep and silently disabled the reap.
+        command -v pgrep >/dev/null 2>&1 || return 0
+        command -v ps >/dev/null 2>&1 || return 0
+        local pid ppid
+        for pid in $(pgrep -f '(^|/)gitstatusd' 2>/dev/null); do
+            ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+            if [[ "$ppid" == "1" ]]; then
+                kill "$pid" 2>/dev/null || true
+            fi
+        done
+        return 0
+    }
+    vms_reap_orphaned_gitstatusd
 fi
 BLOCK
     if ! mutation_block_write "$file" "$_THEME_BLOCK_NAME" "$content"; then
