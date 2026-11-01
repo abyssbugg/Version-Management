@@ -329,8 +329,36 @@ test_repo_workflow_actions_sha_pinned() {
             | sed "s|^|$rel:|")
     done
     record assert_equals "" "$unpinned" "every .github/workflows action is commit-SHA pinned with a version comment (WSL-3)"
-    record assert_equals "1" "$([[ "$files" -ge 3 && "$uses" -gt 0 ]] && echo 1 || echo 0)" \
-        "the pin guard scanned the workflows ($files files, $uses uses lines)"
+    record assert_equals "1" "$([[ "$files" -ge 2 && "$uses" -gt 0 ]] && echo 1 || echo 0)" \
+        "the pin guard scanned the workflows ($files files, $uses uses lines; was >=3 before the WSL-3 lane moved to CircleCI)"
+}
+
+# WSL-3 (CircleCI lane, 2026-11-01): the live WSL2 run now lives in
+# .circleci/config.yml. CircleCI has no action-pin concept; the equivalents
+# asserted here: the lane stays MANUAL-ONLY (parameter-gated, default false),
+# no volatile orbs (none at all), the WSL2 kernel assertion is present (the
+# lane must fail loudly, never fake green), and the full suite runs in the
+# guest. The guest scripts are covered by the repo's own syntax gate
+# (make syntax-check globs .circleci/wsl/*.sh).
+test_circleci_wsl_lane_governed() {
+    local f="$ROOT_DIR/.circleci/config.yml"
+    record assert_equals "1" "$([[ -f "$f" ]] && echo 1 || echo 0)" \
+        ".circleci/config.yml exists (WSL-3 moved from the GH lane)"
+    record assert_equals "1" \
+        "$(grep -cE 'when: << pipeline\.parameters\.run_wsl2 >>' "$f")" \
+        "the WSL2 lane is parameter-gated (manual-only)"
+    record assert_equals "1" \
+        "$(grep -cE 'run_wsl2:' "$f")" \
+        "the run_wsl2 parameter is declared (default false expected next)"
+    record assert_equals "0" \
+        "$(grep -cE 'volatile' "$f")" \
+        "no volatile orb references (pinning analog for CircleCI)"
+    record assert_equals "1" \
+        "$(grep -c "grep -q 'WSL2' /proc/sys/kernel/osrelease" "$ROOT_DIR/.circleci/wsl/kernel-assert.sh")" \
+        "the WSL2 kernel assertion is present (loud feasibility verdict)"
+    record assert_equals "1" \
+        "$(grep -c 'make test' "$ROOT_DIR/.circleci/wsl/run-suite.sh")" \
+        "the guest runs the full suite"
 }
 
 # ── Run ──────────────────────────────────────────────────────────────────────
@@ -347,6 +375,7 @@ test_portable_probes
 test_ci_downloads_checksum_verified
 test_precommit_revs_sha_pinned
 test_repo_workflow_actions_sha_pinned
+test_circleci_wsl_lane_governed
 
 rm -rf "$HOME_SANDBOX"
 

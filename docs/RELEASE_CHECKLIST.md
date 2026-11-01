@@ -17,7 +17,7 @@ section [OPERATIONS.md](OPERATIONS.md) "Release path".
 | Full gate set green on the attested SHA | This procedure (step 2) + the Buildkite `release-attest` step (b) | Procedure + step |
 | Release tag commit equals the attested SHA | `attest-guard` (dispatch path, strict equality) and `release-attest` step (c), post-publish | Yes, fail-closed |
 | `checksums.txt` and both SBOMs signed (cosign keyless) and the signatures verify against this workflow's identity | `release.yml` `sign` job (self-verification before `release` may run) | Yes, fail-closed |
-| Live WSL2 run (Ubuntu 24.04 on WSL 2, unprivileged `make test`) | `.github/workflows/wsl.yml` (`gh workflow run wsl.yml --ref <branch>`) | No — dispatch it for releases that touch platform code |
+| Live WSL2 run (Ubuntu 24.04 on WSL 2, unprivileged `make test`) | CircleCI `wsl2-manual` workflow (`.circleci/config.yml`; `circleci pipeline run --param run_wsl2=true`) | No — dispatch it for releases that touch platform code. Feasibility of WSL2 on CircleCI's Windows executor is proven by the first run (see the kernel-assert step) |
 
 The GitHub Actions workflow is a release publisher, not a CI twin:
 Buildkite remains the sole automatic CI engine. Nothing in `release.yml`

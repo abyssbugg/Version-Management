@@ -137,7 +137,7 @@ or awaits an owner action; none is an unfixed defect.
 - **WSL2 has run only through a seam and a container proxy.** It runs
   through the Linux code paths; detection is pinned with authentic kernel
   banners (WSL-1), and the lane's steps pass in an unprivileged Ubuntu 24.04
-  container. The live lane `.github/workflows/wsl.yml` (manual dispatch,
+  container. The live lane `.circleci/config.yml (parameter-gated wsl2-manual workflow)` (manual dispatch,
   WSL-3) has not run yet because GitHub Actions is billing-locked.
   Native Windows is not supported
   ([PLATFORM_COMPATIBILITY.md](PLATFORM_COMPATIBILITY.md#support-status)).

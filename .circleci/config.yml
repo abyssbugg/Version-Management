@@ -1,0 +1,134 @@
+version: 2.1
+
+# =============================================================================
+# Live WSL2 lane (MASTER_AUDIT WSL-3) — moved here from GitHub Actions
+# (.github/workflows/wsl.yml, retired: the GH billing lock blocked it there).
+#
+# MANUAL-ONLY: the workflow is gated on the run_wsl2 pipeline parameter
+# (default false), so it never fires on push — the same contract the GH
+# workflow_dispatch gave us. Trigger:
+#   circleci pipeline run --org <org> --param run_wsl2=true
+#
+# The suite runs as an unprivileged user from a clone in the Linux
+# filesystem: that is how a real WSL2 user runs it, it exercises the
+# permission cases that are skipped as root, and the clone gets LF line
+# endings and git file modes instead of DrvFs (/mnt/<drive>) semantics.
+# Guest scripts live in .circleci/wsl/ (lintable by make syntax-check) and
+# are copied to C:\wsl\ at run time; DrvFs is fine for the SCRIPTS — the
+# CLONE itself lives in the Linux filesystem. The Windows checkout path is
+# translated into the guest via WSLENV (CIRCLE_WORKING_DIRECTORY/p), the
+# same mechanism the GH lane used.
+#
+# FEASIBILITY NOTE (this lane must fail loudly, never fake green): WSL2
+# needs nested virtualization. GitHub's windows-2025 runners have it;
+# whether CircleCI's Windows machine executor does is exactly what the
+# first run proves. If the WSL2 kernel cannot start here, the kernel
+# assertion fails with the host's virtualization evidence in the log.
+#
+# No orbs are used (nothing to pin); the machine image :current tag is
+# CircleCI's documented stable reference for the windows-server-2022-gui
+# image family and rotates by platform design.
+# =============================================================================
+
+parameters:
+  run_wsl2:
+    type: boolean
+    default: false
+
+jobs:
+  wsl2-live:
+    machine:
+      image: windows-server-2022-gui:current
+    resource_class: windows.medium
+    environment:
+      WSLENV: CIRCLE_WORKING_DIRECTORY/p
+    steps:
+      - checkout
+
+      - run:
+          name: Stage the guest scripts (repo -> C:\wsl)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            $ErrorActionPreference = "Stop"
+            New-Item -ItemType Directory -Force -Path "C:\wsl" | Out-Null
+            Copy-Item "$env:CIRCLE_WORKING_DIRECTORY\.circleci\wsl\*.sh" "C:\wsl\" -Force
+            Get-ChildItem "C:\wsl\*.sh" | Out-Host
+
+      - run:
+          name: WSL feasibility diagnostics (logged, never fatal)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            Write-Host "=== virtualization evidence ==="
+            systeminfo 2>$null | Select-String -Pattern "Hyper-V" | Out-Host
+            Write-Host "=== wsl state before install ==="
+            wsl.exe --status 2>&1 | Out-String | Out-Host
+
+      - run:
+          name: Install WSL2 + import Ubuntu 24.04 (no Store; cloud rootfs)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            $ErrorActionPreference = "Stop"
+            # Feature enablement without restart: a reboot would kill the
+            # machine job — the kernel assertion below proves whether the
+            # hypervisor is actually available without one.
+            dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Host
+            dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Host
+            wsl.exe --set-default-version 2 2>&1 | Out-Host
+            wsl.exe --update --web-download 2>&1 | Out-Host
+            $rootfs = "C:\wsl\ubuntu-24.04.tar.gz"
+            Invoke-WebRequest -Uri "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/ubuntu-noble-wsl-amd64-ubuntu24.04lts.rootfs.tar.gz" -OutFile $rootfs
+            wsl.exe --import Ubuntu-24.04 C:\wsl\ubuntu $rootfs
+            wsl.exe --set-default Ubuntu-24.04
+            wsl.exe --list --verbose | Out-Host
+
+      - run:
+          name: Guest provisioning (packages + unprivileged user)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user root -- bash /mnt/c/wsl/provision.sh
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - run:
+          name: Prove the guest runs a WSL2 kernel (fatal if not)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user root -- bash /mnt/c/wsl/kernel-assert.sh
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - run:
+          name: Stage an unprivileged clone in the Linux filesystem
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user root -- bash /mnt/c/wsl/stage-clone.sh
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - run:
+          name: Live platform contract (get_os reports wsl)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user vmstest -- bash /mnt/c/wsl/platform-contract.sh
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - run:
+          name: Full suite (make test)
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user vmstest -- bash /mnt/c/wsl/run-suite.sh
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - run:
+          name: Collect the test manifest out of the guest
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            & wsl.exe --user root -- bash /mnt/c/wsl/collect-manifest.sh
+            # Collection is best-effort by design (the GH lane used if:always)
+            exit 0
+
+      - store_artifacts:
+          path: test-results-wsl2/
+
+workflows:
+  wsl2-manual:
+    when: << pipeline.parameters.run_wsl2 >>
+    jobs:
+      - wsl2-live
