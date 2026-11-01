@@ -87,16 +87,25 @@ jobs:
             wsl.exe --version | Out-Host
             wsl.exe --set-default-version 2 | Out-Host
             # Ubuntu 24.04 rootfs: the current/ directory rotates the file
-            # name (run #2's 404) — resolve the amd64 rootfs link dynamically.
+            # name (run #2's 404), and run #3 showed Windows PowerShell 5.1
+            # cannot parse the listing page (.Links NullReferenceException).
+            # HEAD-probe the known names with -UseBasicParsing instead.
             $base = "https://cloud-images.ubuntu.com/wsl/releases/24.04/current/"
-            $link = (Invoke-WebRequest -Uri $base).Links |
-                Where-Object { $_.href -match 'amd64-24\.04lts\.rootfs\.tar\.gz$' } |
-                Select-Object -First 1 -ExpandProperty href
-            if (-not $link) { throw "no 24.04 amd64 rootfs found in the current/ listing" }
-            if ($link -notmatch '^https?://') { $link = $base + $link }
-            Write-Host "rootfs: $link"
+            $candidates = @(
+                "ubuntu-noble-wsl-amd64-24.04lts.rootfs.tar.gz",
+                "ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz"
+            )
+            $chosen = $null
+            foreach ($c in $candidates) {
+                try {
+                    $r = Invoke-WebRequest -Uri ($base + $c) -Method Head -UseBasicParsing -TimeoutSec 30
+                    if ($r.StatusCode -eq 200) { $chosen = $c; break }
+                } catch { }
+            }
+            if (-not $chosen) { throw "no known 24.04 amd64 rootfs found in the current/ listing" }
+            Write-Host "rootfs: $base$chosen"
             $rootfs = "C:\wsl\ubuntu-24.04.tar.gz"
-            Invoke-WebRequest -Uri $link -OutFile $rootfs
+            Invoke-WebRequest -Uri ($base + $chosen) -OutFile $rootfs -UseBasicParsing
             wsl.exe --import Ubuntu-24.04 C:\wsl\ubuntu $rootfs
             wsl.exe --set-default Ubuntu-24.04
             wsl.exe --list --verbose | Out-Host
