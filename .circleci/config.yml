@@ -60,8 +60,11 @@ jobs:
           command: |
             Write-Host "=== virtualization evidence ==="
             systeminfo 2>$null | Select-String -Pattern "Hyper-V" | Out-Host
-            Write-Host "=== wsl state before install ==="
+            Write-Host "=== wsl state before install (exit 1 = not yet installed, expected) ==="
             wsl.exe --status 2>&1 | Out-String | Out-Host
+            # Log-only step by design: a pre-install wsl.exe exits 1 — that is
+            # the expected fresh-machine state, never a lane failure.
+            exit 0
 
       - run:
           name: Install WSL2 + import Ubuntu 24.04 (no Store; cloud rootfs)
