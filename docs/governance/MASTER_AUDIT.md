@@ -635,6 +635,16 @@ writers (their rc lines stay unmanaged by design — no block owns them);
 the INSTANT-PROMPT block stays hand-managed (position-sensitive top-of-rc;
 the block editor cannot insert at top — documented INT-1 follow-up).
 
+**Follow-up landed (2026-11-01, `6210297`):** the recurring gitstatusd
+orphans are now reaped automatically — the managed theme block defines and
+runs `vms_reap_orphaned_gitstatusd` at interactive start, killing ONLY
+daemons whose parent is PID 1 (live terminals' daemons are never touched).
+The behavioral regression caught a real defect en route: the
+`command pgrep`-style guard invokes pgrep with no pattern and fails on BSD,
+which had silently disabled the reap; the idiom is `command -v pgrep`.
+Repo hygiene: `.zcode/` gitignored, the workstation's current
+`.java-version` committed — the working tree is clean.
+
 **Reconciliation scope:** Commit/source inspection is not proof of a fresh
 release, CI run or platform execution. Working-tree remediation is tracked
 separately until review and merge; no finding is closed merely because its
