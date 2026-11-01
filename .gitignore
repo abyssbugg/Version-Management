@@ -94,3 +94,6 @@ test_restore.txt
 # Agent scratch files at the repo root (a redacted personal shell config was
 # once committed this way; never track them)
 /tmp_rovodev_*
+
+# ZCode harness-local project config
+.zcode/
