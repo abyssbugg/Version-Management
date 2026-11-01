@@ -49,7 +49,14 @@ steps:
       - label: ":hook: Pre-commit Hooks"
         key: "pre-commit"
         command: |
-          command -v pre-commit >/dev/null 2>&1 || pip3 install --quiet pre-commit
+          # Ubuntu 24.04 queues enforce PEP 668 (externally-managed Python;
+          # build #82) — install pre-commit into a throwaway venv instead of
+          # pip3-install over the system interpreter.
+          if ! command -v pre-commit >/dev/null 2>&1; then
+            python3 -m venv /tmp/pc-venv
+            /tmp/pc-venv/bin/pip install --quiet pre-commit
+            export PATH="/tmp/pc-venv/bin:$PATH"
+          fi
           pre-commit run --all-files --show-diff-on-failure
         agents:
           queue: "linux-small"
@@ -121,11 +128,22 @@ steps:
         key: "coverage-kcov"
         depends_on: ["lint", "syntax"]
         command: |
-          # Provision the hosted Linux agent (idempotent), mirroring the
-          # other steps' provisioning pattern.
-          if ! command -v kcov >/dev/null 2>&1 || ! command -v zsh >/dev/null 2>&1 || ! command -v shellcheck >/dev/null 2>&1; then
+          # Provision the hosted Linux agent (idempotent). kcov left noble's
+          # apt (build #82): install the PINNED v42 tarball, SHA-256 verified
+          # before unpacking — the gitleaks pattern (rule 7.1); the digest is
+          # locally hashed (2026-11-01), upstream ships no checksum file.
+          if ! command -v kcov >/dev/null 2>&1; then
+            echo "installing pinned kcov v42 (SHA-256 verified)"
+            curl -fsSL -o /tmp/kcov.tgz \
+              https://github.com/SimonKagstrom/kcov/releases/download/v42/kcov-amd64.tar.gz || exit 1
+            echo "78aa17a5f6d27a867cc0540b1550051591d350423a1a0ef98d63c9ce7cc10f9d  /tmp/kcov.tgz" | sha256sum -c - \
+              || { echo "+++ kcov tarball checksum mismatch — refusing to install"; exit 1; }
+            tar -xzf /tmp/kcov.tgz -C /tmp || exit 1
+            install -m 0755 /tmp/usr/local/bin/kcov /usr/local/bin/kcov || exit 1
+          fi
+          if ! command -v zsh >/dev/null 2>&1 || ! command -v shellcheck >/dev/null 2>&1; then
             apt-get update -qq
-            apt-get install -y -qq kcov zsh shellcheck
+            apt-get install -y -qq zsh shellcheck
           fi
           make coverage-kcov
         artifact_paths:
