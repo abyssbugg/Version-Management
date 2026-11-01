@@ -779,6 +779,14 @@ EOF
 install_pyenv() {
     log_info "Installing pyenv..."
 
+    # Presence short-circuit (R7 set): an installed manager takes the
+    # configure-only path — brew never re-installs over an existing setup.
+    if command_exists pyenv; then
+        log_info "pyenv already installed"
+        configure_pyenv
+        return 0
+    fi
+
     local os="$(get_os)"
 
     if ! check_internet; then
@@ -894,6 +902,14 @@ EOF
 
 install_rbenv() {
     log_info "Installing rbenv..."
+
+    # Presence short-circuit (R7 set): an installed manager takes the
+    # configure-only path — brew never re-installs over an existing setup.
+    if command_exists rbenv; then
+        log_info "rbenv already installed"
+        configure_rbenv
+        return 0
+    fi
 
     local os="$(get_os)"
 
