@@ -147,8 +147,9 @@ steps:
             # (libopcodes/libbfd-2.38-system); noble ships 2.42. The
             # disassembler API is stable across these minors — shim the
             # SONAME so the pinned binary loads. UNROLLED and literal:
-            # build #84 showed the agent eats ${...} in command blocks at
-            # upload time, so no variables may appear here.
+            # build #84 showed the agent eats dollar-brace variable
+            # references in command blocks at upload time (even inside
+            # comments), so no variables may appear here.
             if [[ -e /usr/lib/x86_64-linux-gnu/libopcodes-2.42-system.so && ! -e /usr/lib/x86_64-linux-gnu/libopcodes-2.38-system.so ]]; then
               ln -s /usr/lib/x86_64-linux-gnu/libopcodes-2.42-system.so /usr/lib/x86_64-linux-gnu/libopcodes-2.38-system.so
             fi
