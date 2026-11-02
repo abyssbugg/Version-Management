@@ -635,6 +635,17 @@ writers (their rc lines stay unmanaged by design — no block owns them);
 the INSTANT-PROMPT block stays hand-managed (position-sensitive top-of-rc;
 the block editor cannot insert at top — documented INT-1 follow-up).
 
+**Hosted proof re-established (2026-11-02, build #87 green at `8a8d21f`):
+lint, syntax, pre-commit, gitleaks, Linux tests, macOS tests, kcov coverage
+— after four hosted-drift fixes, each with its own evidence: the Ubuntu
+24.04 queue's PEP 668 Python (pre-commit via venv + python3-venv), kcov's
+exit from noble's apt (pinned v42 tarball + binutils SONAME shim, the
+agent's upload-time dollar-brace interpolation of pipeline commands
+documented by a lost round), the get_shell_config/SHELL mechanism in the
+node-wiring suite (fixtures pin SHELL=/bin/zsh), and configure-failure
+masking in install_* (now propagates). The attest step's `broken` state on
+ordinary builds remains the documented-expected skip (RELEASE_CHECKLIST).**
+
 **Follow-up landed (2026-11-01, `6210297`):** the recurring gitstatusd
 orphans are now reaped automatically — the managed theme block defines and
 runs `vms_reap_orphaned_gitstatusd` at interactive start, killing ONLY
