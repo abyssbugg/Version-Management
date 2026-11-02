@@ -31,6 +31,7 @@ assert_not_equals() {
 
 _fixture_fnm_shim() {
     ORIG_PATH="${ORIG_PATH:-$PATH}"
+    ORIG_SHELL="${ORIG_SHELL:-$SHELL}"
     mkdir -p "$SBX/bin"
     local m
     # All four managers shimmed: install-* takes the configure-only path
@@ -61,6 +62,11 @@ RC
 _setup() {
     SBX=$(mktemp -d "${TMPDIR:-/tmp}/vms-node-wiring.XXXXXX")
     export HOME="$SBX"
+    # get_shell_config keys off $SHELL: the fixtures model a zsh user (an
+    # rc of .zshrc). On the hosted Linux agent SHELL=/bin/bash and, with no
+    # ~/.bashrc in the sandbox, the adoptions would target ~/.bash_profile
+    # instead — build #83's five-case failure, all one mechanism.
+    export SHELL=/bin/zsh
     _fixture_fnm_shim
     _fixture_rc
 }
@@ -68,6 +74,7 @@ _setup() {
 _teardown() {
     [[ -n "${SBX:-}" && "$SBX" == */vms-node-wiring.* ]] && rm -rf "$SBX"
     export PATH="$ORIG_PATH"
+    export SHELL="$ORIG_SHELL"
     unset HOME
 }
 

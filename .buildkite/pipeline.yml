@@ -53,6 +53,9 @@ steps:
           # build #82) — install pre-commit into a throwaway venv instead of
           # pip3-install over the system interpreter.
           if ! command -v pre-commit >/dev/null 2>&1; then
+            # build #83: noble's python3 needs python3-venv for ensurepip.
+            apt-get update -qq
+            apt-get install -y -qq python3-venv
             python3 -m venv /tmp/pc-venv
             /tmp/pc-venv/bin/pip install --quiet pre-commit
             export PATH="/tmp/pc-venv/bin:$PATH"
@@ -140,6 +143,17 @@ steps:
               || { echo "+++ kcov tarball checksum mismatch — refusing to install"; exit 1; }
             tar -xzf /tmp/kcov.tgz -C /tmp || exit 1
             install -m 0755 /tmp/usr/local/bin/kcov /usr/local/bin/kcov || exit 1
+            # build #83: kcov v42 links Ubuntu 22.04's binutils
+            # (lib{opcodes,bfd}-2.38-system); noble ships 2.42. The
+            # disassembler API is stable across these minors — shim the
+            # SONAME so the pinned binary loads.
+            for lib in opcodes bfd; do
+              target="/usr/lib/x86_64-linux-gnu/lib${lib}-2.42-system.so"
+              link="/usr/lib/x86_64-linux-gnu/lib${lib}-2.38-system.so"
+              if [[ -e "$target" && ! -e "$link" ]]; then
+                ln -s "$target" "$link"
+              fi
+            done
           fi
           if ! command -v zsh >/dev/null 2>&1 || ! command -v shellcheck >/dev/null 2>&1; then
             apt-get update -qq

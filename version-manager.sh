@@ -599,13 +599,13 @@ install_fnm() {
 
     if command_exists fnm; then
         log_info "FNM already installed"
-        configure_fnm
+        configure_fnm || return 1
         return 0
     fi
 
     if [[ "${TRANSACTION_DRY_RUN:-0}" == "1" ]]; then
         log_info "[dry-run] would run: brew install fnm"
-        configure_fnm
+        configure_fnm || return 1
         return 0
     fi
 
@@ -783,7 +783,7 @@ install_pyenv() {
     # configure-only path — brew never re-installs over an existing setup.
     if command_exists pyenv; then
         log_info "pyenv already installed"
-        configure_pyenv
+        configure_pyenv || return 1
         return 0
     fi
 
@@ -907,7 +907,7 @@ install_rbenv() {
     # configure-only path — brew never re-installs over an existing setup.
     if command_exists rbenv; then
         log_info "rbenv already installed"
-        configure_rbenv
+        configure_rbenv || return 1
         return 0
     fi
 
@@ -1015,7 +1015,7 @@ install_phpenv() {
     # never re-installs over an existing setup.
     if command_exists phpenv; then
         log_info "phpenv already installed"
-        configure_phpenv
+        configure_phpenv || return 1
         return 0
     fi
 
